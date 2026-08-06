@@ -159,6 +159,8 @@ services:
         ipv4_address: 10.20.31.2
       dmz:
         ipv4_address: 10.20.32.1
+      app:
+        ipv4_address: 10.20.50.1      # 3F GPU 존 게이트웨이 — 존 밖 트래픽은 반드시 여기를 지난다
     cap_add: [NET_ADMIN, NET_RAW]
     sysctls:
       net.ipv4.ip_forward: "1"
@@ -375,6 +377,28 @@ services:
     depends_on: [siem]
     restart: unless-stopped
 
+  # ╭─ 3F GPU 존 — DGX Spark 를 WireGuard 로 랩에 편입 ────────╮
+  # GPU 서버는 공인 IP 회선, 랩 호스트는 NAT 뒤다. macvlan(같은 L2 아님)도 단순 L3
+  # 라우팅(인바운드 불가)도 안 되므로 터널로 잇는다. 터널 너머의 DGX Spark 는
+  # 10.20.50.10 으로 3F 존의 정식 구성원이 되고, 그 트래픽은 ips 를 지난다.
+  gpu-gw:
+    container_name: kt66-gpu-gw
+    build: ./gpu-gw
+    hostname: gpu-gw
+    depends_on: [ips]
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    environment:
+      IPS_APP_IP: 10.20.50.1
+      LAB_CIDR: 10.20.0.0/16
+    volumes:
+      - ./gpu-gw/wg/wg0.conf:/etc/wireguard/wg0.conf:ro
+    networks:
+      app:
+        ipv4_address: 10.20.50.2
+    restart: unless-stopped
+
   # ╭─ int tier: vuln endpoints (behind WAF) ─────────────────╮
   juiceshop:
     container_name: kt66-juiceshop
@@ -481,6 +505,15 @@ networks:
       config:
         - subnet: 10.20.40.0/24
           gateway: 10.20.40.254
+
+  # 3F GPU 존. 터널 너머의 DGX Spark(10.20.50.10)가 이 존의 구성원이 된다.
+  app:
+    name: kt66-app
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.50.0/24
+          gateway: 10.20.50.254
 
 
 volumes:

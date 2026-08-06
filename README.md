@@ -169,12 +169,25 @@ x86_64 / Ubuntu 22.04 / i9-12900K·31GB 에서 실측.
 | 대시보드 | `https://…:5601` → 302 (로그인) |
 | 빌드 시간 | 최초 8분 26초 (캐시 적중 시 20초) |
 
+**GPU 존** — DGX Spark(`spark-1397`, GB10/aarch64, 119GB 통합메모리) 실측.
+
+| 항목 | 결과 |
+|---|---|
+| 터널 | WireGuard 핸드셰이크 성립, 양방향 전송 |
+| GPU 존 체인 | attacker → `10.20.30.1`(fw) → `10.20.31.2`(ips) → `10.20.50.2`(gpu-gw) → `10.20.50.10`(DGX) |
+| RTT | 랩 ↔ DGX **약 3ms** |
+| 역방향 | DGX → 랩 web `HTTP 200`, siem·ips 도달 |
+| 추론 | 랩에서 `10.20.50.10:11434/v1/chat/completions` → **HTTP 200** (22.3초) |
+| 모델 | 11종 조회 (`solar:100b` 62GB · `EXAONE-4.5-33B` · `qwen3.6:35b` 등) |
+| 자산 편입 | Wazuh 에이전트 `dgx-spark-01` (ID 004) **Active**, v4.10.4 arm64 |
+| DGX 기본 경로 | **보존** — 랩 대역만 터널, 인터넷은 자기 회선 |
+
 ## 현재 상태
 
 - [x] el34 → kt66 fork · 불필요 스택 제거 · 개명(116파일)
 - [x] 16 컨테이너 기동 + 체인 검증
 - [x] 근무자 에이전트 중립 스펙 + `agentctl` (bastion / hermes / claude)
-- [ ] GPU 존 — WireGuard 터널 + DGX Spark 엔드포인트 편입
+- [x] GPU 존 — WireGuard 터널 + DGX Spark 편입 (10.20.50.10, Wazuh Active)
 - [ ] 환경 시뮬레이터 (전력·냉방·소방·물리보안) + 경보 규칙
 - [ ] 4층 시각화 UI
 - [ ] 시나리오 주입 (강사) + 채점 (`assessor`/`provisioner` 활성화)

@@ -23,9 +23,11 @@ if [ -f /keys/id_rsa.pub ]; then
 fi
 
 # ─── Routing: dmz/int 은 ips 경유 ───────────────────────
-echo "[fw] adding routes (dmz/int via ips $IPS_PIPE_IP)"
+echo "[fw] adding routes (dmz/int/app via ips $IPS_PIPE_IP)"
 ip route add 10.20.32.0/24 via "$IPS_PIPE_IP" 2>/dev/null || true
 ip route add 10.20.40.0/24 via "$IPS_PIPE_IP" 2>/dev/null || true
+# 3F GPU 존. 터널 너머 DGX Spark 도 이 대역이라 외부→GPU 트래픽이 ips 를 지난다.
+ip route add 10.20.50.0/24 via "$IPS_PIPE_IP" 2>/dev/null || true
 
 # ─── nftables ─────────────────────────────────────────
 echo "[fw] applying nftables (six_filter / six_nat tables)"

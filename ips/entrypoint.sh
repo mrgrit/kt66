@@ -5,6 +5,8 @@ SSH_USER="${SSH_USER:-ccc}"
 SSH_PASS="${SSH_PASS:-ccc}"
 WAZUH_MANAGER="${WAZUH_MANAGER:-10.20.32.100}"
 FW_PIPE_IP="${FW_PIPE_IP:-10.20.31.1}"
+GPU_GW_IP="${GPU_GW_IP:-10.20.50.2}"     # 3F GPU 게이트웨이(WireGuard 종단)
+DGX_LAB_IP="${DGX_LAB_IP:-10.20.50.10}"  # 터널 너머 DGX Spark
 
 if ! id "$SSH_USER" >/dev/null 2>&1; then
     useradd -m -s /bin/bash -G sudo "$SSH_USER"
@@ -26,6 +28,15 @@ fi
 echo "[ips] adding return route to ext via fw $FW_PIPE_IP"
 ip route add 10.20.30.0/24 via "$FW_PIPE_IP" 2>/dev/null || true
 
+# ─── 3F GPU 존: 터널 너머 DGX Spark 로 가는 /32 호스트 라우트 ───────────
+# DGX 주소(10.20.50.10)는 app 존과 같은 /24 안에 있다. 그대로 두면 커널이 연결된
+# 세그먼트로 보고 ARP 를 쏴서 응답을 못 받는다. /32 가 연결된 /24 보다 longest-prefix
+# 로 우선하므로, 이 한 줄이 "DGX 로 가려면 gpu-gw 를 거쳐라"를 성립시킨다.
+# (proxy_arp 를 쓰지 않는 이유 — 명시적 라우트가 예측 가능하고 디버깅이 쉽다.)
+ip route replace "$DGX_LAB_IP/32" via "$GPU_GW_IP" 2>/dev/null && \
+    echo "[ips] GPU 존: $DGX_LAB_IP -> gpu-gw($GPU_GW_IP)" || \
+    echo "[ips] GPU 존 라우트 보류 — gpu-gw 미기동(정상, 나중에 재적용)"
+
 # ─── 출처 IP 보존 vs (legacy) masquerade ──────────────────
 # PRESERVE_SRC_IP=1 (기본): masquerade 안 함 → 공격자 출처(.202)가 web/ModSec 까지 보존.
 #   리턴 경로는 default GW=fw 로 보장: web→ips→fw→host(conntrack 역-DNAT)→.202.
@@ -43,6 +54,8 @@ if [ -n "$DMZ_IFACE" ]; then
     nft "add chain ip kt66mgr postrouting { type nat hook postrouting priority 90 ; }" 2>/dev/null || true
     nft "add rule ip kt66mgr postrouting oifname \"$DMZ_IFACE\" ip daddr $WAZUH_MANAGER ip saddr 10.20.30.0/24 masquerade" 2>/dev/null || true
     nft "add rule ip kt66mgr postrouting oifname \"$DMZ_IFACE\" ip daddr $WAZUH_MANAGER ip saddr 10.20.31.0/24 masquerade" 2>/dev/null || true
+    # 3F GPU 존도 같은 비대칭 문제를 겪는다 — siem 의 회신이 호스트로 새면 SSL 이 끊긴다.
+    nft "add rule ip kt66mgr postrouting oifname \"$DMZ_IFACE\" ip daddr $WAZUH_MANAGER ip saddr 10.20.50.0/24 masquerade" 2>/dev/null || true
     echo "[ips] 에이전트→manager($WAZUH_MANAGER) masquerade 활성 (비대칭 경로 SSL 끊김 방지)"
 fi
 
