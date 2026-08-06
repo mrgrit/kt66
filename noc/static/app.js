@@ -29,13 +29,25 @@ let SELECTED = null;
 let upsDismissed = false;
 
 /* ── 좌표계 ──────────────────────────────────────────────────────── */
-const GW = 26, GD = 14;                 // 층 평면 격자 (가로, 세로)
+// 층 평면 격자 (가로, 세로).
+// 층 간격은 겹침을 피하려면 층 깊이보다 커야 한다 — 간격만 줄이면 층이 다시 뒤엉킨다.
+// 그래서 평면 자체를 줄였다(26x14 → 18x10). 각도는 그대로인데 건물 전체 높이가
+// 1289px → 914px 로 줄어 한 화면에 원래 크기로 들어온다. 축소해서 볼 일이 없어졌다.
+const GW = 18, GD = 10;
 // XS:YS 가 시선의 각도다. 이 비가 크면 바닥을 눕혀 보는 것이고, 눕힐수록 안쪽 면이
 // 안 보인다. 3:1 정도가 "데이터센터 바닥이 보이면서 건물도 4층으로 읽히는" 절충이다.
 const XS = 24, YS = 8.0, ZS = 32;
-// 층간 높이. 이 값이 작으면 위층의 뒷변이 아래층의 앞변을 덮어 4개 층이 뒤엉킨다.
-// 겹치지 않을 조건은  FLOOR_H * ZS  >  (GW + GD) * YS  — 지금은 323 vs 320.
-const FLOOR_H = 10.1;
+/* 층을 수직으로만 쌓으면 층 간격이 층 깊이(224px)보다 커야 해서 건물이 세로로만
+ * 길어진다. 그러면 전체를 보려고 축소하는 수밖에 없고, 가로는 400px 넘게 남는다.
+ *
+ * 그래서 **대각으로 엇갈려 쌓는다**(exploded axonometric). 남는 가로를 써서 세로를
+ * 줄이는 것이다. 층 평면은 (XS,YS)와 (−XS,YS) 두 방향의 평행사변형이므로, 두 층이
+ * 겹치지 않을 조건은 오프셋 (dx,−dy)를 그 두 방향으로 분해했을 때
+ *     a = (dx/XS − dy/YS)/2,   b = (−dx/XS − dy/YS)/2
+ * 중 |a| ≥ GW 또는 |b| ≥ GD 를 만족하는 것이다.
+ * dx=150, dy=155 → b = −12.8, |b| ≥ GD(10) ✓ — 겹치지 않으면서 세로는 914→689px.
+ */
+const STAGGER = { dx: 150, dy: 155 };
 
 const iso = (x, y, z) => [(x - y) * XS, (x + y) * YS - z * ZS];
 
@@ -51,8 +63,8 @@ function edges(z) {
 // 실제 전산실이 이 순서로 되어 있다. 랙 앞뒤로 찬 공기와 더운 공기가 갈리는 것이
 // 핫/콜드 아일이고, 1주차에 이 구획을 눈으로 익히는 것이 목표다.
 const BAND = {
-  zoneY: 1.1, zoneD: 5.0, drift: 0.55,
-  coldY: 7.2, rackY: 8.0, hotY: 9.9, pduY: 11.0, crewY: 12.4,
+  zoneY: 0.8, zoneD: 3.6, drift: 0.40,
+  coldY: 5.2, rackY: 5.8, hotY: 7.1, pduY: 7.9, crewY: 8.9,
 };
 const ZONE_ORDER = ['ext', 'pipe', 'dmz', 'int', 'app', 'ot', 'mgmt'];
 
@@ -220,19 +232,19 @@ function drawFloorContent(fid, z, detail) {
   g.appendChild(isoBox(0, 0, zf, .18, GD, .5, '#16222f', { stroke: wall }));
 
   // ── 수직 코어(계단·전기 샤프트) ─────────────────────────────
-  g.appendChild(isoBox(0.7, 0.6, zf, 1.7, 1.7, 1.5, '#0f766e',
+  g.appendChild(isoBox(0.5, 0.4, zf, 1.2, 1.2, 1.4, '#0f766e',
     { stroke: 'rgba(45,212,191,.5)' }));
-  if (detail) g.appendChild(label(0.7, 2.3, zf, '샤프트', { size: 10, fill: '#2dd4bf', dy: 13 }));
+  if (detail) g.appendChild(label(0.5, 1.6, zf, '샤프트', { size: 10, fill: '#2dd4bf', dy: 13 }));
 
   // ── 존 영역 — 이 화면의 뼈대다 ──────────────────────────────
   const n = zones.length;
-  const ZW = n >= 4 ? 4.3 : n === 3 ? 5.8 : n === 2 ? 8.5 : 12.5;
-  const step = ZW + .6;
+  const ZW = n >= 4 ? 2.9 : n === 3 ? 4.0 : n === 2 ? 5.9 : 8.7;
+  const step = ZW + .42;
   const zoneRect = {};                    // 존 id -> 화면 배치 (PEP·논리존이 참조)
 
   zones.forEach((zo, i) => {
     if (zo.logical) return;               // 논리 존은 바닥을 차지하지 않는다
-    const zx = 3.4 + i * step, zy = BAND.zoneY + i * BAND.drift;
+    const zx = 2.4 + i * step, zy = BAND.zoneY + i * BAND.drift;
     zoneRect[zo.id] = { x: zx, y: zy, w: ZW, d: BAND.zoneD };
 
     const zg = el('g', {
@@ -257,10 +269,10 @@ function drawFloorContent(fid, z, detail) {
 
     // 존 안의 자산 — 랙 단위가 아니라 존 단위로 놓는다(논리 배치)
     const list = assets.filter(a => a.zone === zo.id);
-    const cols = Math.max(2, Math.floor((ZW - .7) / 1.0));
+    const cols = Math.max(2, Math.floor((ZW - .5) / .70));
     list.forEach((a, k) => {
-      const ax = zx + .45 + (k % cols) * 1.0;
-      const ay = zy + .6 + Math.floor(k / cols) * 1.05;
+      const ax = zx + .32 + (k % cols) * .70;
+      const ay = zy + .42 + Math.floor(k / cols) * .74;
       a._lblRow = k % 2;                       // 이름표를 한 칸씩 엇갈리게
       g.appendChild(assetUnit(a, ax, ay, zf, detail));
     });
@@ -270,11 +282,11 @@ function drawFloorContent(fid, z, detail) {
   for (const c of (LAYOUT?.zone_chain || [])) {
     const A = zoneRect[c.from], B = zoneRect[c.to];
     if (!A || !B) continue;
-    const px = (A.x + A.w + B.x) / 2 - .25, py = (A.y + B.y) / 2 + 1.6;
+    const px = (A.x + A.w + B.x) / 2 - .18, py = (A.y + B.y) / 2 + 1.15;
     const pg = el('g');
-    pg.appendChild(isoBox(px, py, zf, .5, .5, .9, '#f59e0b',
+    pg.appendChild(isoBox(px, py, zf, .36, .36, .8, '#f59e0b',
       { stroke: 'rgba(253,224,71,.7)' }));
-    const [tx, ty] = iso(px + .25, py + .25, zf + .9);
+    const [tx, ty] = iso(px + .18, py + .18, zf + .8);
     pg.appendChild(el('polygon', { points: `${tx},${ty - 13} ${tx - 5},${ty - 5} ${tx + 5},${ty - 5}`,
       fill: '#fbbf24', class: 'pulse' }));
     pg.appendChild(el('text', { x: tx + 8, y: ty - 5, 'font-size': detail ? 11.5 : 10,
@@ -288,7 +300,7 @@ function drawFloorContent(fid, z, detail) {
   if (logical) {
     const own = assets.filter(a => a.logical_zone === logical.id);
     if (own.length) {
-      const box = { x: 4.6, y: BAND.zoneY - .7, w: (n - 1) * step + ZW + .8, d: BAND.zoneD + 1.6 };
+      const box = { x: 2.2, y: BAND.zoneY - .5, w: (n - 1) * step + ZW + .6, d: BAND.zoneD + 1.2 };
       g.appendChild(isoQuad(box.x, box.y, zf + .03, box.w, box.d, {
         fill: 'none', stroke: logical.color, 'stroke-width': 1.4,
         'stroke-dasharray': '7 6', opacity: .8 }));
@@ -299,10 +311,10 @@ function drawFloorContent(fid, z, detail) {
   }
 
   // ── 주 통로 ─────────────────────────────────────────────────
-  g.appendChild(isoQuad(1.0, 6.5, zf + .01, GW - 2.0, .55,
+  g.appendChild(isoQuad(0.7, 4.7, zf + .01, GW - 1.4, .4,
     { fill: '#22d3ee', opacity: .05 }));
-  for (let t = 1.4; t < GW - 1.4; t += 2.2) {
-    const [mx, my] = iso(t, 6.78, zf + .02);
+  for (let t = 1.0; t < GW - 1.0; t += 1.5) {
+    const [mx, my] = iso(t, 4.9, zf + .02);
     g.appendChild(el('line', { x1: mx - 9, y1: my, x2: mx + 9, y2: my + 1,
       stroke: '#22d3ee', 'stroke-width': 1.4, opacity: .16 }));
   }
@@ -312,29 +324,29 @@ function drawFloorContent(fid, z, detail) {
   if (racks.length) {
     const aisleId = racks[0].aisle;
     const a = ST?.aisles?.[aisleId];
-    const x0 = 3.2, xw = Math.max(10, racks.length * 4.6 + 1.4);
+    const x0 = 2.2, xw = Math.max(7, racks.length * 3.2 + 1.0);
     // 콜드 아일 — CRAC 이 찬 공기를 밀어 넣는 쪽
-    g.appendChild(isoQuad(x0, BAND.coldY, zf + .01, xw, .75,
+    g.appendChild(isoQuad(x0, BAND.coldY, zf + .01, xw, .52,
       { fill: '#38bdf8', opacity: a && a.cooling_kw > 0 ? .18 : .05 }));
     // 핫 아일 — 장비가 뱉은 더운 공기가 모이는 쪽. 온도에 따라 붉어진다
-    g.appendChild(isoQuad(x0, BAND.hotY, zf + .01, xw, .75,
+    g.appendChild(isoQuad(x0, BAND.hotY, zf + .01, xw, .52,
       { fill: a ? tempColor(a.temp_c + 6) : '#7f1d2b', opacity: .22 }));
     if (detail) {
       g.appendChild(label(x0, BAND.coldY, zf, `콜드 아일 · CRAC 급기`,
         { size: 10, fill: '#38bdf8', dy: 12 }));
-      g.appendChild(label(x0, BAND.hotY + .75, zf,
+      g.appendChild(label(x0, BAND.hotY + .52, zf,
         a ? `핫 아일 ${aisleId} · ${a.temp_c}°C · 발열 ${a.it_kw}kW / 냉방 ${a.cooling_kw}kW`
           : `핫 아일 ${aisleId}`,
         { size: 10, fill: a ? tempColor(a.temp_c) : '#67809a', dy: 13 }));
     }
     // 케이블 트레이 — 랙 열 위를 가로지른다. 전산실이라는 신호다
     const tray = el('g', { opacity: .5 });
-    const [t1x, t1y] = iso(x0, BAND.rackY + .9, zf + 3.1);
-    const [t2x, t2y] = iso(x0 + xw, BAND.rackY + .9, zf + 3.1);
+    const [t1x, t1y] = iso(x0, BAND.rackY + .62, zf + 3.0);
+    const [t2x, t2y] = iso(x0 + xw, BAND.rackY + .62, zf + 3.0);
     tray.appendChild(el('line', { x1: t1x, y1: t1y, x2: t2x, y2: t2y,
       stroke: '#475569', 'stroke-width': 3.5 }));
-    for (let t = 0; t <= xw; t += 1.1) {
-      const [cx, cy] = iso(x0 + t, BAND.rackY + .9, zf + 3.1);
+    for (let t = 0; t <= xw; t += .8) {
+      const [cx, cy] = iso(x0 + t, BAND.rackY + .62, zf + 3.0);
       tray.appendChild(el('line', { x1: cx, y1: cy - 3, x2: cx, y2: cy + 3,
         stroke: '#334155', 'stroke-width': 1 }));
     }
@@ -346,8 +358,8 @@ function drawFloorContent(fid, z, detail) {
   const objs = [];
   const put = (x, y, node) => objs.push({ d: x + y, node });
 
-  racks.forEach((r, i) => put(3.4 + i * 4.6 + 1.6, BAND.rackY + .85,
-    rackCabinet(r, 3.4 + i * 4.6, BAND.rackY, zf, detail)));
+  racks.forEach((r, i) => put(2.4 + i * 3.2 + 1.1, BAND.rackY + .6,
+    rackCabinet(r, 2.4 + i * 3.2, BAND.rackY, zf, detail)));
 
   // ── 시설 계통 ────────────────────────────────────────────────
   const fac = facilityOf(fid);
@@ -367,13 +379,13 @@ function drawFloorContent(fid, z, detail) {
     const p = ST?.power;
     const bc = !p ? '#41566d' : !p.utility_ok
       ? (p.generator_running ? '#f59e0b' : '#ff4d6a') : '#3ddc97';
-    const path = [[2.6, 1.6], [2.6, 4.1], [2.6, 6.8], [2.6, 9.5], [4.0, 9.5], [4.0, 2.0], [2.4, 1.5]];
+    const path = [[1.8, 1.1], [1.8, 2.8], [1.8, 4.6], [1.8, 6.4], [2.8, 6.4], [2.8, 1.4], [1.7, 1.0]];
     g.appendChild(el('polyline', {
       points: pts(path.map(([px, py]) => iso(px, py, zf + .06))),
       fill: 'none', stroke: bc, 'stroke-width': 2, opacity: .55,
       class: p?.on_battery ? 'flow' : null,
     }));
-    if (detail) g.appendChild(label(4.2, 9.8, zf,
+    if (detail) g.appendChild(label(2.9, 6.7, zf,
       p?.on_battery ? '배전 모선 — 배터리 급전' :
       p?.generator_running ? '배전 모선 — 발전기 급전' : '배전 모선 — 상용전원',
       { size: 10.5, fill: bc, mono: true }));
@@ -381,11 +393,11 @@ function drawFloorContent(fid, z, detail) {
 
   // ── 근무자 ───────────────────────────────────────────────────
   crewOf(fid).forEach((w, i, arr) => {
-    const cx = 3.4 + i * Math.min(3.2, (GW - 8) / Math.max(arr.length, 1));
-    if (detail) put(cx + .35, BAND.crewY + .35,
-      isoBox(cx - .5, BAND.crewY - .1, zf, 1.7, .9, .42, '#7c5c3a',
+    const cx = 2.4 + i * Math.min(2.2, (GW - 5.5) / Math.max(arr.length, 1));
+    if (detail) put(cx + .25, BAND.crewY + .25,
+      isoBox(cx - .35, BAND.crewY - .07, zf, 1.2, .62, .38, '#7c5c3a',
         { stroke: 'rgba(180,140,90,.45)' }));   // 데스크
-    put(cx + .35, BAND.crewY + 1.0, crewFigure(w, cx + .35, BAND.crewY + 1.0, zf, detail));
+    put(cx + .25, BAND.crewY + .7, crewFigure(w, cx + .25, BAND.crewY + .7, zf, detail));
   });
 
   // 깊이순으로 붙인다 — 뒤에 있는 것부터
@@ -425,18 +437,18 @@ function drawFloorContent(fid, z, detail) {
 function facilitySlot(kind, i) {
   switch (kind) {
     // 왼쪽 벽 — 화면에서 왼쪽으로 밀려나므로 가운데 랙 열을 가리지 않는다
-    case 'utility':   return [0.9, 0.6];
-    case 'generator': return [0.9, 3.1];
-    case 'ups':       return [0.9, 5.8];
-    case 'chiller':   return [0.9, 8.5];
+    case 'utility':   return [0.55, 0.35];
+    case 'generator': return [0.55, 2.15];
+    case 'ups':       return [0.55, 3.95];
+    case 'chiller':   return [0.55, 5.75];
     // 뒤쪽 벽 — 존 영역보다 뒤라 아무것도 가리지 않는다
-    case 'crac':      return [GW - 2.3, 0.5 + i * 2.7];
-    case 'cctv':      return [GW - 1.2, 0.3];
+    case 'crac':      return [GW - 1.6, 0.3 + i * 1.9];
+    case 'cctv':      return [GW - 0.85, 0.2];
     // 앞줄에는 작은 것만
-    case 'pdu':       return [3.6 + i * 4.6, BAND.pduY];
-    case 'fire':      return [GW - 1.6, GD - 1.5];
-    case 'door':      return [0.05, GD - 3.4];
-    default:          return [GW - 1.2, 2.6 + i * 1.2];
+    case 'pdu':       return [2.5 + i * 3.2, BAND.pduY];
+    case 'fire':      return [GW - 1.1, GD - 1.1];
+    case 'door':      return [0.05, GD - 2.4];
+    default:          return [GW - 0.85, 1.8 + i * .9];
   }
 }
 
@@ -447,14 +459,14 @@ function assetUnit(a, x, y, z, detail) {
   const col = up ? lerpHex('#16222f', base, .3 + st.util * .6) : '#7f1d2b';
   const g = el('g', {
     class: 'hit', on: { click: e => { e.stopPropagation(); openAsset(a.id); } } });
-  g.appendChild(isoBox(x, y, z, .78, .68, .5 + st.util * .5, col,
+  g.appendChild(isoBox(x, y, z, .55, .48, .45 + st.util * .45, col,
     { stroke: up ? 'rgba(140,175,210,.35)' : '#ff4d6a', hl: true, cls: up ? null : 'blink' }));
   // 상태 LED
-  const [lx, ly] = iso(x + .39, y + .34, z + .5 + st.util * .5);
+  const [lx, ly] = iso(x + .275, y + .24, z + .45 + st.util * .45);
   g.appendChild(el('circle', { cx: lx, cy: ly - 1, r: 1.7,
     fill: up ? (st.util > .7 ? '#ff4d6a' : st.util > .35 ? '#fbbf24' : '#3ddc97') : '#ff4d6a',
     class: up ? null : 'blink' }));
-  if (detail) g.appendChild(label(x, y + .68, z, a.name,
+  if (detail) g.appendChild(label(x, y + .48, z, a.name,
     { size: 9.5, fill: up ? 'rgba(200,214,230,.8)' : '#ff9fb0',
       dy: 12 + (a._lblRow || 0) * 11 }));
   g.appendChild(tip(`${a.name} (${a.id})\n존 ${a.zone}`
@@ -471,7 +483,7 @@ function rackCabinet(rack, x, y, z, detail) {
   const kw = list.reduce((s, a) => s + assetState(a.id).kw, 0);
   const over = kw > rack.design_kw;
   const body = aisle ? lerpHex('#18242f', tempColor(aisle.temp_c), .3) : '#18242f';
-  const w = 3.2, d = 1.7, h = 2.4;
+  const w = 2.2, d = 1.2, h = 2.3;
   const g = el('g', {
     class: 'hit', on: { click: e => { e.stopPropagation(); openRack(rack.id); } } });
   g.appendChild(isoBox(x, y, z, w, d, h, body,
@@ -481,8 +493,8 @@ function rackCabinet(rack, x, y, z, detail) {
     const t = z + h - .16 - i * .25;
     if (t <= z + .1) return;
     const st = assetState(a.id), up = alive(a);
-    const [p1x, p1y] = iso(x + .16, y + d, t);
-    const [p2x, p2y] = iso(x + w - .16, y + d, t);
+    const [p1x, p1y] = iso(x + .11, y + d, t);
+    const [p2x, p2y] = iso(x + w - .11, y + d, t);
     g.appendChild(el('line', { x1: p1x, y1: p1y, x2: p2x, y2: p2y,
       stroke: up ? zoneColor(a.zone) : '#ff4d6a', 'stroke-width': 2.6,
       opacity: up ? .3 + st.util * .7 : 1, class: up ? null : 'blink' }));
@@ -499,16 +511,16 @@ function rackCabinet(rack, x, y, z, detail) {
 }
 
 const FAC_STYLE = {
-  utility:   { c: '#94a3b8', w: 1.6, d: 2.0, h: 1.1, t: '수전' },
-  generator: { c: '#f59e0b', w: 1.6, d: 2.2, h: 1.0, t: 'GEN' },
-  ups:       { c: '#3ddc97', w: 1.6, d: 2.2, h: 1.2, t: 'UPS' },
-  pdu:       { c: '#fbbf24', w: .7,  d: .7,  h: .9,  t: 'P' },
-  chiller:   { c: '#38bdf8', w: 1.6, d: 2.2, h: 1.1, t: '냉동기' },
-  crac:      { c: '#0ea5e9', w: 1.6, d: 2.0, h: 1.4, t: 'CRAC' },
-  fire:      { c: '#ef4444', w: .8,  d: .8,  h: .6,  t: 'FM' },
-  door:      { c: '#94a3b8', w: .25, d: 1.6, h: 1.2, t: '' },
-  cctv:      { c: '#7dd3fc', w: .6,  d: .6,  h: .7,  t: '' },
-  facility:  { c: '#64748b', w: .8,  d: .8,  h: .8,  t: '' },
+  utility:   { c: '#94a3b8', w: 1.1, d: 1.4, h: 1.0, t: '수전' },
+  generator: { c: '#f59e0b', w: 1.1, d: 1.5, h: 0.95, t: 'GEN' },
+  ups:       { c: '#3ddc97', w: 1.1, d: 1.5, h: 1.1, t: 'UPS' },
+  pdu:       { c: '#fbbf24', w: .5,  d: .5,  h: .8,  t: 'P' },
+  chiller:   { c: '#38bdf8', w: 1.1, d: 1.5, h: 1.0, t: '냉동기' },
+  crac:      { c: '#0ea5e9', w: 1.1, d: 1.4, h: 1.3, t: 'CRAC' },
+  fire:      { c: '#ef4444', w: .55, d: .55, h: .55, t: 'FM' },
+  door:      { c: '#94a3b8', w: .2,  d: 1.1, h: 1.1, t: '' },
+  cctv:      { c: '#7dd3fc', w: .45, d: .45, h: .6,  t: '' },
+  facility:  { c: '#64748b', w: .55, d: .55, h: .7,  t: '' },
 };
 
 function facilityUnit(item, x, y, z, detail) {
@@ -519,7 +531,7 @@ function facilityUnit(item, x, y, z, detail) {
   g.appendChild(isoBox(x, y, z, s.w, s.d, s.h, down ? '#7f1d2b' : s.c,
     { stroke: down ? '#ff4d6a' : 'rgba(0,0,0,.4)', hl: true }));
   const [cx, cy] = iso(x + s.w / 2, y + s.d / 2, z + s.h);
-  if (s.t) g.appendChild(el('text', { x: cx, y: cy + 3, 'font-size': s.w > 1.5 ? 10.5 : 8.5,
+  if (s.t) g.appendChild(el('text', { x: cx, y: cy + 3, 'font-size': s.w > 1.0 ? 9.5 : 8,
     'text-anchor': 'middle', fill: down ? '#ffd0d8' : 'rgba(5,10,16,.85)',
     'font-weight': 700, class: 'mono', text: s.t }));
   if (down) g.appendChild(el('circle', { cx, cy: cy - 16, r: 3.6, fill: '#ff4d6a', class: 'blink' }));
@@ -527,12 +539,12 @@ function facilityUnit(item, x, y, z, detail) {
   // CRAC 급기 — 살아 있으면 찬 공기가 나간다
   if (item.kind === 'crac' && !down) {
     for (let i = 0; i < 3; i++) {
-      const [ax, ay] = iso(x, y + .4 + i * .6, z + .5);
-      g.appendChild(el('line', { x1: ax, y1: ay, x2: ax - 34, y2: ay + 6,
+      const [ax, ay] = iso(x, y + .3 + i * .42, z + .45);
+      g.appendChild(el('line', { x1: ax, y1: ay, x2: ax - 30, y2: ay + 5,
         stroke: '#38bdf8', 'stroke-width': 1.2, opacity: .45, class: 'flow' }));
     }
   }
-  if (detail && s.w > 1.2) g.appendChild(label(x, y + s.d, z, item.name || item.id,
+  if (detail && s.w > .9) g.appendChild(label(x, y + s.d, z, item.name || item.id,
     { size: 10, fill: down ? '#ff9fb0' : '#67809a', dy: 13 }));
   g.appendChild(tip(`${item.name || item.id} (${item.id})${down ? '\n⚠ 이상' : ''}`));
   return g;
@@ -574,25 +586,31 @@ function drawBuilding() {
   const root = el('g');
   svg.appendChild(root);
 
-  // 수직 라이저 — 1F 의 배전·통신이 위층으로 올라가는 길. 층을 잇는 유일한 물리 통로다.
-  const top = (floors().length - 1) * FLOOR_H;
-  const riser = el('g', { opacity: .5 });
-  [[0.8, 0.7], [2.3, 0.7], [2.3, 2.2], [0.8, 2.2]].forEach(([rx, ry]) => {
-    const [ax, ay] = iso(rx, ry, .22);
-    const [bx, by] = iso(rx, ry, top + 2.6);
-    riser.appendChild(el('line', { x1: ax, y1: ay, x2: bx, y2: by,
-      stroke: '#0f766e', 'stroke-width': 1.6 }));
-  });
-  root.appendChild(riser);
-
   // 아래층부터 — 위층이 나중에 그려져야 겹침이 자연스럽다
-  floors().forEach((f, i) => root.appendChild(drawFloorContent(f.id, i * FLOOR_H, false)));
+  floors().forEach((f, i) => root.appendChild(el('g',
+    { transform: `translate(${i * STAGGER.dx},${-i * STAGGER.dy})` },
+    [drawFloorContent(f.id, 0, false)])));
+
+  // 라이저 — 배전·통신이 위층으로 올라가는 길. 엇갈려 쌓았으므로 층 사이를 잇는
+  // 연결선으로 그린다. 층이 물리적으로 이어져 있다는 사실이 보여야 한다.
+  const riser = el('g', { opacity: .4 });
+  for (let i = 0; i + 1 < floors().length; i++) {
+    [[0.6, 0.5], [1.7, 0.5], [1.7, 1.6], [0.6, 1.6]].forEach(([rx, ry]) => {
+      const [ax, ay] = iso(rx, ry, 1.6);
+      const [bx, by] = iso(rx, ry, .22);
+      riser.appendChild(el('line', {
+        x1: ax + i * STAGGER.dx,       y1: ay - i * STAGGER.dy,
+        x2: bx + (i + 1) * STAGGER.dx, y2: by - (i + 1) * STAGGER.dy,
+        stroke: '#0f766e', 'stroke-width': 1.5 }));
+    });
+  }
+  root.appendChild(riser);
 
   // 외부 회선 — 공격자는 건물 밖에서 들어온다
   const i2 = floors().findIndex(f => f.id === '2F');
   if (i2 >= 0) {
-    const E2 = edges(i2 * FLOOR_H + 1.2);
-    const ex = E2.left, ey = E2.mid - 26;
+    const E2 = edges(1.2);
+    const ex = E2.left + i2 * STAGGER.dx, ey = E2.mid - 26 - i2 * STAGGER.dy;
     root.appendChild(el('circle', { cx: ex - 96, cy: ey, r: 5, fill: '#ff4d6a', class: 'pulse' }));
     root.appendChild(el('text', { x: ex - 87, y: ey + 4.5, 'font-size': 12,
       fill: '#ff4d6a', text: '외부 / 인터넷' }));
@@ -604,9 +622,9 @@ function drawBuilding() {
   const i3 = floors().findIndex(f => f.id === '3F');
   const dgx = (LAYOUT?.it_assets || []).find(a => a.remote);
   if (i3 >= 0 && dgx) {
-    const z = i3 * FLOOR_H + 1.6;
+    const z = 1.6;
     const E3 = edges(z);
-    const ax = E3.right, ay = E3.mid;
+    const ax = E3.right + i3 * STAGGER.dx, ay = E3.mid - i3 * STAGGER.dy;
     const bx = ax + 130, by = ay - 40;
     const live = alive(dgx);
     root.appendChild(el('path', {
