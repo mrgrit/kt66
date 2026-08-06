@@ -23,7 +23,7 @@ let ST = null;          // /api/state  — 전력·열·경보·컨테이너 (�
 let ROSTER = { workers: [] };
 let FAULTS = { available: {}, active: {} };
 let EVENTS = [];
-let VIEW = { mode: 'building', floor: null, zoom: 1, panx: 0, pany: 0, rot: 0 };
+let VIEW = { mode: 'building', floor: null, zoom: 1, panx: 0, pany: 0 };
 let BASE_VB = null;
 let SELECTED = null;
 let upsDismissed = false;
@@ -37,21 +37,9 @@ const XS = 24, YS = 8.0, ZS = 32;
 // 겹치지 않을 조건은  FLOOR_H * ZS  >  (GW + GD) * YS  — 지금은 323 vs 320.
 const FLOOR_H = 10.1;
 
-/** 평면 회전. 보고 싶은 면이 뒤로 가 버리면 각도를 바꾸는 것 말고 방법이 없다.
- *  90° 단위로만 돌린다 — 아이소메트릭의 면 음영이 그 사이에서만 성립한다. */
-function turn(x, y) {
-  switch (VIEW.rot & 3) {
-    case 1:  return [y, GW - x];
-    case 2:  return [GW - x, GD - y];
-    case 3:  return [GD - y, x];
-    default: return [x, y];
-  }
-}
-function iso(x, y, z) {
-  const [rx, ry] = turn(x, y);
-  return [(rx - ry) * XS, (rx + ry) * YS - z * ZS];
-}
-/** 회전해도 왼쪽/오른쪽 끝이 바뀌므로 명패·터널은 투영된 네 모서리에서 자리를 잡는다. */
+const iso = (x, y, z) => [(x - y) * XS, (x + y) * YS - z * ZS];
+
+/** 명패·외부회선·터널 배지는 투영된 네 모서리에서 자리를 잡는다. */
 function edges(z) {
   const c = [[0, 0], [GW, 0], [GW, GD], [0, GD]].map(([x, y]) => iso(x, y, z));
   const xs = c.map(p => p[0]), ys = c.map(p => p[1]);
@@ -232,9 +220,9 @@ function drawFloorContent(fid, z, detail) {
   g.appendChild(isoBox(0, 0, zf, .18, GD, .5, '#16222f', { stroke: wall }));
 
   // ── 수직 코어(계단·전기 샤프트) ─────────────────────────────
-  g.appendChild(isoBox(1.1, 4.2, zf, 1.9, 3.4, 2.4, '#0f766e',
+  g.appendChild(isoBox(0.7, 0.6, zf, 1.7, 1.7, 1.5, '#0f766e',
     { stroke: 'rgba(45,212,191,.5)' }));
-  if (detail) g.appendChild(label(1.1, 7.6, zf, '샤프트', { size: 10, fill: '#2dd4bf', dy: 14 }));
+  if (detail) g.appendChild(label(0.7, 2.3, zf, '샤프트', { size: 10, fill: '#2dd4bf', dy: 13 }));
 
   // ── 존 영역 — 이 화면의 뼈대다 ──────────────────────────────
   const n = zones.length;
@@ -352,7 +340,14 @@ function drawFloorContent(fid, z, detail) {
     }
     g.appendChild(tray);
   }
-  racks.forEach((r, i) => g.appendChild(rackCabinet(r, 3.4 + i * 4.6, BAND.rackY, zf, detail)));
+  // 여기부터는 부피가 있는 물건이다. 그리는 순서가 곧 앞뒤이므로 **깊이순으로 모아**
+  // 한 번에 붙인다(x+y 가 클수록 앞). 섹션별로 그리면 뒤에 있어야 할 CRAC 이 앞의
+  // 랙을 덮는 식으로 어긋난다 — 화면이 배치를 거짓말하게 된다.
+  const objs = [];
+  const put = (x, y, node) => objs.push({ d: x + y, node });
+
+  racks.forEach((r, i) => put(3.4 + i * 4.6 + 1.6, BAND.rackY + .85,
+    rackCabinet(r, 3.4 + i * 4.6, BAND.rackY, zf, detail)));
 
   // ── 시설 계통 ────────────────────────────────────────────────
   const fac = facilityOf(fid);
@@ -361,7 +356,8 @@ function drawFloorContent(fid, z, detail) {
     const k = item.kind;
     const idx = (seen[k] = (seen[k] ?? -1) + 1);
     const [fx, fy] = facilitySlot(k, idx);
-    g.appendChild(facilityUnit(item, fx, fy, zf, detail));
+    const st = FAC_STYLE[k] || FAC_STYLE.facility;
+    put(fx + st.w / 2, fy + st.d / 2, facilityUnit(item, fx, fy, zf, detail));
   });
 
   // ── 배전 모선 — 수전 → UPS → 라이저. 색이 곧 지금의 공급원이다 ──
@@ -371,13 +367,13 @@ function drawFloorContent(fid, z, detail) {
     const p = ST?.power;
     const bc = !p ? '#41566d' : !p.utility_ok
       ? (p.generator_running ? '#f59e0b' : '#ff4d6a') : '#3ddc97';
-    const path = [[2.4, 2.3], [2.4, 9.0], [17.6, 11.8], [17.6, 9.0], [3.0, 6.0]];
+    const path = [[2.6, 1.6], [2.6, 4.1], [2.6, 6.8], [2.6, 9.5], [4.0, 9.5], [4.0, 2.0], [2.4, 1.5]];
     g.appendChild(el('polyline', {
       points: pts(path.map(([px, py]) => iso(px, py, zf + .06))),
       fill: 'none', stroke: bc, 'stroke-width': 2, opacity: .55,
       class: p?.on_battery ? 'flow' : null,
     }));
-    if (detail) g.appendChild(label(9.0, 10.6, zf,
+    if (detail) g.appendChild(label(4.2, 9.8, zf,
       p?.on_battery ? '배전 모선 — 배터리 급전' :
       p?.generator_running ? '배전 모선 — 발전기 급전' : '배전 모선 — 상용전원',
       { size: 10.5, fill: bc, mono: true }));
@@ -386,10 +382,14 @@ function drawFloorContent(fid, z, detail) {
   // ── 근무자 ───────────────────────────────────────────────────
   crewOf(fid).forEach((w, i, arr) => {
     const cx = 3.4 + i * Math.min(3.2, (GW - 8) / Math.max(arr.length, 1));
-    if (detail) g.appendChild(isoBox(cx - .5, BAND.crewY - .1, zf, 1.7, .9, .42, '#7c5c3a',
-      { stroke: 'rgba(180,140,90,.45)' }));   // 데스크
-    g.appendChild(crewFigure(w, cx + .35, BAND.crewY + 1.0, zf, detail));
+    if (detail) put(cx + .35, BAND.crewY + .35,
+      isoBox(cx - .5, BAND.crewY - .1, zf, 1.7, .9, .42, '#7c5c3a',
+        { stroke: 'rgba(180,140,90,.45)' }));   // 데스크
+    put(cx + .35, BAND.crewY + 1.0, crewFigure(w, cx + .35, BAND.crewY + 1.0, zf, detail));
   });
+
+  // 깊이순으로 붙인다 — 뒤에 있는 것부터
+  objs.sort((a, b) => a.d - b.d).forEach(o => g.appendChild(o.node));
 
   // ── 층 명패 (건물 뷰 전용 — 층 뷰에서는 왼쪽 위 오버레이가 대신한다) ──
   if (detail) return g;
@@ -415,19 +415,28 @@ function drawFloorContent(fid, z, detail) {
   return g;
 }
 
-/** 시설 항목의 자리. 존 영역과 겹치지 않게 가장자리로 민다. */
+/** 시설 항목의 자리.
+ *
+ * 이 투영에서 화면 앞쪽은 x+y 가 큰 쪽이다. 부피가 큰 설비를 거기 두면 뒤에 있는
+ * 랙·자산을 통째로 가린다 — 실제로 CRAC·발전기·UPS 가 그러고 있었다.
+ * 그래서 큰 것은 전부 **벽면(뒤 또는 왼쪽)** 으로 붙이고, 앞줄에는 부피가 작은
+ * 것만 남긴다(PDU·소화설비). 실제 전산실에서도 대형 설비는 벽을 따라 선다.
+ */
 function facilitySlot(kind, i) {
   switch (kind) {
-    case 'utility':   return [1.4, 0.7];
-    case 'generator': return [1.4, 10.6];
-    case 'ups':       return [16.5, 11.0];
-    case 'chiller':   return [20.0, 11.0];
+    // 왼쪽 벽 — 화면에서 왼쪽으로 밀려나므로 가운데 랙 열을 가리지 않는다
+    case 'utility':   return [0.9, 0.6];
+    case 'generator': return [0.9, 3.1];
+    case 'ups':       return [0.9, 5.8];
+    case 'chiller':   return [0.9, 8.5];
+    // 뒤쪽 벽 — 존 영역보다 뒤라 아무것도 가리지 않는다
+    case 'crac':      return [GW - 2.3, 0.5 + i * 2.7];
+    case 'cctv':      return [GW - 1.2, 0.3];
+    // 앞줄에는 작은 것만
     case 'pdu':       return [3.6 + i * 4.6, BAND.pduY];
-    case 'crac':      return [GW - 3.0, BAND.hotY + 1.2 + i * 2.6];
-    case 'fire':      return [GW - 2.0, 0.6];
-    case 'door':      return [0.05, 6.4];
-    case 'cctv':      return [GW - 1.4, 1.6];
-    default:          return [GW - 1.4, 8.5 + i * 1.2];
+    case 'fire':      return [GW - 1.6, GD - 1.5];
+    case 'door':      return [0.05, GD - 3.4];
+    default:          return [GW - 1.2, 2.6 + i * 1.2];
   }
 }
 
@@ -490,14 +499,14 @@ function rackCabinet(rack, x, y, z, detail) {
 }
 
 const FAC_STYLE = {
-  utility:   { c: '#94a3b8', w: 2.0, d: 1.6, h: 1.5, t: '수전' },
-  generator: { c: '#f59e0b', w: 2.4, d: 1.5, h: 1.3, t: 'GEN' },
-  ups:       { c: '#3ddc97', w: 2.2, d: 1.5, h: 1.6, t: 'UPS' },
-  pdu:       { c: '#fbbf24', w: .8,  d: .8,  h: 1.1, t: 'P' },
-  chiller:   { c: '#38bdf8', w: 2.4, d: 1.6, h: 1.4, t: '냉동기' },
-  crac:      { c: '#0ea5e9', w: 1.4, d: 2.2, h: 1.8, t: 'CRAC' },
+  utility:   { c: '#94a3b8', w: 1.6, d: 2.0, h: 1.1, t: '수전' },
+  generator: { c: '#f59e0b', w: 1.6, d: 2.2, h: 1.0, t: 'GEN' },
+  ups:       { c: '#3ddc97', w: 1.6, d: 2.2, h: 1.2, t: 'UPS' },
+  pdu:       { c: '#fbbf24', w: .7,  d: .7,  h: .9,  t: 'P' },
+  chiller:   { c: '#38bdf8', w: 1.6, d: 2.2, h: 1.1, t: '냉동기' },
+  crac:      { c: '#0ea5e9', w: 1.6, d: 2.0, h: 1.4, t: 'CRAC' },
   fire:      { c: '#ef4444', w: .8,  d: .8,  h: .6,  t: 'FM' },
-  door:      { c: '#94a3b8', w: .3,  d: 1.8, h: 1.9, t: '' },
+  door:      { c: '#94a3b8', w: .25, d: 1.6, h: 1.2, t: '' },
   cctv:      { c: '#7dd3fc', w: .6,  d: .6,  h: .7,  t: '' },
   facility:  { c: '#64748b', w: .8,  d: .8,  h: .8,  t: '' },
 };
@@ -568,7 +577,7 @@ function drawBuilding() {
   // 수직 라이저 — 1F 의 배전·통신이 위층으로 올라가는 길. 층을 잇는 유일한 물리 통로다.
   const top = (floors().length - 1) * FLOOR_H;
   const riser = el('g', { opacity: .5 });
-  [[1.2, 4.3], [3.0, 4.3], [3.0, 7.6], [1.2, 7.6]].forEach(([rx, ry]) => {
+  [[0.8, 0.7], [2.3, 0.7], [2.3, 2.2], [0.8, 2.2]].forEach(([rx, ry]) => {
     const [ax, ay] = iso(rx, ry, .22);
     const [bx, by] = iso(rx, ry, top + 2.6);
     riser.appendChild(el('line', { x1: ax, y1: ay, x2: bx, y2: by,
@@ -1293,9 +1302,6 @@ const zoom = k => { VIEW.zoom = Math.max(.4, Math.min(VIEW.zoom * k, 6)); applyV
 $('#z-in').onclick = () => zoom(1.25);
 $('#z-out').onclick = () => zoom(1 / 1.25);
 $('#z-fit').onclick = () => { VIEW.zoom = 1; VIEW.panx = VIEW.pany = 0; applyVB(); };
-const spin = d => { VIEW.rot = (VIEW.rot + d + 4) & 3; VIEW.panx = VIEW.pany = 0; render(); };
-$('#z-ccw').onclick = () => spin(-1);
-$('#z-cw').onclick = () => spin(1);
 
 // 휠 확대 · 드래그 이동
 const scene = $('#scene');
