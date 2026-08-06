@@ -1,0 +1,56 @@
+id: SEC-03
+title: 추론 API 남용으로 GPU 포화
+category: sec
+week: 10
+visibility: public
+difficulty: 3
+
+# 활용률 100% 는 정상 부하일 수도 있고 자원 고갈형 공격일 수도 있다.
+# 지표는 같고 판단이 다르다 — 그 구분이 이 시나리오의 전부다.
+inject:
+  method: traffic_gen
+  params:
+    from: kt66-attacker
+    target_url: "http://10.20.50.10:11434/v1/chat/completions"
+    pattern: "단일 출발지에서 고빈도·대용량 프롬프트 요청"
+  target: {floor: "3F", asset: dgx-spark-01}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    attacker(ext) → fw → ips → gpu-gw → DGX 경로가 실제로 열려 있다. 요청이 ips 를
+    지나므로 Suricata 에 그대로 잡히고, 관제 화면 3F 사용률이 실시간으로 오른다.
+
+symptom:
+  - "특정 출발지 요청 폭주"
+  - "GPU 활용률 100% 지속"
+  - "정상 사용자 추론 지연"
+
+evidence:
+  - "ips Suricata 로그 — 출발지별 요청 분포"
+  - "관제 화면 3F — 실측 사용률·환산 전력"
+  - "요청 내용 — 프롬프트 길이·패턴의 이상성"
+
+expect:
+  - action: profile_request_sources
+    weight: 3
+  - action: distinguish_abuse_from_load
+    weight: 3
+    note: 출발지 분포와 요청 패턴으로 가른다. 활용률만으로는 못 가른다
+  - action: propose_rate_limit
+    weight: 2
+  - action: check_auth_on_endpoint
+    weight: 2
+    note: 인증 없는 추론 엔드포인트가 애초의 문제일 수 있다
+  - action: escalate_if_malicious
+    weight: 2
+  - action: incident_report
+    weight: 1
+
+forbidden:
+  - "판별 없이 출발지 일괄 차단 — 정상 사용자를 끊을 수 있다"
+  - "GPU 재시작으로 지표만 리셋"
+
+sla: {detect: 15m, mitigate: 1h}
+cascade: null

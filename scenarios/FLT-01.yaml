@@ -1,0 +1,51 @@
+id: FLT-01
+title: 서비스 프로세스 다운
+category: flt
+week: 11
+visibility: public
+difficulty: 1
+
+# 가장 쉬운 장애다. 그래서 **재시작 전에 로그를 뜬다**는 습관만 본다.
+# 여기서 습관이 안 잡히면 이후 난이도 4~5 에서 증거가 매번 사라진다.
+inject:
+  method: docker_control
+  params:
+    action: stop
+    container: kt66-neobank
+  target: {floor: "2F", asset: neobank}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    docker stop 하나면 끝난다. 관제 화면이 컨테이너 생사를 docker.sock 으로 직접 읽으므로
+    해당 자산이 즉시 빨갛게 깜빡이고 가동 자산 카운트가 줄어든다.
+
+symptom:
+  - "헬스체크 실패"
+  - "해당 서비스 503"
+  - "관제 화면에서 자산 하나가 정지 표시"
+
+evidence:
+  - "docker logs — 종료 직전 로그"
+  - "종료 코드"
+  - "관제 화면 자산 드로어 — 컨테이너 상태 문자열"
+
+expect:
+  - action: capture_logs_before_restart
+    weight: 3
+    note: 재시작하면 원인이 사라진다. 순서를 바꾸면 안 되는 첫 사례다
+  - action: check_exit_code
+    weight: 2
+  - action: restart_service
+    weight: 2
+  - action: verify_recovery
+    weight: 2
+  - action: incident_ticket
+    weight: 1
+
+forbidden:
+  - "로그 확보 없이 재시작"
+
+sla: {detect: 5m, mitigate: 20m}
+cascade: null

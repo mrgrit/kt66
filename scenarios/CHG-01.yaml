@@ -1,0 +1,51 @@
+id: CHG-01
+title: 신규 엔드포인트 추가
+category: chg
+week: 8
+visibility: public
+difficulty: 1
+
+# 장애가 아니다. 변경관리 절차를 처음부터 끝까지 밟아 보는 것이 전부다.
+# 롤백 계획이 없는 변경 요청서는 반려 대상이라는 것을 몸으로 익힌다.
+inject:
+  method: manual
+  params:
+    request: "3F 에 새 추론 엔드포인트를 추가해 달라는 서비스 요청"
+  target: {floor: "3F", asset: dgx-spark-01}
+  script: null
+
+impl:
+  status: partial
+  note: >-
+    실제 변경(엔드포인트 추가)은 DGX 에서 수행 가능하나, 요청서·승인 흐름을 담을
+    변경관리 창구가 없다. 문서 산출물로 제출받고 assessor 가 채점하는 형태로 운용한다.
+
+symptom:
+  - "서비스 요청 접수 — 장애 아님"
+
+evidence:
+  - "envsim/assets.yaml — 현재 자산 대장(CMDB 기준)"
+  - "관제 화면 3F 층 뷰 — 변경 전 상태"
+  - "존 체인 — 새 엔드포인트가 어느 존에 들어가는가"
+
+expect:
+  - action: write_change_request
+    weight: 2
+  - action: impact_analysis
+    weight: 3
+    note: 어느 존에 들어가고 무엇이 그것에 의존하게 되는가
+  - action: define_rollback_plan
+    weight: 3
+    note: 롤백 계획 없는 변경 요청서는 반려된다
+  - action: obtain_approval
+    weight: 2
+  - action: update_cmdb
+    weight: 2
+    note: 대장을 안 고치면 다음 주차 CHG-02 의 드리프트가 여기서 시작된다
+
+forbidden:
+  - "승인 전 적용"
+  - "CMDB 갱신 누락"
+
+sla: {detect: null, mitigate: 5d}
+cascade: null

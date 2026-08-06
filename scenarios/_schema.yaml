@@ -1,0 +1,52 @@
+# kt66 시나리오 선언 스키마.
+#
+# 원본은 docs/시나리오_카탈로그.md 의 선언 형식이다. 거기에 두 가지를 더했다:
+#
+#   evidence — "어디를 봐야 답이 나오는가". 채점은 복구 성공이 아니라 조치 순서와
+#              근거 기록으로 한다(카탈로그 채점 원칙). 근거가 어디 있는지 시나리오가
+#              스스로 말하지 않으면 강사마다 채점 기준이 갈린다.
+#
+#   impl     — 이 시나리오가 **지금 이 랩에서 실제로 주입되는가**. 34종이 전부 도는
+#              척하면 수업 중에 깨진다. 안 되는 것은 왜 안 되는지 적는다.
+
+id:          # 예 ENV-01. 카탈로그 ID 를 그대로 쓴다
+title:       # 한 줄 제목
+category:    # inc | chg | sec | flt | gpu | env | dr | aud | agt
+week:        # 교과 주차 1~15
+visibility:  # public(사전 공개) | private(평가·무작위 주입용)
+difficulty:  # 1~5
+
+inject:
+  method:    # 아래 '주입 수단' 목록 중 하나
+  params: {} # 수단별 인자. envsim_fault 면 {fault, target} 그대로 API 에 넘어간다
+  target:    # {floor, asset} — asset 은 envsim/assets.yaml 의 id 여야 한다
+  script:    # scripts/<category>/<name>.sh (아직 없으면 null)
+
+impl:
+  status:    # ready(그대로 주입됨) | partial(일부만) | planned(주입 수단 없음)
+  note:      # partial/planned 면 무엇이 없는지 구체적으로
+
+symptom: []  # 학생이 보는 것. 원인이 아니라 증상만 적는다
+evidence: [] # 근거가 있는 곳 — 로그 경로 · API · 화면
+expect:      # 기대 조치. weight 합이 채점 만점
+  - action:  # snake_case 동사
+    weight:  # 1~3
+    note:    # 왜 이 순서인가 (선택)
+forbidden: []# 하면 안 되는 것. 감점 사유
+sla:
+  detect:    # 탐지 목표 (10m 형식)
+  mitigate:  # 완화 목표
+cascade:     # null 또는 {after, effect, enforced}
+             # enforced:false = 선언만 되어 있고 자동 발생은 아직 구현되지 않았다
+
+# ── 주입 수단 ───────────────────────────────────────────────────────
+# envsim_fault    POST /inject?fault=&target=   시설 고장 10종
+# envsim_shed     POST /shed?group=             부하 차단
+# docker_control  docker stop/kill/pause/restart
+# container_exec  컨테이너 안에서 명령 실행 (디스크 채우기, 로그 생성 등)
+# traffic_gen     attacker 컨테이너에서 트래픽 발생
+# gpu_workload    DGX Spark 에 모델 적재·추론 부하
+# config_drift    런타임 설정을 대장(assets.yaml/CMDB)과 다르게 변경
+# log_inject      syslog/파일 로그 주입
+# agent_loop      에이전트 루프를 실제로 돌려 그 결과를 재료로 쓴다
+# manual          주입 대상이 없다. 강사가 요청서·상황을 제시한다

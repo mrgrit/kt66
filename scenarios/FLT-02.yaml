@@ -1,0 +1,50 @@
+id: FLT-02
+title: 디스크 고갈
+category: flt
+week: 11
+visibility: public
+difficulty: 2
+
+# "무엇이 채웠는가" 를 특정하지 못하면 지워도 다시 찬다. INC-07 과 짝이지만
+# 이쪽은 주기성이 없는 일회성이라 원인 특정이 더 단순하다.
+inject:
+  method: container_exec
+  params:
+    container: kt66-govportal
+    action: "fallocate 로 대용량 파일을 만들어 여유 공간을 소진한다"
+  target: {floor: "2F", asset: govportal}
+  script: null
+
+impl:
+  status: ready
+  note: container_exec 로 즉시 재현되고 원복도 파일 삭제 하나다.
+
+symptom:
+  - "쓰기 실패"
+  - "서비스 이상 동작"
+  - "디스크 여유 공간 없음"
+
+evidence:
+  - "df -h / du -sh — 무엇이 얼마나 차지하는가"
+  - "파일 생성 시각"
+  - "관제 화면 — 해당 자산 상태 변화"
+
+expect:
+  - action: identify_what_filled_it
+    weight: 3
+  - action: check_file_ownership_and_purpose
+    weight: 2
+    note: 지워도 되는 것인지 먼저 판단한다
+  - action: reclaim_space
+    weight: 2
+  - action: verify_service_recovery
+    weight: 2
+  - action: propose_monitoring_threshold
+    weight: 1
+
+forbidden:
+  - "용도 확인 없이 대용량 파일 삭제"
+  - "로그 파일을 우선 삭제 — 증적일 수 있다"
+
+sla: {detect: 10m, mitigate: 45m}
+cascade: null

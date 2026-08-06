@@ -1,0 +1,57 @@
+id: SEC-01
+title: 대용량 파일 외부 전송
+category: sec
+week: 10
+visibility: private
+difficulty: 4
+
+# AI데이터센터에서만 성립하는 시나리오다. 40GB 아웃바운드는 일반 전산실에서는
+# 백업이지만, 여기서는 **모델 가중치 유출**일 수 있다. 그 가능성을 떠올리는지로 갈린다.
+inject:
+  method: traffic_gen
+  params:
+    from: kt66-attacker
+    action: "ext 존에서 대용량 아웃바운드 전송을 발생시킨다"
+    volume: "40GB 상당 (실습에서는 축소 후 지표로 환산)"
+  target: {floor: "4F", asset: attacker}
+  script: null
+
+impl:
+  status: partial
+  note: >-
+    전송 자체는 attacker 컨테이너에서 즉시 가능하고 Suricata/WAF 로그에 잡힌다.
+    다만 실제 40GB 를 흘리면 랩 디스크·시간을 잡아먹으므로 축소 전송 + 지표 환산으로 운용한다.
+
+symptom:
+  - "비정상적 아웃바운드 트래픽량 탐지"
+  - "업무 시간 외 전송"
+  - "목적지가 알려지지 않은 외부 주소"
+
+evidence:
+  - "ips Suricata 로그 (8082 콘솔) — 세션 크기와 목적지"
+  - "SIEM — 같은 시각 인증·접근 이벤트"
+  - "envsim/assets.yaml — 어느 존에서 나갔는가"
+
+expect:
+  - action: identify_source_and_destination
+    weight: 2
+  - action: assess_data_sensitivity
+    weight: 3
+    note: 무엇이 나갔는가. 모델 가중치라면 등급이 달라진다
+  - action: escalate_immediately
+    weight: 3
+    note: 판단이 끝나기 전에 올린다. 이 등급은 혼자 지고 가는 사안이 아니다
+  - action: decide_block_vs_monitor
+    weight: 3
+    note: 끊으면 증거 수집이 끝난다. 끊을지 지켜볼지가 진짜 판단이다
+  - action: preserve_evidence
+    weight: 2
+  - action: incident_report
+    weight: 1
+
+forbidden:
+  - "증거 보전 없이 세션만 차단"
+  - "혼자 판단하고 종결 — 에스컬레이션 누락"
+
+sla: {detect: 15m, mitigate: 1h}
+cascade: null

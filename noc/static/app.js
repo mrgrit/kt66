@@ -5,10 +5,12 @@
  * 보간하거나 예쁘게 다듬기 시작하면 학생이 보는 숫자와 SIEM 에 남는 숫자가 갈라진다.
  * 그 순간 이 화면은 교보재가 아니라 장식이 된다.
  *
- * 그리는 것은 둘:
- *   건물 뷰 — 4개 층을 아이소메트릭으로 잘라 보여준다. 층은 물리 배치다.
- *   층  뷰 — 전산실 평면도. 랙·아일·CRAC·PDU·출입문, 그리고 존 색.
- * 층과 존은 직교한다. 한 층 안에 여러 존이 섞여 있는 것이 정상이고, 그 어긋남이 보여야 한다.
+ * 그리는 방식:
+ *   층(floor)은 물리 배치다 — 아이소메트릭으로 4개를 쌓는다.
+ *   존(zone)은 네트워크 보안등급이다 — **바닥에 깔린 색 영역**으로 그린다.
+ *   둘은 직교한다. 한 랙의 장비들이 서로 다른 존 영역에 흩어져 그려지는 것이
+ *   정상이고, 그 어긋남이 눈에 보이는 것이 이 화면의 목적이다.
+ *   존 경계에는 PEP(fw/ips/web)를 세운다. 우회로가 없다는 사실을 형태로 보여준다.
  */
 'use strict';
 
@@ -21,9 +23,28 @@ let ST = null;          // /api/state  — 전력·열·경보·컨테이너 (�
 let ROSTER = { workers: [] };
 let FAULTS = { available: {}, active: {} };
 let EVENTS = [];
-let VIEW = { mode: 'building', floor: null };
+let VIEW = { mode: 'building', floor: null, zoom: 1, panx: 0, pany: 0 };
+let BASE_VB = null;
 let SELECTED = null;
 let upsDismissed = false;
+
+/* ── 좌표계 ──────────────────────────────────────────────────────── */
+const GW = 26, GD = 14;                 // 층 평면 격자 (가로, 세로)
+const XS = 24, YS = 5.6, ZS = 34;       // 아이소메트릭 단위
+// 층간 높이. 이 값이 작으면 위층의 뒷변이 아래층의 앞변을 덮어 4개 층이 뒤엉킨다.
+// 겹치지 않을 조건은  FLOOR_H * ZS  >  (GW + GD) * YS  — 지금은 228 vs 224 로
+// 거의 딱 맞춰 두었다. 더 벌리면 건물이 세로로 길어져 화면에서 오히려 작아진다.
+const FLOOR_H = 6.7;
+const iso = (x, y, z) => [(x - y) * XS, (x + y) * YS - z * ZS];
+
+// 층 안의 띠 — 뒤에서 앞으로: 존 영역 → 콜드아일 → 랙 열 → 핫아일 → 근무자.
+// 실제 전산실이 이 순서로 되어 있다. 랙 앞뒤로 찬 공기와 더운 공기가 갈리는 것이
+// 핫/콜드 아일이고, 1주차에 이 구획을 눈으로 익히는 것이 목표다.
+const BAND = {
+  zoneY: 1.1, zoneD: 5.0, drift: 0.55,
+  coldY: 7.2, rackY: 8.0, hotY: 9.9, pduY: 11.0, crewY: 12.4,
+};
+const ZONE_ORDER = ['ext', 'pipe', 'dmz', 'int', 'app', 'ot', 'mgmt'];
 
 /* ── 색 ──────────────────────────────────────────────────────────── */
 const TEMP_STOPS = [[16, '#2563eb'], [22, '#22d3ee'], [27, '#fbbf24'],
@@ -44,15 +65,13 @@ function tempColor(t) {
   }
   return TEMP_STOPS.at(-1)[1];
 }
-const zoneOf = id => (LAYOUT?.zones || []).find(z => z.id === id);
-const zoneColor = id => zoneOf(id)?.color || '#64748b';
-
-/* 색 어둡게 — 아이소메트릭 면 음영에 쓴다 */
 function shade(hex, f) {
-  const p = i => Math.round(parseInt(hex.slice(i, i + 2), 16) * f)
+  const p = i => Math.min(255, Math.round(parseInt(hex.slice(i, i + 2), 16) * f))
     .toString(16).padStart(2, '0');
   return `#${p(1)}${p(3)}${p(5)}`;
 }
+const zoneOf = id => (LAYOUT?.zones || []).find(z => z.id === id);
+const zoneColor = id => zoneOf(id)?.color || '#64748b';
 
 /* ── SVG 헬퍼 ───────────────────────────────────────────────────── */
 function el(tag, attrs = {}, kids = []) {
@@ -67,44 +86,64 @@ function el(tag, attrs = {}, kids = []) {
   return n;
 }
 const pts = a => a.map(p => p.join(',')).join(' ');
+const tip = t => el('title', { text: t });
 
-/* ── 아이소메트릭 투영 ───────────────────────────────────────────── */
-const XS = 24, YS = 13.5, ZS = 30, FLOOR_H = 2.3;
-const iso = (x, y, z) => [(x - y) * XS, (x + y) * YS - z * ZS];
+/** 아이소메트릭 평면(바닥에 깔리는 사각형). */
+function isoQuad(x, y, z, w, d, attrs) {
+  return el('polygon', {
+    points: pts([iso(x, y, z), iso(x + w, y, z), iso(x + w, y + d, z), iso(x, y + d, z)]),
+    ...attrs,
+  });
+}
 
 /** 아이소메트릭 직육면체. 보이는 면은 윗면 + x면 + y면 셋뿐이다. */
 function isoBox(x, y, z, w, d, h, color, opts = {}) {
-  const T = [iso(x, y, z + h), iso(x + w, y, z + h), iso(x + w, y + d, z + h), iso(x, y + d, z + h)];
-  const g = el('g', { class: opts.cls });
-  // +y 면(왼쪽 앞), +x 면(오른쪽 앞)
-  g.appendChild(el('polygon', {
-    points: pts([T[3], T[2], iso(x + w, y + d, z), iso(x, y + d, z)]),
-    fill: shade(color, .52), stroke: opts.stroke || 'none', 'stroke-width': .5,
-  }));
-  g.appendChild(el('polygon', {
-    points: pts([T[1], T[2], iso(x + w, y + d, z), iso(x + w, y, z)]),
-    fill: shade(color, .72), stroke: opts.stroke || 'none', 'stroke-width': .5,
-  }));
-  g.appendChild(el('polygon', {
-    points: pts(T), fill: color, stroke: opts.stroke || 'none', 'stroke-width': .5,
-    class: opts.hl ? 'hl' : null,
-  }));
-  return g;
+  const T = [iso(x, y, z + h), iso(x + w, y, z + h),
+             iso(x + w, y + d, z + h), iso(x, y + d, z + h)];
+  const st = opts.stroke || 'none';
+  return el('g', { class: opts.cls }, [
+    el('polygon', { points: pts([T[3], T[2], iso(x + w, y + d, z), iso(x, y + d, z)]),
+                    fill: shade(color, .5), stroke: st, 'stroke-width': .4 }),
+    el('polygon', { points: pts([T[1], T[2], iso(x + w, y + d, z), iso(x + w, y, z)]),
+                    fill: shade(color, .72), stroke: st, 'stroke-width': .4 }),
+    el('polygon', { points: pts(T), fill: color, stroke: st, 'stroke-width': .5,
+                    class: opts.hl ? 'hl' : null }),
+  ]);
 }
 
-/* ── 데이터 조회 헬퍼 ───────────────────────────────────────────── */
+/** 화면 좌표에 붙이는 라벨. 아이소메트릭 왜곡을 주지 않는다(읽혀야 하니까). */
+function label(x, y, z, text, o = {}) {
+  const [sx, sy] = iso(x, y, z);
+  return el('text', {
+    x: sx + (o.dx || 0), y: sy + (o.dy || 0), 'font-size': o.size || 9,
+    fill: o.fill || '#8fa5bd', 'text-anchor': o.anchor || 'start',
+    'font-weight': o.weight || 400, class: o.mono ? 'mono' : null, opacity: o.op,
+    text,
+  });
+}
+
+/* ── 데이터 조회 ────────────────────────────────────────────────── */
 const floors = () => LAYOUT?.floors || [];
 const racksOf = f => (LAYOUT?.racks || []).filter(r => r.floor === f);
 const assetsOf = f => (LAYOUT?.it_assets || []).filter(a => a.floor === f);
 const crewOf = f => (ROSTER.workers || []).filter(w => w.floor === f);
 const assetState = id => ST?.assets?.[id] || { kw: 0, util: 0 };
+
 /* 살아 있는가. 컨테이너는 docker 가 답하고, 터널 너머 원격은 사용률로 답한다 —
  * 도달하지 못하면 envsim 이 0.0 을 넣으므로 그것이 곧 "꺼졌다"는 신호다. */
 const alive = a => a.container ? ST?.containers?.[a.container]?.state === 'running'
   : a.remote ? (ST?.assets?.[a.id]?.util ?? 0) > 0
   : true;
 
-/** 그 층의 시설 항목 전부를 한 배열로. 종류(kind)를 붙여 준다. */
+/** 그 층에 실재하는 존을 체인 순서로. 자산이 없는 논리 존도 포함한다. */
+function zonesOf(fid) {
+  const f = floors().find(x => x.id === fid);
+  const ids = Array.isArray(f?.zone) ? f.zone : [f?.zone].filter(Boolean);
+  return ids.filter(z => zoneOf(z))
+    .sort((a, b) => ZONE_ORDER.indexOf(a) - ZONE_ORDER.indexOf(b))
+    .map(z => zoneOf(z));
+}
+
 function facilityOf(f) {
   const F = LAYOUT?.facility || {}, out = [];
   const push = (kind, list) => (list || []).filter(i => i.floor === f)
@@ -116,11 +155,11 @@ function facilityOf(f) {
   return out;
 }
 
-/** 아일 온도 — 그 층의 아일들 중 가장 뜨거운 값. 평균은 위험을 감춘다. */
 function floorTemp(f) {
   const a = Object.values(ST?.aisles || {}).filter(x => x.floor === f);
   return a.length ? Math.max(...a.map(x => x.temp_c)) : null;
 }
+
 function facilityDown(item) {
   const F = ST?.faults || {};
   const hit = k => (F[k] || []).includes(item.id) || (F[k] || []).includes('*');
@@ -138,7 +177,365 @@ function facilityDown(item) {
 }
 
 /* ════════════════════════════════════════════════════════════════
- *  건물 뷰 — 4개 층 아이소메트릭
+ *  층 하나를 그린다. 건물 뷰와 층 뷰가 같은 코드를 쓰고 detail 로만 갈린다 —
+ *  두 벌을 두면 반드시 어긋나고, 어긋난 배치도는 교보재로 못 쓴다.
+ * ════════════════════════════════════════════════════════════════ */
+function drawFloorContent(fid, z, detail) {
+  const g = el('g');
+  const f = floors().find(x => x.id === fid);
+  const temp = floorTemp(fid);
+  const heat = temp == null ? null : tempColor(temp);
+  const zones = zonesOf(fid);
+  const assets = assetsOf(fid);
+
+  // ── 슬래브 + 이중바닥 격자 ───────────────────────────────────
+  const slabTop = temp == null ? '#101a26' : lerpHex('#101a26', heat, .22);
+  g.appendChild(isoBox(0, 0, z, GW, GD, .22, slabTop,
+    { stroke: 'rgba(34,211,238,.16)' }));
+
+  const grid = el('g', { opacity: .13, stroke: '#22d3ee', 'stroke-width': .4, fill: 'none' });
+  for (let x = 0; x <= GW; x += 2) grid.appendChild(el('line', {
+    x1: iso(x, 0, z + .22)[0], y1: iso(x, 0, z + .22)[1],
+    x2: iso(x, GD, z + .22)[0], y2: iso(x, GD, z + .22)[1] }));
+  for (let y = 0; y <= GD; y += 2) grid.appendChild(el('line', {
+    x1: iso(0, y, z + .22)[0], y1: iso(0, y, z + .22)[1],
+    x2: iso(GW, y, z + .22)[0], y2: iso(GW, y, z + .22)[1] }));
+  g.appendChild(grid);
+
+  const zf = z + .22;                     // 바닥면 높이
+
+  // ── 외벽 (낮은 파라펫) ──────────────────────────────────────
+  const wall = 'rgba(60,86,116,.5)';
+  g.appendChild(isoBox(0, 0, zf, GW, .18, .5, '#16222f', { stroke: wall }));
+  g.appendChild(isoBox(0, 0, zf, .18, GD, .5, '#16222f', { stroke: wall }));
+
+  // ── 수직 코어(계단·전기 샤프트) ─────────────────────────────
+  g.appendChild(isoBox(1.1, 4.2, zf, 1.9, 3.4, 2.4, '#0f766e',
+    { stroke: 'rgba(45,212,191,.5)' }));
+  if (detail) g.appendChild(label(1.1, 7.6, zf, '샤프트', { size: 8, fill: '#2dd4bf', dy: 12 }));
+
+  // ── 존 영역 — 이 화면의 뼈대다 ──────────────────────────────
+  const n = zones.length;
+  const ZW = n >= 4 ? 4.3 : n === 3 ? 5.8 : n === 2 ? 8.5 : 12.5;
+  const step = ZW + .6;
+  const zoneRect = {};                    // 존 id -> 화면 배치 (PEP·논리존이 참조)
+
+  zones.forEach((zo, i) => {
+    if (zo.logical) return;               // 논리 존은 바닥을 차지하지 않는다
+    const zx = 3.4 + i * step, zy = BAND.zoneY + i * BAND.drift;
+    zoneRect[zo.id] = { x: zx, y: zy, w: ZW, d: BAND.zoneD };
+
+    const zg = el('g', {
+      class: 'hit', on: { click: e => { e.stopPropagation(); openZone(zo.id); } } });
+    // 바닥 색 + 테두리
+    zg.appendChild(isoQuad(zx, zy, zf + .01, ZW, BAND.zoneD,
+      { fill: zo.color, opacity: .13 }));
+    zg.appendChild(isoQuad(zx, zy, zf + .02, ZW, BAND.zoneD,
+      { fill: 'none', stroke: zo.color, 'stroke-width': 1.2, opacity: .75, class: 'hl' }));
+    // 낮은 경계벽 — 존이 '방'처럼 보이게 한다
+    zg.appendChild(isoBox(zx, zy + BAND.zoneD - .1, zf, ZW, .1, .34, zo.color,
+      { stroke: 'none' }));
+
+    // 라벨
+    const zn2 = assets.filter(a => a.zone === zo.id).length;
+    zg.appendChild(label(zx, zy, zf, `${zo.id} · ${zo.name}${zn2 ? `  (${zn2})` : ''}`,
+      { size: detail ? 11.5 : 10, fill: zo.color, weight: 600, dy: -11 }));
+    zg.appendChild(label(zx, zy, zf, `${zo.cidr || '세그먼트 없음'}  sec:${zo.trust}`,
+      { size: detail ? 9 : 7.8, fill: 'rgba(200,214,230,.5)', mono: true, dy: -2 }));
+    zg.appendChild(tip(`${zo.id} · ${zo.name}\n${zo.cidr || '세그먼트 없음'} · ${zo.trust}\n${zo.role}`));
+    g.appendChild(zg);
+
+    // 존 안의 자산 — 랙 단위가 아니라 존 단위로 놓는다(논리 배치)
+    const list = assets.filter(a => a.zone === zo.id);
+    const cols = Math.max(2, Math.floor((ZW - .7) / 1.0));
+    list.forEach((a, k) => {
+      const ax = zx + .45 + (k % cols) * 1.0;
+      const ay = zy + .6 + Math.floor(k / cols) * 1.05;
+      a._lblRow = k % 2;                       // 이름표를 한 칸씩 엇갈리게
+      g.appendChild(assetUnit(a, ax, ay, zf, detail));
+    });
+  });
+
+  // ── PEP — 존을 넘을 때 반드시 지나는 지점 ────────────────────
+  for (const c of (LAYOUT?.zone_chain || [])) {
+    const A = zoneRect[c.from], B = zoneRect[c.to];
+    if (!A || !B) continue;
+    const px = (A.x + A.w + B.x) / 2 - .25, py = (A.y + B.y) / 2 + 1.6;
+    const pg = el('g');
+    pg.appendChild(isoBox(px, py, zf, .5, .5, .9, '#f59e0b',
+      { stroke: 'rgba(253,224,71,.7)' }));
+    const [tx, ty] = iso(px + .25, py + .25, zf + .9);
+    pg.appendChild(el('polygon', { points: `${tx},${ty - 13} ${tx - 5},${ty - 5} ${tx + 5},${ty - 5}`,
+      fill: '#fbbf24', class: 'pulse' }));
+    pg.appendChild(el('text', { x: tx + 8, y: ty - 5, 'font-size': detail ? 9 : 7.5,
+      fill: '#fbbf24', class: 'mono', text: `PEP ${c.via}` }));
+    pg.appendChild(tip(`${c.from} → ${c.to}\n경유: ${c.via}\n${c.label}`));
+    g.appendChild(pg);
+  }
+
+  // ── 논리 존(mgmt) — 점선으로 자산들을 감싼다 ─────────────────
+  const logical = zones.find(z2 => z2.logical);
+  if (logical) {
+    const own = assets.filter(a => a.logical_zone === logical.id);
+    if (own.length) {
+      const box = { x: 4.6, y: BAND.zoneY - .7, w: (n - 1) * step + ZW + .8, d: BAND.zoneD + 1.6 };
+      g.appendChild(isoQuad(box.x, box.y, zf + .03, box.w, box.d, {
+        fill: 'none', stroke: logical.color, 'stroke-width': 1.4,
+        'stroke-dasharray': '7 6', opacity: .8 }));
+      g.appendChild(label(box.x, box.y + box.d, zf,
+        `${logical.id} · ${logical.name} — 망 경계가 아니다 (자산 ${own.length})`,
+        { size: detail ? 9.5 : 8, fill: logical.color, dy: 13 }));
+    }
+  }
+
+  // ── 주 통로 ─────────────────────────────────────────────────
+  g.appendChild(isoQuad(1.0, 6.5, zf + .01, GW - 2.0, .55,
+    { fill: '#22d3ee', opacity: .05 }));
+  for (let t = 1.4; t < GW - 1.4; t += 2.2) {
+    const [mx, my] = iso(t, 6.78, zf + .02);
+    g.appendChild(el('line', { x1: mx - 9, y1: my, x2: mx + 9, y2: my + 1,
+      stroke: '#22d3ee', 'stroke-width': 1.4, opacity: .16 }));
+  }
+
+  // ── 핫/콜드 아일 + 랙 열 (물리 배치) ─────────────────────────
+  const racks = racksOf(fid);
+  if (racks.length) {
+    const aisleId = racks[0].aisle;
+    const a = ST?.aisles?.[aisleId];
+    const x0 = 3.2, xw = Math.max(10, racks.length * 4.6 + 1.4);
+    // 콜드 아일 — CRAC 이 찬 공기를 밀어 넣는 쪽
+    g.appendChild(isoQuad(x0, BAND.coldY, zf + .01, xw, .75,
+      { fill: '#38bdf8', opacity: a && a.cooling_kw > 0 ? .18 : .05 }));
+    // 핫 아일 — 장비가 뱉은 더운 공기가 모이는 쪽. 온도에 따라 붉어진다
+    g.appendChild(isoQuad(x0, BAND.hotY, zf + .01, xw, .75,
+      { fill: a ? tempColor(a.temp_c + 6) : '#7f1d2b', opacity: .22 }));
+    if (detail) {
+      g.appendChild(label(x0, BAND.coldY, zf, `콜드 아일 · CRAC 급기`,
+        { size: 8, fill: '#38bdf8', dy: 10 }));
+      g.appendChild(label(x0, BAND.hotY + .75, zf,
+        a ? `핫 아일 ${aisleId} · ${a.temp_c}°C · 발열 ${a.it_kw}kW / 냉방 ${a.cooling_kw}kW`
+          : `핫 아일 ${aisleId}`,
+        { size: 8, fill: a ? tempColor(a.temp_c) : '#67809a', dy: 11 }));
+    }
+    // 케이블 트레이 — 랙 열 위를 가로지른다. 전산실이라는 신호다
+    const tray = el('g', { opacity: .5 });
+    const [t1x, t1y] = iso(x0, BAND.rackY + .9, zf + 3.1);
+    const [t2x, t2y] = iso(x0 + xw, BAND.rackY + .9, zf + 3.1);
+    tray.appendChild(el('line', { x1: t1x, y1: t1y, x2: t2x, y2: t2y,
+      stroke: '#475569', 'stroke-width': 3.5 }));
+    for (let t = 0; t <= xw; t += 1.1) {
+      const [cx, cy] = iso(x0 + t, BAND.rackY + .9, zf + 3.1);
+      tray.appendChild(el('line', { x1: cx, y1: cy - 3, x2: cx, y2: cy + 3,
+        stroke: '#334155', 'stroke-width': 1 }));
+    }
+    g.appendChild(tray);
+  }
+  racks.forEach((r, i) => g.appendChild(rackCabinet(r, 3.4 + i * 4.6, BAND.rackY, zf, detail)));
+
+  // ── 시설 계통 ────────────────────────────────────────────────
+  const fac = facilityOf(fid);
+  const seen = {};
+  fac.forEach(item => {
+    const k = item.kind;
+    const idx = (seen[k] = (seen[k] ?? -1) + 1);
+    const [fx, fy] = facilitySlot(k, idx);
+    g.appendChild(facilityUnit(item, fx, fy, zf, detail));
+  });
+
+  // ── 배전 모선 — 수전 → UPS → 라이저. 색이 곧 지금의 공급원이다 ──
+  const hasUtil = fac.some(i => i.kind === 'utility');
+  const hasUps = fac.some(i => i.kind === 'ups');
+  if (hasUtil && hasUps) {
+    const p = ST?.power;
+    const bc = !p ? '#41566d' : !p.utility_ok
+      ? (p.generator_running ? '#f59e0b' : '#ff4d6a') : '#3ddc97';
+    const path = [[2.4, 2.3], [2.4, 9.0], [17.6, 11.8], [17.6, 9.0], [3.0, 6.0]];
+    g.appendChild(el('polyline', {
+      points: pts(path.map(([px, py]) => iso(px, py, zf + .06))),
+      fill: 'none', stroke: bc, 'stroke-width': 2, opacity: .55,
+      class: p?.on_battery ? 'flow' : null,
+    }));
+    if (detail) g.appendChild(label(9.0, 10.6, zf,
+      p?.on_battery ? '배전 모선 — 배터리 급전' :
+      p?.generator_running ? '배전 모선 — 발전기 급전' : '배전 모선 — 상용전원',
+      { size: 8.5, fill: bc, mono: true }));
+  }
+
+  // ── 근무자 ───────────────────────────────────────────────────
+  crewOf(fid).forEach((w, i, arr) => {
+    const cx = 3.4 + i * Math.min(3.2, (GW - 8) / Math.max(arr.length, 1));
+    if (detail) g.appendChild(isoBox(cx - .5, BAND.crewY - .1, zf, 1.7, .9, .42, '#7c5c3a',
+      { stroke: 'rgba(180,140,90,.45)' }));   // 데스크
+    g.appendChild(crewFigure(w, cx + .35, BAND.crewY + 1.0, zf, detail));
+  });
+
+  // ── 층 명패 (건물 뷰 전용 — 층 뷰에서는 왼쪽 위 오버레이가 대신한다) ──
+  if (detail) return g;
+  const [lx, ly] = iso(0, GD, zf);
+  const plate = el('g', {
+    class: 'hit', transform: `translate(${lx - 214},${ly - 30})`,
+    on: { click: e => { e.stopPropagation(); enterFloor(fid); } } });
+  plate.appendChild(el('rect', { width: 200, height: 56, rx: 5,
+    fill: 'rgba(8,13,20,.92)', stroke: 'rgba(34,211,238,.28)', class: 'hl' }));
+  plate.appendChild(el('text', { x: 11, y: 19, 'font-size': 15, 'font-weight': 700,
+    fill: '#22d3ee', class: 'mono', text: fid }));
+  plate.appendChild(el('text', { x: 44, y: 19, 'font-size': 12, fill: '#c8d6e6', text: f.name }));
+  plate.appendChild(el('text', { x: 11, y: 34, 'font-size': 9.5, class: 'mono',
+    fill: '#67809a',
+    text: `zone: ${zones.map(z2 => z2.id).join(' → ')}` }));
+  plate.appendChild(el('text', { x: 11, y: 48, 'font-size': 9.5, class: 'mono',
+    fill: temp == null ? '#41566d' : heat,
+    text: temp == null ? `자산 ${assets.length} · 센서 없음`
+      : `${temp.toFixed(1)}°C · ${(ST?.floors?.[fid]?.it_kw ?? 0).toFixed(1)}kW · 자산 ${assets.length}` }));
+  plate.appendChild(tip(`${fid} ${f.name}\n${f.role}`));
+  g.appendChild(plate);
+
+  return g;
+}
+
+/** 시설 항목의 자리. 존 영역과 겹치지 않게 가장자리로 민다. */
+function facilitySlot(kind, i) {
+  switch (kind) {
+    case 'utility':   return [1.4, 0.7];
+    case 'generator': return [1.4, 10.6];
+    case 'ups':       return [16.5, 11.0];
+    case 'chiller':   return [20.0, 11.0];
+    case 'pdu':       return [3.6 + i * 4.6, BAND.pduY];
+    case 'crac':      return [GW - 3.0, BAND.hotY + 1.2 + i * 2.6];
+    case 'fire':      return [GW - 2.0, 0.6];
+    case 'door':      return [0.05, 6.4];
+    case 'cctv':      return [GW - 1.4, 1.6];
+    default:          return [GW - 1.4, 8.5 + i * 1.2];
+  }
+}
+
+/** 존 영역 안의 장비 한 대 — 얇은 캐비닛. 색은 존, 밝기는 실측 사용률. */
+function assetUnit(a, x, y, z, detail) {
+  const st = assetState(a.id), up = alive(a);
+  const base = up ? zoneColor(a.zone) : '#ff4d6a';
+  const col = up ? lerpHex('#16222f', base, .3 + st.util * .6) : '#7f1d2b';
+  const g = el('g', {
+    class: 'hit', on: { click: e => { e.stopPropagation(); openAsset(a.id); } } });
+  g.appendChild(isoBox(x, y, z, .78, .68, .5 + st.util * .5, col,
+    { stroke: up ? 'rgba(140,175,210,.35)' : '#ff4d6a', hl: true, cls: up ? null : 'blink' }));
+  // 상태 LED
+  const [lx, ly] = iso(x + .39, y + .34, z + .5 + st.util * .5);
+  g.appendChild(el('circle', { cx: lx, cy: ly - 1, r: 1.7,
+    fill: up ? (st.util > .7 ? '#ff4d6a' : st.util > .35 ? '#fbbf24' : '#3ddc97') : '#ff4d6a',
+    class: up ? null : 'blink' }));
+  if (detail) g.appendChild(label(x, y + .68, z, a.name,
+    { size: 7.6, fill: up ? 'rgba(200,214,230,.75)' : '#ff9fb0',
+      dy: 10 + (a._lblRow || 0) * 8.5 }));
+  g.appendChild(tip(`${a.name} (${a.id})\n존 ${a.zone}`
+    + (a.logical_zone ? ` · 권한 ${a.logical_zone}` : '')
+    + `\n${a.rack || '랙 외'} · ${a.ip || ''}`
+    + `\n${up ? '가동' : '⚠ 정지'} · 사용률 ${(st.util * 100).toFixed(0)}% · ${st.kw.toFixed(2)}kW`));
+  return g;
+}
+
+/** 랙 캐비닛(물리). 앞면 LED 는 자산 하나가 한 줄 — 존 색이 세로로 섞여 보인다. */
+function rackCabinet(rack, x, y, z, detail) {
+  const list = (LAYOUT?.it_assets || []).filter(a => a.rack === rack.id);
+  const aisle = ST?.aisles?.[rack.aisle];
+  const kw = list.reduce((s, a) => s + assetState(a.id).kw, 0);
+  const over = kw > rack.design_kw;
+  const body = aisle ? lerpHex('#18242f', tempColor(aisle.temp_c), .3) : '#18242f';
+  const w = 3.2, d = 1.7, h = 2.4;
+  const g = el('g', {
+    class: 'hit', on: { click: e => { e.stopPropagation(); openRack(rack.id); } } });
+  g.appendChild(isoBox(x, y, z, w, d, h, body,
+    { stroke: over ? '#ff4d6a' : 'rgba(130,170,205,.4)', hl: true }));
+
+  list.forEach((a, i) => {
+    const t = z + h - .16 - i * .25;
+    if (t <= z + .1) return;
+    const st = assetState(a.id), up = alive(a);
+    const [p1x, p1y] = iso(x + .16, y + d, t);
+    const [p2x, p2y] = iso(x + w - .16, y + d, t);
+    g.appendChild(el('line', { x1: p1x, y1: p1y, x2: p2x, y2: p2y,
+      stroke: up ? zoneColor(a.zone) : '#ff4d6a', 'stroke-width': 2.6,
+      opacity: up ? .3 + st.util * .7 : 1, class: up ? null : 'blink' }));
+  });
+  g.appendChild(label(x, y, z, `${rack.id}`,
+    { size: detail ? 9 : 8, fill: '#8fa5bd', mono: true, dy: -8 }));
+  if (detail) g.appendChild(label(x, y, z,
+    `${kw.toFixed(1)}/${rack.design_kw}kW · ${rack.aisle}아일`,
+    { size: 8, fill: over ? '#ff4d6a' : '#67809a', mono: true, dy: 1 }));
+  g.appendChild(tip(`${rack.id} · ${rack.aisle} 아일 · ${rack.u}U\n`
+    + `부하 ${kw.toFixed(2)} / 설계 ${rack.design_kw}kW`
+    + (aisle ? `\n아일 ${aisle.temp_c}°C · 냉방 ${aisle.cooling_kw}kW` : '')));
+  return g;
+}
+
+const FAC_STYLE = {
+  utility:   { c: '#94a3b8', w: 2.0, d: 1.6, h: 1.5, t: '수전' },
+  generator: { c: '#f59e0b', w: 2.4, d: 1.5, h: 1.3, t: 'GEN' },
+  ups:       { c: '#3ddc97', w: 2.2, d: 1.5, h: 1.6, t: 'UPS' },
+  pdu:       { c: '#fbbf24', w: .8,  d: .8,  h: 1.1, t: 'P' },
+  chiller:   { c: '#38bdf8', w: 2.4, d: 1.6, h: 1.4, t: '냉동기' },
+  crac:      { c: '#0ea5e9', w: 1.4, d: 2.2, h: 1.8, t: 'CRAC' },
+  fire:      { c: '#ef4444', w: .8,  d: .8,  h: .6,  t: 'FM' },
+  door:      { c: '#94a3b8', w: .3,  d: 1.8, h: 1.9, t: '' },
+  cctv:      { c: '#7dd3fc', w: .6,  d: .6,  h: .7,  t: '' },
+  facility:  { c: '#64748b', w: .8,  d: .8,  h: .8,  t: '' },
+};
+
+function facilityUnit(item, x, y, z, detail) {
+  const s = FAC_STYLE[item.kind] || FAC_STYLE.facility;
+  const down = facilityDown(item);
+  const g = el('g', {
+    class: 'hit', on: { click: e => { e.stopPropagation(); openFacility(item); } } });
+  g.appendChild(isoBox(x, y, z, s.w, s.d, s.h, down ? '#7f1d2b' : s.c,
+    { stroke: down ? '#ff4d6a' : 'rgba(0,0,0,.4)', hl: true }));
+  const [cx, cy] = iso(x + s.w / 2, y + s.d / 2, z + s.h);
+  if (s.t) g.appendChild(el('text', { x: cx, y: cy + 3, 'font-size': s.w > 1.5 ? 8.5 : 7,
+    'text-anchor': 'middle', fill: down ? '#ffd0d8' : 'rgba(5,10,16,.85)',
+    'font-weight': 700, class: 'mono', text: s.t }));
+  if (down) g.appendChild(el('circle', { cx, cy: cy - 16, r: 3.6, fill: '#ff4d6a', class: 'blink' }));
+
+  // CRAC 급기 — 살아 있으면 찬 공기가 나간다
+  if (item.kind === 'crac' && !down) {
+    for (let i = 0; i < 3; i++) {
+      const [ax, ay] = iso(x, y + .4 + i * .6, z + .5);
+      g.appendChild(el('line', { x1: ax, y1: ay, x2: ax - 34, y2: ay + 6,
+        stroke: '#38bdf8', 'stroke-width': 1.2, opacity: .45, class: 'flow' }));
+    }
+  }
+  if (detail && s.w > 1.2) g.appendChild(label(x, y + s.d, z, item.name || item.id,
+    { size: 8, fill: down ? '#ff9fb0' : '#67809a', dy: 11 }));
+  g.appendChild(tip(`${item.name || item.id} (${item.id})${down ? '\n⚠ 이상' : ''}`));
+  return g;
+}
+
+const RT_COLOR = { bastion: '#22d3ee', hermes: '#a78bfa', claude: '#fbbf24' };
+const AU_COLOR = { L3: '#ff4d6a', approver: '#3ddc97', L2: '#38bdf8', L1: '#475569' };
+
+/** 근무자 — 픽셀 인형. 모자 색이 런타임, 조끼 색이 자율등급이다. */
+function crewFigure(w, x, y, z, detail) {
+  const [cx, cy] = iso(x, y, z);
+  const rt = RT_COLOR[w.runtime] || '#94a3b8';
+  const vest = AU_COLOR[w.autonomy] || '#475569';
+  const g = el('g', {
+    class: 'hit px', transform: `translate(${cx},${cy})`,
+    on: { click: e => { e.stopPropagation(); openCrew(w.id); } } });
+  g.appendChild(el('ellipse', { cx: 0, cy: 2, rx: 7, ry: 2.8, fill: 'rgba(0,0,0,.45)' }));
+  g.appendChild(el('rect', { x: -5, y: -27, width: 10, height: 6, fill: rt, class: 'hl' }));
+  g.appendChild(el('rect', { x: -4, y: -21, width: 8, height: 6, fill: '#e6cbA8' }));
+  g.appendChild(el('rect', { x: -4, y: -19, width: 2, height: 2, fill: '#1e293b' }));
+  g.appendChild(el('rect', { x: 2, y: -19, width: 2, height: 2, fill: '#1e293b' }));
+  g.appendChild(el('rect', { x: -6, y: -15, width: 12, height: 11, fill: vest }));
+  g.appendChild(el('rect', { x: -6, y: -13, width: 12, height: 1.6, fill: 'rgba(255,255,255,.35)' }));
+  g.appendChild(el('rect', { x: -5, y: -4, width: 4, height: 5, fill: '#1e293b' }));
+  g.appendChild(el('rect', { x: 1, y: -4, width: 4, height: 5, fill: '#1e293b' }));
+  g.appendChild(el('text', { x: 0, y: 15, 'text-anchor': 'middle',
+    'font-size': detail ? 9 : 8, fill: '#8fa5bd', text: w.name }));
+  g.appendChild(tip(`${w.name} (${w.id})\n${w.runtime} · ${w.autonomy} · ${w.zone} 존`
+    + (w.loops?.length ? `\n루프: ${w.loops.join(', ')}` : '\n루프 없음')));
+  return g;
+}
+
+/* ════════════════════════════════════════════════════════════════
+ *  장면
  * ════════════════════════════════════════════════════════════════ */
 function drawBuilding() {
   const svg = $('#scene');
@@ -146,472 +543,79 @@ function drawBuilding() {
   const root = el('g');
   svg.appendChild(root);
 
-  const fl = floors();
-  const [GW, GD] = fl[0]?.grid || [12, 8];
-
-  // 아래층부터 그린다 — 위층이 나중에 그려져야 겹침이 자연스럽다
-  fl.forEach((f, idx) => {
-    const z = idx * FLOOR_H;
-    const g = el('g', { class: 'hit', on: { click: () => enterFloor(f.id) } });
-    root.appendChild(g);
-
-    const temp = floorTemp(f.id);
-    const heat = temp == null ? null : tempColor(temp);
-    const slabTop = temp == null ? '#16202e' : lerpHex('#16202e', heat, .3);
-
-    // 바닥 슬래브(이중바닥). 두께 0.22 — 아래층 천장과 사이를 띄운다.
-    g.appendChild(isoBox(0, 0, z, GW, GD, .22, slabTop,
-      { stroke: 'rgba(34,211,238,.22)', hl: true }));
-
-    // 이중바닥 타일 격자 — 데이터센터라는 신호를 주는 가장 값싼 단서
-    const grid = el('g', { opacity: .16, stroke: '#22d3ee', 'stroke-width': .4, fill: 'none' });
-    for (let x = 0; x <= GW; x += 2) grid.appendChild(el('line', {
-      x1: iso(x, 0, z + .22)[0], y1: iso(x, 0, z + .22)[1],
-      x2: iso(x, GD, z + .22)[0], y2: iso(x, GD, z + .22)[1],
-    }));
-    for (let y = 0; y <= GD; y += 2) grid.appendChild(el('line', {
-      x1: iso(0, y, z + .22)[0], y1: iso(0, y, z + .22)[1],
-      x2: iso(GW, y, z + .22)[0], y2: iso(GW, y, z + .22)[1],
-    }));
-    g.appendChild(grid);
-
-    // 층 위의 물건들. 화면 아래쪽(x+y 큰 것)이 앞이므로 그 순서로 그린다.
-    const items = [
-      ...racksOf(f.id).map(r => ({ t: 'rack', o: r })),
-      ...facilityOf(f.id).map(o => ({ t: 'fac', o })),
-      ...crewOf(f.id).map((w, i) => ({ t: 'crew', o: w, i })),
-    ].filter(it => it.t === 'crew' || it.o.pos);
-
-    // 근무자는 층 앞쪽에 나란히 세운다 — 배치 좌표가 따로 없다
-    items.filter(it => it.t === 'crew').forEach((it, i, arr) => {
-      it.o._px = 1.2 + i * (Math.min(9, GW - 2) / Math.max(arr.length, 1));
-      it.o._py = GD - 1.1;
-    });
-
-    items.sort((a, b) => {
-      const k = it => it.t === 'crew' ? it.o._px + it.o._py : it.o.pos[0] + it.o.pos[1];
-      return k(a) - k(b);
-    });
-
-    for (const it of items) {
-      if (it.t === 'rack') g.appendChild(isoRack(it.o, z + .22));
-      else if (it.t === 'fac') g.appendChild(isoFacility(it.o, z + .22));
-      else g.appendChild(isoCrew(it.o, z + .22));
-    }
-
-    // 층 명패 — 왼쪽 바깥에
-    const [lx, ly] = iso(0, GD, z + .6);
-    const plate = el('g', { transform: `translate(${lx - 178},${ly - 18})` });
-    plate.appendChild(el('rect', {
-      width: 168, height: 44, rx: 4, fill: 'rgba(12,19,30,.9)',
-      stroke: 'rgba(34,211,238,.25)',
-    }));
-    plate.appendChild(el('text', {
-      x: 10, y: 17, 'font-size': 13, 'font-weight': 600, fill: '#22d3ee',
-      class: 'mono', text: f.id,
-    }));
-    plate.appendChild(el('text', { x: 40, y: 17, 'font-size': 11.5, fill: '#c8d6e6', text: f.name }));
-    plate.appendChild(el('text', {
-      x: 10, y: 34, 'font-size': 10.5, class: 'mono',
-      fill: temp == null ? '#41566d' : heat,
-      text: temp == null ? '온도 센서 없음'
-        : `${temp.toFixed(1)}°C · ${(ST?.floors?.[f.id]?.it_kw ?? 0).toFixed(1)}kW`,
-    }));
-    // 존 배지 — 한 층에 여러 존이 섞여 있음을 여기서 바로 보여준다
-    (Array.isArray(f.zone) ? f.zone : [f.zone]).forEach((zid, i) => {
-      plate.appendChild(el('rect', {
-        x: 108 + i * 15, y: 26, width: 12, height: 10, rx: 2,
-        fill: zoneColor(zid), opacity: .85,
-      }));
-    });
-    g.appendChild(plate);
-    plate.appendChild(el('title', { text: `${f.id} ${f.name}\n${f.role}` }));
+  // 수직 라이저 — 1F 의 배전·통신이 위층으로 올라가는 길. 층을 잇는 유일한 물리 통로다.
+  const top = (floors().length - 1) * FLOOR_H;
+  const riser = el('g', { opacity: .5 });
+  [[1.2, 4.3], [3.0, 4.3], [3.0, 7.6], [1.2, 7.6]].forEach(([rx, ry]) => {
+    const [ax, ay] = iso(rx, ry, .22);
+    const [bx, by] = iso(rx, ry, top + 2.6);
+    riser.appendChild(el('line', { x1: ax, y1: ay, x2: bx, y2: by,
+      stroke: '#0f766e', 'stroke-width': 1.6 }));
   });
+  root.appendChild(riser);
+
+  // 아래층부터 — 위층이 나중에 그려져야 겹침이 자연스럽다
+  floors().forEach((f, i) => root.appendChild(drawFloorContent(f.id, i * FLOOR_H, false)));
 
   // 외부 회선 — 공격자는 건물 밖에서 들어온다
-  const fwFloor = fl.findIndex(f => f.id === '2F');
-  if (fwFloor >= 0) {
-    const [ex, ey] = iso(-1.5, 4, fwFloor * FLOOR_H + .8);
-    root.appendChild(el('circle', { cx: ex - 60, cy: ey, r: 4, fill: '#ff4d6a', class: 'pulse' }));
-    root.appendChild(el('text', {
-      x: ex - 52, y: ey + 4, 'font-size': 10.5, fill: '#ff4d6a', text: '외부 / 인터넷',
-    }));
-    root.appendChild(el('line', {
-      x1: ex - 56, y1: ey, x2: ex + 34, y2: ey + 10,
-      stroke: '#ff4d6a', 'stroke-width': 1.2, opacity: .55, class: 'flow',
-    }));
+  const i2 = floors().findIndex(f => f.id === '2F');
+  if (i2 >= 0) {
+    const [ex, ey] = iso(-1, 3, i2 * FLOOR_H + 1.2);
+    root.appendChild(el('circle', { cx: ex - 84, cy: ey, r: 4.5, fill: '#ff4d6a', class: 'pulse' }));
+    root.appendChild(el('text', { x: ex - 76, y: ey + 4, 'font-size': 10.5,
+      fill: '#ff4d6a', text: '외부 / 인터넷' }));
+    root.appendChild(el('line', { x1: ex - 78, y1: ey, x2: ex + 40, y2: ey + 12,
+      stroke: '#ff4d6a', 'stroke-width': 1.3, opacity: .5, class: 'flow' }));
   }
 
-  // WireGuard 터널 — DGX Spark 는 건물 밖 실물이다. 감추면 안 된다.
-  const gpuFloor = fl.findIndex(f => f.id === '3F');
+  // WireGuard 터널 — DGX Spark 는 건물 밖 실물이다. 감추지 않는다.
+  const i3 = floors().findIndex(f => f.id === '3F');
   const dgx = (LAYOUT?.it_assets || []).find(a => a.remote);
-  if (gpuFloor >= 0 && dgx) {
-    const z = gpuFloor * FLOOR_H + 1.1;
-    const [ax, ay] = iso(11, 2, z);
-    const bx = ax + 132, by = ay - 26;
-    const live = assetState(dgx.id).util > 0;
+  if (i3 >= 0 && dgx) {
+    const z = i3 * FLOOR_H + 1.6;
+    const [ax, ay] = iso(GW, 1, z);
+    const bx = ax + 150, by = ay - 34;
+    const live = alive(dgx);
     root.appendChild(el('path', {
-      d: `M${ax},${ay} C${ax + 60},${ay - 8} ${bx - 60},${by + 6} ${bx},${by}`,
-      fill: 'none', stroke: live ? '#a78bfa' : '#41566d', 'stroke-width': 1.4,
-      class: live ? 'flow' : null, opacity: .85,
-    }));
-    const bg = el('g', {
-      class: 'hit', transform: `translate(${bx},${by - 22})`,
-      on: { click: e => { e.stopPropagation(); openAsset(dgx.id); } },
-    });
-    bg.appendChild(el('rect', {
-      width: 150, height: 44, rx: 5, fill: 'rgba(12,19,30,.94)',
-      stroke: live ? '#a78bfa' : '#2b3d55', class: 'hl',
-    }));
-    bg.appendChild(el('text', { x: 9, y: 17, 'font-size': 11, fill: '#a78bfa', text: 'DGX Spark (원격)' }));
-    bg.appendChild(el('text', {
-      x: 9, y: 32, 'font-size': 9.5, class: 'mono', fill: '#67809a',
-      text: `WireGuard · ${dgx.ip || ''}`,
-    }));
+      d: `M${ax},${ay} C${ax + 70},${ay - 10} ${bx - 70},${by + 8} ${bx},${by}`,
+      fill: 'none', stroke: live ? '#a78bfa' : '#41566d', 'stroke-width': 1.5,
+      class: live ? 'flow' : null, opacity: .9 }));
+    const bg = el('g', { class: 'hit', transform: `translate(${bx},${by - 24})`,
+      on: { click: e => { e.stopPropagation(); openAsset(dgx.id); } } });
+    bg.appendChild(el('rect', { width: 168, height: 48, rx: 5, fill: 'rgba(8,13,20,.95)',
+      stroke: live ? '#a78bfa' : '#2b3d55', class: 'hl' }));
+    bg.appendChild(el('text', { x: 10, y: 18, 'font-size': 11.5, fill: '#a78bfa',
+      text: 'DGX Spark (원격 · GB10)' }));
+    bg.appendChild(el('text', { x: 10, y: 34, 'font-size': 9.5, class: 'mono', fill: '#67809a',
+      text: `WireGuard · ${dgx.ip} · ${live ? '연결' : '두절'}` }));
     root.appendChild(bg);
   }
 
-  fitView(svg, root, 40);
+  finish(svg, root);
 }
-
-/** 랙 — 어두운 캐비닛에 자산별 LED 줄. 온도가 오르면 캐비닛이 달아오른다. */
-function isoRack(rack, z) {
-  const list = (LAYOUT?.it_assets || []).filter(a => a.rack === rack.id);
-  const aisle = ST?.aisles?.[rack.aisle];
-  const body = aisle ? lerpHex('#1b2636', tempColor(aisle.temp_c), .34) : '#1b2636';
-  const [x, y] = rack.pos;
-  const w = 1.5, d = 1.0, h = 1.15;
-  const g = el('g', {
-    class: 'hit',
-    on: { click: e => { e.stopPropagation(); openRack(rack.id); } },
-  });
-  g.appendChild(isoBox(x, y, z, w, d, h, body, { stroke: 'rgba(120,160,200,.3)', hl: true }));
-
-  // 앞면(+y)에 U 단위 LED — 자산 하나가 한 줄, 색은 존, 밝기는 실측 사용률
-  const top = z + h;
-  list.forEach((a, i) => {
-    const t = top - .12 - i * .13;
-    if (t <= z + .06) return;
-    const st = assetState(a.id), up = alive(a);
-    const [p1x, p1y] = iso(x + .12, y + d, t);
-    const [p2x, p2y] = iso(x + w - .12, y + d, t);
-    g.appendChild(el('line', {
-      x1: p1x, y1: p1y, x2: p2x, y2: p2y,
-      stroke: up ? zoneColor(a.zone) : '#ff4d6a', 'stroke-width': 2.4,
-      opacity: up ? .34 + st.util * .66 : 1,
-      class: up ? null : 'blink',
-    }));
-  });
-  g.appendChild(el('title', {
-    text: `${rack.id} · ${rack.aisle} 아일 · ${rack.u}U\n설계 ${rack.design_kw}kW`
-      + (aisle ? ` / 현재 ${aisle.it_kw}kW · ${aisle.temp_c}°C` : ''),
-  }));
-  return g;
-}
-
-const FAC_STYLE = {
-  utility:   { c: '#94a3b8', w: 1.2, d: 1.2, h: 1.0, t: '⚡' },
-  generator: { c: '#f59e0b', w: 1.6, d: 1.0, h: .9,  t: 'GEN' },
-  ups:       { c: '#3ddc97', w: 1.4, d: 1.0, h: 1.1, t: 'UPS' },
-  pdu:       { c: '#fbbf24', w: .5,  d: .5,  h: .8,  t: 'P' },
-  chiller:   { c: '#38bdf8', w: 1.6, d: 1.2, h: .9,  t: 'CH' },
-  crac:      { c: '#0ea5e9', w: .9,  d: 1.2, h: 1.0, t: 'CRAC' },
-  fire:      { c: '#ef4444', w: .5,  d: .5,  h: .4,  t: 'FM' },
-  door:      { c: '#94a3b8', w: .4,  d: 1.2, h: 1.4, t: '문' },
-  cctv:      { c: '#7dd3fc', w: .4,  d: .4,  h: .5,  t: '◉' },
-  facility:  { c: '#64748b', w: .5,  d: .5,  h: .5,  t: '' },
-};
-
-function isoFacility(item, z) {
-  const s = FAC_STYLE[item.kind] || FAC_STYLE.facility;
-  const down = facilityDown(item);
-  const g = el('g', {
-    class: 'hit',
-    on: { click: e => { e.stopPropagation(); openFacility(item); } },
-  });
-  g.appendChild(isoBox(item.pos[0], item.pos[1], z, s.w, s.d, s.h,
-    down ? '#7f1d2b' : s.c, { stroke: 'rgba(0,0,0,.35)', hl: true }));
-  const [cx, cy] = iso(item.pos[0] + s.w / 2, item.pos[1] + s.d / 2, z + s.h);
-  if (s.t) g.appendChild(el('text', {
-    x: cx, y: cy + 3, 'font-size': 7.5, 'text-anchor': 'middle',
-    fill: down ? '#ffb3c0' : 'rgba(6,10,17,.8)', 'font-weight': 700, class: 'mono', text: s.t,
-  }));
-  if (down) g.appendChild(el('circle', {
-    cx, cy: cy - 14, r: 3.4, fill: '#ff4d6a', class: 'blink',
-  }));
-  g.appendChild(el('title', {
-    text: `${item.name || item.id} (${item.id})${down ? '\n⚠ 이상' : ''}`,
-  }));
-  return g;
-}
-
-const RT_COLOR = { bastion: '#22d3ee', hermes: '#a78bfa', claude: '#fbbf24' };
-
-/** 근무자 — 픽셀 인형. 헬멧 색이 런타임, 조끼 색이 자율등급이다. */
-function isoCrew(w, z) {
-  const [cx, cy] = iso(w._px, w._py, z);
-  const rt = RT_COLOR[w.runtime] || '#94a3b8';
-  const vest = w.autonomy === 'L3' ? '#ff4d6a'
-    : w.autonomy === 'approver' ? '#3ddc97'
-    : w.autonomy === 'L2' ? '#38bdf8' : '#475569';
-  const g = el('g', {
-    class: 'hit', transform: `translate(${cx},${cy})`, 'shape-rendering': 'crispEdges',
-    on: { click: e => { e.stopPropagation(); openCrew(w.id); } },
-  });
-  g.appendChild(el('ellipse', { cx: 0, cy: 1, rx: 6, ry: 2.6, fill: 'rgba(0,0,0,.42)' }));
-  g.appendChild(el('rect', { x: -4, y: -22, width: 8, height: 6, fill: rt, class: 'hl' }));  // 헬멧
-  g.appendChild(el('rect', { x: -3, y: -16, width: 6, height: 4, fill: '#e2c9a8' }));        // 얼굴
-  g.appendChild(el('rect', { x: -5, y: -12, width: 10, height: 9, fill: vest }));            // 조끼
-  g.appendChild(el('rect', { x: -4, y: -3, width: 3, height: 3, fill: '#1e293b' }));
-  g.appendChild(el('rect', { x: 1, y: -3, width: 3, height: 3, fill: '#1e293b' }));
-  g.appendChild(el('title', {
-    text: `${w.name} (${w.id})\n${w.runtime} · ${w.autonomy} · ${w.zone} 존`
-      + (w.loops?.length ? `\n루프: ${w.loops.join(', ')}` : '\n루프 없음'),
-  }));
-  return g;
-}
-
-/* ════════════════════════════════════════════════════════════════
- *  층 뷰 — 전산실 평면도
- * ════════════════════════════════════════════════════════════════ */
-const CELL = 62;
 
 function drawFloor(fid) {
   const svg = $('#scene');
   svg.replaceChildren();
   const root = el('g');
   svg.appendChild(root);
-
-  const f = floors().find(x => x.id === fid);
-  if (!f) return;
-  const [GW, GD] = f.grid || [12, 8];
-  const W = GW * CELL, D = GD * CELL;
-
-  // 벽 + 이중바닥
-  root.appendChild(el('rect', {
-    x: -8, y: -8, width: W + 16, height: D + 16, rx: 6,
-    fill: '#0a111b', stroke: '#22384f', 'stroke-width': 2,
-  }));
-  const tiles = el('g', { stroke: 'rgba(34,211,238,.09)', 'stroke-width': 1 });
-  for (let x = 0; x <= GW; x++) tiles.appendChild(el('line', { x1: x * CELL, y1: 0, x2: x * CELL, y2: D }));
-  for (let y = 0; y <= GD; y++) tiles.appendChild(el('line', { x1: 0, y1: y * CELL, x2: W, y2: y * CELL }));
-  root.appendChild(tiles);
-
-  // 아일 열지도 — 랙이 놓인 줄을 따라 온도 띠를 깐다
-  for (const r of racksOf(fid)) {
-    const a = ST?.aisles?.[r.aisle];
-    if (!a) continue;
-    root.appendChild(el('rect', {
-      x: 0, y: (r.pos[1] - .55) * CELL, width: W, height: 2.1 * CELL,
-      fill: tempColor(a.temp_c), opacity: .09,
-    }));
-    root.appendChild(el('text', {
-      x: W - 8, y: (r.pos[1] - .28) * CELL, 'text-anchor': 'end',
-      'font-size': 10.5, class: 'mono', fill: tempColor(a.temp_c),
-      text: `${r.aisle} 아일 ${a.temp_c}°C · ${a.humidity_pct}%RH · ${a.it_kw}kW`,
-    }));
-  }
-
-  // CRAC → 콜드아일 급기
-  for (const c of facilityOf(fid).filter(i => i.kind === 'crac')) {
-    const down = facilityDown(c);
-    const x = c.pos[0] * CELL, y = c.pos[1] * CELL;
-    root.appendChild(planBox(c, x, y, CELL * .9, CELL * 1.4, down ? '#7f1d2b' : '#0ea5e9', 'CRAC'));
-    if (!down) for (let i = 0; i < 3; i++) root.appendChild(el('line', {
-      x1: x - 6, y1: y + 18 + i * 26, x2: x - 42, y2: y + 18 + i * 26,
-      stroke: '#38bdf8', 'stroke-width': 1.4, opacity: .5, class: 'flow',
-      'marker-end': 'url(#ar)',
-    }));
-  }
-
-  // 그 밖의 시설
-  for (const it of facilityOf(fid).filter(i => i.kind !== 'crac')) {
-    const s = FAC_STYLE[it.kind] || FAC_STYLE.facility;
-    root.appendChild(planBox(it, it.pos[0] * CELL, it.pos[1] * CELL,
-      s.w * CELL, s.d * CELL, facilityDown(it) ? '#7f1d2b' : s.c, s.t || it.id));
-  }
-
-  // PDU → 랙 급전선
-  for (const p of (LAYOUT?.facility?.pdu || []).filter(p => p.floor === fid)) {
-    const r = racksOf(fid).find(r => r.id === p.rack);
-    if (!r || !p.pos) continue;
-    root.appendChild(el('line', {
-      x1: (p.pos[0] + .25) * CELL, y1: (p.pos[1] + .25) * CELL,
-      x2: (r.pos[0] + .2) * CELL, y2: (r.pos[1] + .4) * CELL,
-      stroke: '#fbbf24', 'stroke-width': 1.2, opacity: .45, 'stroke-dasharray': '3 3',
-    }));
-  }
-
-  // 랙 — 평면도에는 발자국만. 안에 뭐가 들었는지는 오른쪽 입면도에서 본다.
-  for (const r of racksOf(fid)) root.appendChild(planRackFootprint(r));
-
-  // 근무자
-  crewOf(fid).forEach((w, i, arr) => {
-    const x = (1 + i * (Math.min(9, GW - 2) / Math.max(arr.length, 1))) * CELL;
-    root.appendChild(planCrew(w, x, D - CELL * .7));
-  });
-
-  // 랙 입면도 — 실제 DC 문서가 평면도와 함께 늘 갖고 다니는 그림이다.
-  // 존 색 띠가 세로로 쌓이므로 "한 랙 안에 여러 존이 섞여 있다"가 눈에 바로 들어온다.
-  const elev = el('g', { transform: `translate(${W + 90},0)` });
-  let ey = 0;
-  for (const r of racksOf(fid)) {
-    const g = rackElevation(r, ey);
-    elev.appendChild(g);
-    ey += rackElevHeight(r) + 30;
-  }
-  // 이 층에 있으나 랙에 들지 않은 자산(원격 등)
-  const orphan = assetsOf(fid).filter(a => !a.rack);
-  if (orphan.length) {
-    elev.appendChild(el('text', {
-      x: 0, y: ey + 12, 'font-size': 10, class: 'mono', fill: '#67809a', text: '랙 외 자산',
-    }));
-    orphan.forEach((a, i) => elev.appendChild(planAsset(a, 0, ey + 20 + i * 22, 210, 20)));
-  }
-  root.appendChild(elev);
-
-  root.appendChild(el('defs', {}, [
-    el('marker', {
-      id: 'ar', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 5, markerHeight: 5,
-      orient: 'auto',
-    }, [el('path', { d: 'M0,0 L8,4 L0,8 z', fill: '#38bdf8' })]),
-  ]));
-
-  fitView(svg, root, 34);
+  root.appendChild(drawFloorContent(fid, 0, true));
+  finish(svg, root);
 }
 
-function planBox(item, x, y, w, h, color, label) {
-  const down = facilityDown(item);
-  const g = el('g', {
-    class: 'hit', on: { click: e => { e.stopPropagation(); openFacility(item); } },
-  });
-  g.appendChild(el('rect', {
-    x, y, width: w, height: h, rx: 3, fill: color, opacity: down ? .85 : .55,
-    stroke: down ? '#ff4d6a' : shade(color, 1), 'stroke-width': down ? 1.6 : 1,
-    class: down ? 'hl blink' : 'hl',
-  }));
-  g.appendChild(el('text', {
-    x: x + w / 2, y: y + h / 2 + 3.5, 'text-anchor': 'middle', 'font-size': 9.5,
-    class: 'mono', 'font-weight': 700, fill: '#06111c', text: label,
-  }));
-  g.appendChild(el('title', { text: `${item.name || item.id} (${item.id})` }));
-  return g;
+function finish(svg, root) {
+  const b = root.getBBox(), pad = 46;
+  BASE_VB = [b.x - pad, b.y - pad, b.width + pad * 2, b.height + pad * 2];
+  applyVB();
 }
 
-/** 평면도의 랙 — 캐비닛 발자국. 앞면(콜드아일 쪽)을 밝은 띠로 표시한다. */
-function planRackFootprint(rack) {
-  const x = rack.pos[0] * CELL, y = rack.pos[1] * CELL;
-  const W = CELL * 2.2, H = CELL * .62;
-  const aisle = ST?.aisles?.[rack.aisle];
-  const kw = (LAYOUT?.it_assets || []).filter(a => a.rack === rack.id)
-    .reduce((s, a) => s + assetState(a.id).kw, 0);
-  const over = kw > rack.design_kw;
-  const g = el('g', {
-    class: 'hit', on: { click: e => { e.stopPropagation(); openRack(rack.id); } },
-  });
-  g.appendChild(el('rect', {
-    x, y, width: W, height: H, rx: 3, fill: '#111c2a',
-    stroke: over ? '#ff4d6a' : aisle ? tempColor(aisle.temp_c) : '#2b3d55',
-    'stroke-width': 1.5, class: 'hl',
-  }));
-  g.appendChild(el('rect', { x, y, width: W, height: 4, rx: 2, fill: '#38bdf8', opacity: .6 }));
-  g.appendChild(el('text', {
-    x: x + 7, y: y - 6, 'font-size': 10, class: 'mono', fill: '#67809a',
-    text: `${rack.id} · ${rack.aisle} 아일 · ${rack.u}U`,
-  }));
-  g.appendChild(el('text', {
-    x: x + W / 2, y: y + H / 2 + 5, 'text-anchor': 'middle', 'font-size': 11,
-    class: 'mono', fill: over ? '#ff4d6a' : '#8fa5bd',
-    text: `${kw.toFixed(1)} / ${rack.design_kw} kW`,
-  }));
-  g.appendChild(el('title', { text: `${rack.id}\n클릭하면 탑재 자산을 봅니다` }));
-  return g;
-}
-
-const ELEV_ROW = 21, ELEV_W = 214;
-const rackElevHeight = r =>
-  26 + (LAYOUT?.it_assets || []).filter(a => a.rack === r.id).length * ELEV_ROW + 8;
-
-/** 랙 입면도 — U 를 위에서 아래로 쌓는다. 왼쪽 존 색 띠가 세로로 정렬된다. */
-function rackElevation(rack, y0) {
-  const list = (LAYOUT?.it_assets || []).filter(a => a.rack === rack.id);
-  const H = rackElevHeight(rack);
-  const aisle = ST?.aisles?.[rack.aisle];
-  const g = el('g');
-  g.appendChild(el('rect', {
-    x: 0, y: y0, width: ELEV_W, height: H, rx: 5, fill: '#0b1420',
-    stroke: aisle ? tempColor(aisle.temp_c) : '#2b3d55', 'stroke-width': 1.4,
-  }));
-  g.appendChild(el('text', {
-    x: 9, y: y0 + 16, 'font-size': 10.5, class: 'mono', fill: '#8fa5bd',
-    text: `${rack.id}  ${aisle ? `${aisle.temp_c}°C` : ''}`,
-  }));
-  list.forEach((a, i) => g.appendChild(
-    planAsset(a, 7, y0 + 24 + i * ELEV_ROW, ELEV_W - 14, ELEV_ROW - 3)));
-  return g;
-}
-
-/** 자산 한 칸 — 왼쪽 존 색 띠, 이름, 실측 사용률 바, 전력. */
-function planAsset(a, x, y, w, h = 15) {
-  const st = assetState(a.id), up = alive(a);
-  const g = el('g', {
-    class: 'hit', on: { click: e => { e.stopPropagation(); openAsset(a.id); } },
-  });
-  g.appendChild(el('rect', {
-    x, y, width: w, height: h, rx: 2, fill: up ? '#16222f' : '#2a1119',
-    stroke: up ? 'rgba(120,160,200,.18)' : '#ff4d6a', 'stroke-width': 1, class: 'hl',
-  }));
-  g.appendChild(el('rect', {                       // 존 색 띠
-    x, y, width: 4, height: h, rx: 1, fill: zoneColor(a.zone),
-  }));
-  g.appendChild(el('rect', {                       // 실측 사용률
-    x: x + 6, y: y + h - 3.5, width: (w - 12) * Math.min(st.util, 1), height: 2,
-    rx: 1, fill: st.util > .7 ? '#ff4d6a' : st.util > .4 ? '#fbbf24' : '#22d3ee',
-  }));
-  g.appendChild(el('text', {
-    x: x + 9, y: y + h / 2 + 1, 'font-size': 9.5,
-    fill: up ? '#c8d6e6' : '#ff9fb0', text: a.name,
-  }));
-  g.appendChild(el('text', {
-    x: x + w - 5, y: y + h / 2 + 1, 'text-anchor': 'end', 'font-size': 9,
-    class: 'mono', fill: '#67809a', text: `${st.kw.toFixed(2)}kW`,
-  }));
-  g.appendChild(el('title', {
-    text: `${a.name} (${a.id})\n존 ${a.zone}${a.logical_zone ? ` · 권한 ${a.logical_zone}` : ''}`
-      + `\n${a.ip || ''} ${a.container || a.remote || ''}`
-      + `\n${up ? '가동 중' : '⚠ 정지'} · 사용률 ${(st.util * 100).toFixed(0)}%`,
-  }));
-  return g;
-}
-
-function planCrew(w, x, y) {
-  const rt = RT_COLOR[w.runtime] || '#94a3b8';
-  const vest = w.autonomy === 'L3' ? '#ff4d6a'
-    : w.autonomy === 'approver' ? '#3ddc97'
-    : w.autonomy === 'L2' ? '#38bdf8' : '#475569';
-  const g = el('g', {
-    class: 'hit', transform: `translate(${x},${y})`, 'shape-rendering': 'crispEdges',
-    on: { click: e => { e.stopPropagation(); openCrew(w.id); } },
-  });
-  g.appendChild(el('ellipse', { cx: 0, cy: 2, rx: 8, ry: 3, fill: 'rgba(0,0,0,.45)' }));
-  g.appendChild(el('rect', { x: -5, y: -28, width: 10, height: 7, fill: rt, class: 'hl' }));
-  g.appendChild(el('rect', { x: -4, y: -21, width: 8, height: 5, fill: '#e2c9a8' }));
-  g.appendChild(el('rect', { x: -6, y: -16, width: 12, height: 11, fill: vest }));
-  g.appendChild(el('rect', { x: -5, y: -5, width: 4, height: 5, fill: '#1e293b' }));
-  g.appendChild(el('rect', { x: 1, y: -5, width: 4, height: 5, fill: '#1e293b' }));
-  g.appendChild(el('text', {
-    x: 0, y: 15, 'text-anchor': 'middle', 'font-size': 9, fill: '#8fa5bd', text: w.name,
-  }));
-  g.appendChild(el('title', { text: `${w.name}\n${w.runtime} · ${w.autonomy}` }));
-  return g;
-}
-
-/* ── 뷰 맞춤 ─────────────────────────────────────────────────────── */
-function fitView(svg, root, pad) {
-  const b = root.getBBox();
-  svg.setAttribute('viewBox',
-    `${b.x - pad} ${b.y - pad} ${b.width + pad * 2} ${b.height + pad * 2}`);
-  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+function applyVB() {
+  if (!BASE_VB) return;
+  const [x, y, w, h] = BASE_VB, k = VIEW.zoom;
+  const nw = w / k, nh = h / k;
+  $('#scene').setAttribute('viewBox',
+    `${x + (w - nw) / 2 + VIEW.panx} ${y + (h - nh) / 2 + VIEW.pany} ${nw} ${nh}`);
+  $('#scene').setAttribute('preserveAspectRatio', 'xMidYMid meet');
 }
 
 function render() {
@@ -619,49 +623,74 @@ function render() {
   if (VIEW.mode === 'floor' && VIEW.floor) drawFloor(VIEW.floor);
   else drawBuilding();
   renderCrumbs();
+  renderFloorCard();
 }
 
 function enterFloor(fid) {
-  VIEW = { mode: 'floor', floor: fid };
-  $('#stage-hint').textContent = '자산·시설·근무자를 클릭하면 상세와 접속 수단이 열립니다';
-  render();
+  VIEW = { ...VIEW, mode: 'floor', floor: fid, zoom: 1, panx: 0, pany: 0 };
+  selectTab('zone');
+  render(); renderZonePane();
 }
 function enterBuilding() {
-  VIEW = { mode: 'building', floor: null };
-  $('#stage-hint').textContent = '층을 클릭하면 전산실 내부로 들어갑니다';
-  render();
+  VIEW = { ...VIEW, mode: 'building', floor: null, zoom: 1, panx: 0, pany: 0 };
+  render(); renderZonePane();
 }
 function renderCrumbs() {
   const c = $('#crumbs');
   c.replaceChildren();
-  const b = document.createElement('button');
-  b.className = 'crumb' + (VIEW.mode === 'building' ? ' active' : '');
-  b.textContent = '건물';
-  b.onclick = enterBuilding;
-  c.appendChild(b);
-  floors().forEach(f => {
-    const x = document.createElement('button');
-    x.className = 'crumb' + (VIEW.floor === f.id ? ' active' : '');
-    x.textContent = `${f.id} ${f.name}`;
-    x.onclick = () => enterFloor(f.id);
-    c.appendChild(x);
-  });
+  const mk = (txt, active, fn) => {
+    const b = document.createElement('button');
+    b.className = 'crumb' + (active ? ' active' : '');
+    b.textContent = txt; b.onclick = fn; return b;
+  };
+  c.appendChild(mk('건물', VIEW.mode === 'building', enterBuilding));
+  floors().forEach(f => c.appendChild(mk(f.id, VIEW.floor === f.id, () => enterFloor(f.id))));
+}
+
+function renderFloorCard() {
+  const card = $('#floorcard');
+  if (VIEW.mode !== 'floor') { card.hidden = true; return; }
+  const fid = VIEW.floor;
+  const f = floors().find(x => x.id === fid);
+  const assets = assetsOf(fid);
+  const up = assets.filter(alive).length;
+  const kw = assets.reduce((s, a) => s + assetState(a.id).kw, 0);
+  const temp = floorTemp(fid);
+  const zs = zonesOf(fid);
+  card.hidden = false;
+  card.innerHTML = `
+    <h3><span>${fid}</span>${f.name}</h3>
+    <div class="role">${f.role}</div>
+    <div class="fstats">
+      <div class="fstat"><i>존</i><b>${zs.length}</b></div>
+      <div class="fstat"><i>자산</i><b>${up}/${assets.length}</b></div>
+      <div class="fstat"><i>랙</i><b>${racksOf(fid).length}</b></div>
+      <div class="fstat"><i>근무자</i><b>${crewOf(fid).length}</b></div>
+      <div class="fstat"><i>전력</i><b>${kw.toFixed(1)} kW</b></div>
+      <div class="fstat"><i>온도</i><b style="color:${temp == null ? '#41566d' : tempColor(temp)}">${
+        temp == null ? '—' : temp.toFixed(1) + '°C'}</b></div>
+      <div class="fstat" style="grid-column:1/3"><i>교과</i><b>${
+        (f.curriculum || []).join(' · ')}</b></div>
+    </div>`;
 }
 
 /* ════════════════════════════════════════════════════════════════
  *  우측 레일
  * ════════════════════════════════════════════════════════════════ */
+function selectTab(name) {
+  $$('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  $$('.pane').forEach(p => p.classList.toggle('active', p.id === `pane-${name}`));
+}
+
 function renderPower() {
   const p = ST?.power;
   if (!p) return;
-  const pane = $('#pane-power');
   const pdus = LAYOUT?.facility?.pdu || [];
-
   const src = !p.utility_ok
     ? (p.generator_running ? ['발전기', 'on'] : ['UPS 배터리', 'off'])
     : ['상용전원', 'on'];
 
-  pane.innerHTML = `
+  $('#pane-power').innerHTML = `
   <div class="card">
     <h4>전원 계통</h4>
     <div class="body">
@@ -709,29 +738,75 @@ function renderPower() {
   </div></div>`;
 }
 
+/** 존 탭 — 건물이면 전체 존, 층이면 그 층의 존만. */
+function renderZonePane() {
+  const pane = $('#pane-zone');
+  const scope = VIEW.mode === 'floor' ? VIEW.floor : null;
+  const zs = scope ? zonesOf(scope) : (LAYOUT?.zones || []);
+  const pool = scope ? assetsOf(scope) : (LAYOUT?.it_assets || []);
+
+  pane.innerHTML = `<div class="railhead">${
+    scope ? `${scope} 의 존 ${zs.length}개 — 층은 물리, 존은 논리다` : '전체 존 · 신뢰등급 순'}</div>`
+    + zs.map(z => {
+      const mine = pool.filter(a => a.zone === z.id || (z.logical && a.logical_zone === z.id));
+      const down = mine.filter(a => !alive(a)).length;
+      return `<div class="zcard" data-z="${z.id}" style="border-left-color:${z.color}">
+        <div class="zh"><b style="color:${z.color}">${z.id}</b>
+          <span>${z.name}</span>
+          <span class="trust">${z.trust}${z.logical ? ' 논리' : ''}${z.isolated ? ' 격리' : ''}</span></div>
+        <div class="cidr">${z.cidr || '— 세그먼트 없음 (권한 경계)'}${
+          z.gateway ? ` · gw ${z.gateway}` : ''}</div>
+        <div class="zrole">${z.role}</div>
+        ${mine.length ? `<div class="zassets">${mine.map(a =>
+          `<span class="za ${alive(a) ? '' : 'down'}">${a.name}</span>`).join('')}</div>` : ''}
+        ${down ? `<div class="zrole" style="color:#ff4d6a">정지 ${down}건</div>` : ''}
+      </div>`;
+    }).join('');
+  $$('[data-z]', pane).forEach(n => n.onclick = () => openZone(n.dataset.z));
+}
+
+function crewPortrait(w) {
+  const rt = RT_COLOR[w.runtime] || '#94a3b8';
+  const vest = AU_COLOR[w.autonomy] || '#475569';
+  return `<svg class="por" viewBox="0 0 26 30" shape-rendering="crispEdges">
+    <rect x="6" y="3" width="14" height="7" fill="${rt}"/>
+    <rect x="7" y="10" width="12" height="8" fill="#e6cba8"/>
+    <rect x="10" y="13" width="2" height="2" fill="#1e293b"/>
+    <rect x="15" y="13" width="2" height="2" fill="#1e293b"/>
+    <rect x="5" y="18" width="16" height="10" fill="${vest}"/>
+    <rect x="5" y="20" width="16" height="2" fill="rgba(255,255,255,.35)"/>
+  </svg>`;
+}
+
 function renderCrew() {
   const pane = $('#pane-crew');
   const ws = ROSTER.workers || [];
   if (!ws.length) { pane.innerHTML = '<div class="empty">근무자 명단을 읽지 못했습니다</div>'; return; }
-  pane.innerHTML = floors().map(f => {
+  const scope = VIEW.mode === 'floor' ? VIEW.floor : null;
+  const groups = scope ? [floors().find(f => f.id === scope)] : floors();
+  pane.innerHTML = groups.filter(Boolean).map(f => {
     const list = ws.filter(w => w.floor === f.id);
     if (!list.length) return '';
-    return `<h4 style="margin:4px 0 8px;font-size:11px;color:#67809a">${f.id} ${f.name}</h4>`
+    return `<div class="railhead">${f.id} ${f.name} · ${list.length}명</div>`
       + list.map(w => `
       <div class="crew" data-crew="${w.id}">
-        <div class="top"><span class="nm">${w.name}</span>
-          <span class="tag rt-${w.runtime}">${w.runtime}</span></div>
-        <div class="meta">
-          <span class="tag au-${w.autonomy}">${w.autonomy}</span>
-          <span class="tag" style="color:${zoneColor(w.zone)};border-color:${zoneColor(w.zone)}88">${w.zone}</span>
-          ${(w.curriculum || []).map(c => `<span class="tag">${c}</span>`).join('')}
+        ${crewPortrait(w)}
+        <div class="info">
+          <div class="nm">${w.name}</div>
+          <div class="sub">${w.id}</div>
+          <div class="meta">
+            <span class="tag rt-${w.runtime}">${w.runtime}</span>
+            <span class="tag au-${w.autonomy}">${w.autonomy}</span>
+            <span class="tag" style="color:${zoneColor(w.zone)};border-color:${zoneColor(w.zone)}88">${w.zone}</span>
+            ${(w.curriculum || []).map(c => `<span class="tag">${c}</span>`).join('')}
+          </div>
+          <div class="loops">${(w.loop_detail || []).length
+            ? w.loop_detail.map(l => `· ${l.name} <span style="color:#41566d">${l.cadence || ''}${
+                l.runbook ? ' · 런북' : ''}</span>`).join('<br>')
+            : '<span style="color:#41566d">등록된 루프 없음</span>'}</div>
         </div>
-        <div class="loops">${(w.loop_detail || []).length
-          ? w.loop_detail.map(l => `· ${l.name} <span style="color:#41566d">${l.cadence || ''}${
-              l.runbook ? ' · 런북 있음' : ''}</span>`).join('<br>')
-          : '<span style="color:#41566d">등록된 루프 없음</span>'}</div>
       </div>`).join('');
-  }).join('');
+  }).join('') || '<div class="empty">이 층에 배치된 근무자가 없습니다</div>';
   $$('[data-crew]', pane).forEach(n => n.onclick = () => openCrew(n.dataset.crew));
 }
 
@@ -747,24 +822,33 @@ function renderAlarms() {
     </div>`).join('');
 }
 
+const hhmmss = ts => {
+  const d = new Date(ts * 1000);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map(x => String(x).padStart(2, '0')).join(':');
+};
+
 function renderLog() {
   const pane = $('#pane-log');
   if (!EVENTS.length) { pane.innerHTML = '<div class="empty">이벤트 없음</div>'; return; }
-  pane.innerHTML = EVENTS.slice().reverse().map(e => {
-    const d = new Date(e.ts * 1000);
-    const t = [d.getHours(), d.getMinutes(), d.getSeconds()]
-      .map(x => String(x).padStart(2, '0')).join(':');
-    return `<div class="logline k-${e.kind}"><span class="ts">${t}</span><span>${e.msg}</span></div>`;
-  }).join('');
+  pane.innerHTML = EVENTS.slice().reverse().map(e =>
+    `<div class="logline k-${e.kind}"><span class="ts">${hhmmss(e.ts)}</span><span>${e.msg}</span></div>`
+  ).join('');
+}
+
+function renderTicker() {
+  const last = EVENTS[EVENTS.length - 1];
+  const line = $('#tk-line');
+  line.className = 'tk-line' + (last ? ` k-${last.kind}` : '');
+  line.textContent = last ? `${hhmmss(last.ts)}  ${last.msg}` : '이벤트 없음';
+  const a = ST?.alarms || [];
+  const nf = Object.values(ST?.faults || {}).reduce((s, v) => s + v.length, 0);
+  $('#tk-stats').textContent =
+    `이벤트 ${EVENTS.length} · 경보 ${a.length} · 주입 ${nf} · 차단 ${(ST?.shed || []).length}`;
 }
 
 /* ── 존 범례 + 체인 ─────────────────────────────────────────────── */
-function renderZones() {
-  $('#zone-legend').innerHTML = (LAYOUT?.zones || []).map(z =>
-    `<span title="${(z.role || '').replace(/"/g, '')}">
-      <i style="background:${z.color}"></i>${z.id}<span style="color:#41566d"> ${z.trust}${
-        z.logical ? ' 논리' : ''}</span></span>`).join('');
-
+function renderChain() {
   const chain = LAYOUT?.zone_chain || [];
   const node = id => {
     const z = zoneOf(id) || { id, name: id };
@@ -772,7 +856,6 @@ function renderZones() {
       <b style="color:${z.color}">${z.id} ${z.name}</b>
       <small>${z.cidr || '세그먼트 없음'}</small></div>`;
   };
-  // 주경로(ext→pipe→dmz→int)를 한 줄로, 나머지 분기는 그 뒤에 붙인다
   const main = ['ext', 'pipe', 'dmz', 'int'];
   let html = '';
   main.forEach((z, i) => {
@@ -784,9 +867,8 @@ function renderZones() {
   });
   const branches = chain.filter(c => !main.includes(c.to));
   if (branches.length) {
-    html += `<div class="hop"><span class="arrow">┬</span>ips</div><div class="branch">`;
-    html += branches.map(c => node(c.to)).join('');
-    html += `</div>`;
+    html += `<div class="hop"><span class="arrow">┬</span>ips</div><div class="branch">`
+      + branches.map(c => node(c.to)).join('') + `</div>`;
   }
   $('#chain').innerHTML = html;
 }
@@ -801,6 +883,7 @@ function renderKpis() {
   const crit = alarms.filter(a => a.level >= 12).length;
   const assets = LAYOUT?.it_assets || [];
   const up = assets.filter(alive).length;
+  const ws = ROSTER.workers || [];
 
   const set = (id, val, sub, cls) => {
     const n = $(id);
@@ -815,16 +898,16 @@ function renderKpis() {
     p.on_battery ? `배터리 ${p.ups_charge_pct}% · -${p.drain_pct_per_min}%/분`
       : p.generator_running ? '발전기 운전 중' : '상용전원',
     p.on_battery ? 'crit' : p.generator_running ? 'warn' : '');
-  set('#kpi-temp', hot == null ? '—' : `${hot.toFixed(1)}°C`, 'ASHRAE 권고 18~27°C',
+  set('#kpi-temp', hot == null ? '—' : `${hot.toFixed(1)}°C`, 'ASHRAE 18~27°C',
     hot > 32 ? 'crit' : hot > 27 ? 'warn' : '');
   set('#kpi-alarm', String(alarms.length), crit ? `L12 이상 ${crit}건` : '심각 없음',
     crit ? 'crit' : alarms.length ? 'warn' : '');
   set('#kpi-cont', `${up}/${assets.length}`, '컨테이너·원격 실측',
     up < assets.length ? 'warn' : '');
+  set('#kpi-crew', String(ws.length),
+    `L3 ${ws.filter(w => w.autonomy === 'L3').length} · 승인자 ${ws.filter(w => w.autonomy === 'approver').length}`, '');
 
   $('#bld-name').textContent = ST.building || 'kt66';
-
-  // 배속이 걸려 있으면 숨기지 않는다 — 화면의 시간과 벽시계가 다르다는 사실을 학생이 알아야 한다
   const tb = $('#tsbadge'), ts = ST.time_scale ?? 1;
   tb.hidden = ts === 1;
   tb.textContent = `시간 ×${ts}`;
@@ -836,14 +919,14 @@ function renderKpis() {
 function showDrawer(name, zoneId, html) {
   $('#dr-name').textContent = name;
   const z = $('#dr-zone');
-  if (zoneId) {
-    z.textContent = zoneId; z.style.color = zoneColor(zoneId); z.hidden = false;
-  } else z.hidden = true;
+  if (zoneId) { z.textContent = zoneId; z.style.color = zoneColor(zoneId); z.hidden = false; }
+  else z.hidden = true;
   $('#dr-body').innerHTML = html;
   $('#drawer').hidden = false;
   $$('#dr-body .cmd').forEach(n => n.onclick = () => {
     navigator.clipboard?.writeText(n.textContent.replace(/^\$ /, ''));
-    const t = n.textContent; n.textContent = '복사했습니다'; setTimeout(() => n.textContent = t, 900);
+    const t = n.textContent; n.textContent = '복사했습니다';
+    setTimeout(() => n.textContent = t, 900);
   });
 }
 const kv = (k, v) => v == null || v === '' ? ''
@@ -883,29 +966,62 @@ function openAsset(id) {
     </div>`);
 }
 
+function openZone(id) {
+  const z = zoneOf(id);
+  if (!z) return;
+  SELECTED = null;
+  const mine = (LAYOUT?.it_assets || []).filter(a => a.zone === id
+    || (z.logical && a.logical_zone === id));
+  const inn = (LAYOUT?.zone_chain || []).filter(c => c.to === id);
+  const out = (LAYOUT?.zone_chain || []).filter(c => c.from === id);
+  showDrawer(`${z.id} · ${z.name}`, id, `
+    ${kv('대역', z.cidr || '없음 — 논리 존')}
+    ${kv('신뢰등급', `${z.trust}${z.isolated ? ' · 격리망' : ''}${z.logical ? ' · 논리' : ''}`)}
+    ${kv('게이트웨이', z.gateway)}
+    <div class="dim" style="margin:6px 0 10px;line-height:1.6">${z.role}</div>
+    <h4 style="margin:12px 0 5px;font-size:11px;color:#67809a">들어오는 길 ${inn.length}</h4>
+    ${inn.map(c => kv(`${c.from} →`, `${c.via} · ${c.label}`)).join('') || '<div class="dim">없음</div>'}
+    <h4 style="margin:12px 0 5px;font-size:11px;color:#67809a">나가는 길 ${out.length}</h4>
+    ${out.map(c => kv(`→ ${c.to}`, `${c.via} · ${c.label}`)).join('') || '<div class="dim">없음</div>'}
+    <h4 style="margin:12px 0 5px;font-size:11px;color:#67809a">자산 ${mine.length}</h4>
+    ${mine.map(a => `<div class="kv" style="cursor:pointer" data-a="${a.id}">
+      <span class="k">${a.name} <small style="color:#41566d">${a.floor}</small></span>
+      <span class="v" style="color:${alive(a) ? '#c8d6e6' : '#ff4d6a'}">${
+        alive(a) ? assetState(a.id).kw.toFixed(2) + 'kW' : '정지'}</span></div>`).join('')
+      || '<div class="dim">없음</div>'}
+    <div class="dim" style="margin-top:12px">존 밖으로 나가는 트래픽은 위의 경유 지점을
+      반드시 지난다. 우회로가 없다는 것이 이 랩의 핵심 성질이다.</div>`);
+  $$('#dr-body [data-a]').forEach(n => n.onclick = () => openAsset(n.dataset.a));
+}
+
 function openRack(id) {
   const r = (LAYOUT?.racks || []).find(x => x.id === id);
   if (!r) return;
+  SELECTED = null;
   const list = (LAYOUT?.it_assets || []).filter(a => a.rack === id);
   const a = ST?.aisles?.[r.aisle];
   const kw = list.reduce((s, x) => s + assetState(x.id).kw, 0);
+  const zs = [...new Set(list.map(x => x.zone))];
   showDrawer(r.id, null, `
     ${kv('층 · 아일', `${r.floor} · ${r.aisle}`)}
     ${kv('용량', `${r.u}U · 설계 ${r.design_kw}kW`)}
     ${kv('현재 부하', `${kw.toFixed(2)} kW (${(kw / r.design_kw * 100).toFixed(0)}%)`)}
     ${a ? kv('아일 온습도', `${a.temp_c}°C · ${a.humidity_pct}%RH`) : ''}
     ${a ? kv('냉방', `${a.cooling_kw}kW ${a.cooling_kw < a.it_kw ? '— 부족' : ''}`) : ''}
-    <h4 style="margin:14px 0 6px;font-size:11px;color:#67809a">탑재 자산 ${list.length}</h4>
+    ${kv('섞여 있는 존', zs.map(z => `<span style="color:${zoneColor(z)}">${z}</span>`).join(' '))}
+    <h4 style="margin:13px 0 5px;font-size:11px;color:#67809a">탑재 자산 ${list.length}</h4>
     ${list.map(x => `<div class="kv" style="cursor:pointer" data-a="${x.id}">
       <span class="k"><i style="display:inline-block;width:7px;height:7px;border-radius:2px;
         background:${zoneColor(x.zone)};margin-right:6px"></i>${x.name}</span>
       <span class="v">${assetState(x.id).kw.toFixed(2)}kW</span></div>`).join('')}
-    <div class="dim" style="margin-top:10px">같은 아일의 랙끼리는 열이 섞인다.
-      한 랙의 폭주가 옆 랙 온도를 올린다 — 핫/콜드 아일 실습의 근거다.</div>`);
+    <div class="dim" style="margin-top:10px">한 랙 안에 서로 다른 존이 섞여 있다 —
+      물리적으로 옆자리인데 논리적으로 다른 망이다. 이 어긋남이 1주차 실습 재료다.<br><br>
+      같은 아일의 랙끼리는 열이 섞인다. 한 랙의 폭주가 옆 랙 온도를 올린다.</div>`);
   $$('#dr-body [data-a]').forEach(n => n.onclick = () => openAsset(n.dataset.a));
 }
 
 function openFacility(item) {
+  SELECTED = null;
   const down = facilityDown(item);
   const p = ST?.power;
   let extra = '';
@@ -938,6 +1054,7 @@ function openFacility(item) {
 function openCrew(id) {
   const w = (ROSTER.workers || []).find(x => x.id === id);
   if (!w) return;
+  SELECTED = null;
   const auto = {
     L1: '보고 전용 — 상태를 바꾸지 않는다',
     L2: '승인 후 실행 — 운영 리드의 판정이 있어야 움직인다',
@@ -952,7 +1069,7 @@ function openCrew(id) {
     <div class="dim" style="margin:4px 0 10px">${auto}</div>
     ${kv('담당 자산', (w.assets || []).join(', ') || '-')}
     ${kv('교과 주차', (w.curriculum || []).join(', ') || '-')}
-    <h4 style="margin:14px 0 6px;font-size:11px;color:#67809a">루프 ${(w.loop_detail || []).length}</h4>
+    <h4 style="margin:13px 0 5px;font-size:11px;color:#67809a">루프 ${(w.loop_detail || []).length}</h4>
     ${(w.loop_detail || []).map(l => `
       <div class="kv"><span class="k">${l.name}</span>
         <span class="v">${l.cadence || ''} · ${l.steps}단계 · 게이트 ${l.gates}</span></div>`).join('')
@@ -966,7 +1083,7 @@ function openCrew(id) {
 }
 
 /* ════════════════════════════════════════════════════════════════
- *  UPS 절체 판단 패널
+ *  UPS 절체 판단
  * ════════════════════════════════════════════════════════════════ */
 function renderUps() {
   const p = ST?.power;
@@ -993,8 +1110,6 @@ function renderUps() {
       <small>CRAC 은 UPS 를 타지 않는다</small></div>`;
 
   const rows = (ST.shed_analysis || []).map(g => {
-    // 자산이 하나도 배치되지 않은 그룹은 끊어도 아무 일이 없다. 0.0kW 만 보여주면
-    // 학생이 "차단했는데 왜 안 줄지?" 로 헤맨다 — 비어 있다고 말해 준다.
     const empty = (g.assets ?? 1) === 0;
     return `
     <tr class="${g.shed ? 'shed' : ''}">
@@ -1049,7 +1164,7 @@ function renderInjector() {
   const active = ST?.faults || {};
   const ts = ST?.time_scale ?? 1;
 
-  // 시간 배속. 유휴 랩은 발열이 5kW 남짓이라 냉동기를 죽여도 분당 0.2°C 밖에 안 오른다.
+  // 유휴 랩은 발열이 12kW 남짓이라 냉동기를 죽여도 분당 0.2°C 밖에 안 오른다.
   // 열 시나리오는 배속을 올려야 한 교시 안에 전개된다. 반대로 ENV-03 은 ×1 이어야 한다.
   const speed = `
     <div class="frow" style="margin-bottom:10px">
@@ -1103,7 +1218,7 @@ async function post(url, params) {
 
 async function poll() {
   try {
-    const [st, ev] = await Promise.all([get('/api/state'), get('/api/events?limit=60')]);
+    const [st, ev] = await Promise.all([get('/api/state'), get('/api/events?limit=80')]);
     ST = st; EVENTS = ev.events || [];
     $('#link-status').classList.remove('down');
   } catch (e) {
@@ -1111,7 +1226,12 @@ async function poll() {
     $('#link-status').title = String(e);
     return;
   }
-  renderKpis(); renderPower(); renderAlarms(); renderLog(); renderUps();
+  // 3초마다 패널을 다시 그리므로 스크롤 위치를 붙잡아 둔다 — 목록을 읽는 중에
+  // 맨 위로 튀면 아무도 안 읽는다.
+  const body = $('.tabbody'), keep = body.scrollTop;
+  renderKpis(); renderPower(); renderAlarms(); renderLog(); renderTicker();
+  renderZonePane(); renderCrew(); renderUps();
+  body.scrollTop = keep;
   render();
   if (SELECTED) openAsset(SELECTED);          // 열려 있는 드로어도 같이 갱신
 }
@@ -1126,7 +1246,7 @@ async function boot() {
       `<div class="empty" style="padding:60px">초기 데이터를 읽지 못했습니다 — ${e}</div>`;
     return;
   }
-  renderZones(); renderCrew(); renderCrumbs();
+  renderChain(); renderCrumbs();
   await poll();
   setInterval(poll, 3000);
   setInterval(() => {
@@ -1135,26 +1255,47 @@ async function boot() {
 }
 
 /* ── 이벤트 배선 ─────────────────────────────────────────────────── */
-$$('#tabs .tab').forEach(t => t.onclick = () => {
-  $$('#tabs .tab').forEach(x => x.classList.toggle('active', x === t));
-  $$('.pane').forEach(p => p.classList.toggle('active', p.id === `pane-${t.dataset.tab}`));
-});
+$$('#tabs .tab').forEach(t => t.onclick = () => selectTab(t.dataset.tab));
 $('#dr-close').onclick = () => { $('#drawer').hidden = true; SELECTED = null; };
 $('#ups-close').onclick = () => { upsDismissed = true; $('#ups-modal').hidden = true; };
 $('#btn-instructor').onclick = () => { renderInjector(); $('#inj-modal').hidden = false; };
 $('#inj-close').onclick = () => $('#inj-modal').hidden = true;
 $('#btn-reset').onclick = async () => {
-  await post('/api/reset', {});
-  upsDismissed = false;
+  await post('/api/reset', {}); upsDismissed = false;
   await poll(); renderInjector();
 };
+
+const zoom = k => { VIEW.zoom = Math.max(.4, Math.min(VIEW.zoom * k, 6)); applyVB(); };
+$('#z-in').onclick = () => zoom(1.25);
+$('#z-out').onclick = () => zoom(1 / 1.25);
+$('#z-fit').onclick = () => { VIEW.zoom = 1; VIEW.panx = VIEW.pany = 0; applyVB(); };
+
+// 휠 확대 · 드래그 이동
+const scene = $('#scene');
+scene.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.12 : 1 / 1.12); },
+  { passive: false });
+let drag = null;
+scene.addEventListener('pointerdown', e => {
+  drag = { x: e.clientX, y: e.clientY, px: VIEW.panx, py: VIEW.pany };
+  scene.setPointerCapture(e.pointerId);
+});
+scene.addEventListener('pointermove', e => {
+  if (!drag || !BASE_VB) return;
+  const s = (BASE_VB[2] / VIEW.zoom) / scene.clientWidth;
+  VIEW.panx = drag.px - (e.clientX - drag.x) * s;
+  VIEW.pany = drag.py - (e.clientY - drag.y) * s;
+  applyVB();
+});
+scene.addEventListener('pointerup', () => drag = null);
+scene.addEventListener('pointercancel', () => drag = null);
+
 window.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    $('#drawer').hidden = true; SELECTED = null;
-    $('#inj-modal').hidden = true;
-    if (VIEW.mode === 'floor') enterBuilding();
+    if (!$('#drawer').hidden) { $('#drawer').hidden = true; SELECTED = null; }
+    else if (!$('#inj-modal').hidden) $('#inj-modal').hidden = true;
+    else if (VIEW.mode === 'floor') enterBuilding();
   }
 });
-window.addEventListener('resize', () => render());
+window.addEventListener('resize', () => applyVB());
 
 boot();

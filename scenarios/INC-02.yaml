@@ -1,0 +1,47 @@
+id: INC-02
+title: 사용자 계정 잠금 요청
+category: inc
+week: 4
+visibility: public
+difficulty: 1
+
+# 이 시나리오의 정답은 "푸는 법"이 아니라 **"이건 인시던트가 아니다"** 를 아는 것이다.
+# 서비스요청과 인시던트를 구분하지 못하면 이후 모든 주차의 티켓 흐름이 뒤엉킨다.
+inject:
+  method: manual
+  params:
+    request: "사용자가 관리 포털 계정이 잠겼다며 해제를 요청한다"
+  target: {floor: "4F", asset: portal}
+  script: null
+
+impl:
+  status: planned
+  note: >-
+    요청 접수 창구가 없다. kt66 에 ITSM/티켓 큐가 아직 구현되지 않아 강사가 구두 또는
+    문서로 제시해야 한다. 4주차 CMDB 와 함께 티켓 큐를 붙이면 ready 로 올라간다.
+
+symptom:
+  - "서비스 요청 티켓 접수 — 장애 알림은 없다"
+  - "SIEM 에 인증 실패 이벤트 존재, 서비스 영향 없음"
+
+evidence:
+  - "SIEM 인증 실패 이벤트 — 잠금이 정책대로 동작한 흔적"
+  - "서비스 상태 정상 — 관제 화면 가동 자산 카운트 변화 없음"
+
+expect:
+  - action: classify_as_service_request
+    weight: 3
+    note: 인시던트가 아니다. 이 구분이 이 시나리오의 전부다
+  - action: verify_requester_identity
+    weight: 2
+  - action: apply_standard_procedure
+    weight: 2
+  - action: record_in_ticket
+    weight: 1
+
+forbidden:
+  - "인시던트로 등록해 장애 통계를 오염시키기"
+  - "신원 확인 없이 잠금 해제"
+
+sla: {detect: null, mitigate: 4h}
+cascade: null

@@ -15,14 +15,15 @@ name: kt66
 #                                  (강의실 DHCP 브리지 VM: 학생 hosts kt66.lab→VM_IP 와 일치).
 #                                  미설정 시 0.0.0.0(모든 인터페이스). 레거시 2-NIC 는
 #                                  WEB_HOST_IP=192.168.0.161 명시.
-# 내부 전용(호스트 Firefox 만):     SIEM/대시보드/보안 GUI 는 ens38=192.168.136.145 에 publish
-#                                  (LAN 에서 격리 — dummy kt66int0)
+# 내부 GUI 바인딩:                 SIEM/대시보드/보안콘솔/관제화면은 ${INT_HOST_IP} 에 publish.
+#                                  기본값은 dummy NIC(192.168.136.145) — 호스트 브라우저 전용 격리.
+#                                  .env 에서 LAN IP 로 바꾸면 강의실 LAN 에 전부 노출된다(의도적 선택).
 # 외부 공격자:                      별도 VM (레거시 192.168.0.202) 또는 VM 내부 kt66-attacker 컨테이너
 # Windows:                         보류 (추후 독립 HW)
 # ─────────────────────────────────────────────────────────────
 
 x-web-host: &web_host "0.0.0.0"      # 실제 바인딩은 ${WEB_HOST_IP} — .env 참조
-x-int-host: &int_host "192.168.136.145"    # ens38 — 내부전용 GUI/SIEM 바인딩 IP
+x-int-host: &int_host "192.168.136.145"   # 기본값(dummy NIC). 실제 바인딩은 ${INT_HOST_IP} — .env 참조
 
 # 시각(타임존) 통일 — 전체 컨테이너 KST(Asia/Seoul). 배포 시부터 로그 타임스탬프 일관성.
 #   · 우리 빌드 이미지: Dockerfile 에 tzdata + /etc/localtime 심볼릭링크 내장(호스트 무관).
@@ -132,7 +133,7 @@ services:
       - "${WEB_HOST_IP:-0.0.0.0}:8006:8006"
       - "${WEB_HOST_IP:-0.0.0.0}:8007:8007"
       - "${WEB_HOST_IP:-0.0.0.0}:9100:9100"   # bastion API (관리)
-      - "192.168.136.145:8081:8080"      # fw 보안콘솔 GUI — 내부전용(호스트 Firefox)
+      - "${INT_HOST_IP:-192.168.136.145}:8081:8080"      # fw 보안콘솔 GUI — 내부전용(호스트 Firefox)
     cap_add: [NET_ADMIN, NET_RAW]
     sysctls:
       net.ipv4.ip_forward: "1"
@@ -173,7 +174,7 @@ services:
       FW_PIPE_IP: 10.20.31.1
       PRESERVE_SRC_IP: "1"           # 데이터경로 masquerade 비활성 (출처 보존)
     ports:
-      - "192.168.136.145:8082:8080"  # ips 보안콘솔 GUI — 내부전용(호스트 Firefox)
+      - "${INT_HOST_IP:-192.168.136.145}:8082:8080"  # ips 보안콘솔 GUI — 내부전용(호스트 Firefox)
     volumes:
       - ips-suricata-logs:/var/log/suricata
       - ./keys:/keys:ro
@@ -200,7 +201,7 @@ services:
       WAZUH_MANAGER: 10.20.32.100
       DEFAULT_GW: 10.20.32.1   # via ips — 출처(.202)로의 응답 경로
     ports:
-      - "192.168.136.145:8083:8080"  # WAF(ModSec) 보안콘솔 GUI — 내부전용(호스트 Firefox)
+      - "${INT_HOST_IP:-192.168.136.145}:8083:8080"  # WAF(ModSec) 보안콘솔 GUI — 내부전용(호스트 Firefox)
     volumes:
       - web-apache-logs:/var/log/apache2
       - ./keys:/keys:ro
@@ -303,7 +304,7 @@ services:
       - ./wazuh-config/wazuh.yml:/usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
     # 내부 전용: SIEM 대시보드는 호스트(.151) Firefox 에서만 — ens38(.136.145):5601 바인딩
     ports:
-      - "192.168.136.145:5601:5601"
+      - "${INT_HOST_IP:-192.168.136.145}:5601:5601"
     networks:
       dmz:
         ipv4_address: 10.20.32.120
@@ -320,7 +321,7 @@ services:
       dmz:
         ipv4_address: 10.20.32.50
     ports:
-      - "192.168.136.145:8000:8000"  # 관리 포털 — 내부전용(호스트 Firefox)
+      - "${INT_HOST_IP:-192.168.136.145}:8000:8000"  # 관리 포털 — 내부전용(호스트 Firefox)
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ips-suricata-logs:/data/suricata-logs:ro

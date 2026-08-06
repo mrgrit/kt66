@@ -1,0 +1,54 @@
+id: FLT-05
+title: 인증서 만료
+category: flt
+week: 11
+visibility: private
+difficulty: 2
+
+# 이번 것만 갱신하면 다음 주에 또 난다. **전수 조사**로 끝내야 하는 시나리오다.
+# kt66 은 wazuh-config/certs 에 인증서가 6종 이상 있어 전수 조사가 실제로 성립한다.
+inject:
+  method: config_drift
+  params:
+    action: "만료된 인증서로 교체한다 (예: wazuh.dashboard 인증서)"
+    path: wazuh-config/certs/
+  target: {floor: "2F", asset: dashboard}
+  script: null
+
+impl:
+  status: partial
+  note: >-
+    인증서 교체는 가능하지만 indexer↔manager↔dashboard 의 상호 신뢰 사슬을 건드리므로
+    잘못하면 SIEM 스택 전체가 안 뜬다. 원본 certs 백업과 복구 절차를 스크립트에 포함해야 한다.
+
+symptom:
+  - "TLS 오류로 접속 불가"
+  - "인증서 검증 실패 로그"
+  - "일부 컴포넌트만 영향"
+
+evidence:
+  - "openssl x509 -noout -dates — 만료일"
+  - "wazuh-config/certs/ 전체 목록"
+  - "컴포넌트 로그의 검증 실패 메시지"
+
+expect:
+  - action: identify_expired_cert
+    weight: 2
+  - action: inventory_all_certs
+    weight: 3
+    note: 전수 조사. 이걸 안 하면 다음 주에 같은 티켓이 다시 온다
+  - action: renew_and_deploy
+    weight: 2
+  - action: verify_trust_chain
+    weight: 2
+    note: 갱신 후 상호 신뢰 사슬 전체를 확인한다 — 하나만 고치면 다른 쪽이 깨진다
+  - action: add_expiry_monitoring
+    weight: 3
+    note: 만료 30일 전 알림. 재발 방지가 이 시나리오의 결론이다
+
+forbidden:
+  - "해당 인증서만 갱신하고 종결"
+  - "검증 비활성화로 우회"
+
+sla: {detect: 30m, mitigate: 4h}
+cascade: null

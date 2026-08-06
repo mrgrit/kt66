@@ -1,0 +1,55 @@
+id: DR-02
+title: 체크포인트 손상으로 재개 불가
+category: dr
+week: 9
+visibility: private
+difficulty: 4
+aliases: [INC-09b]
+
+# 백업이 있다고 복구가 되는 게 아니다. **복구 가능성을 검증하지 않은 백업**은 없는 것과 같다.
+# 손실 시간을 정직하게 보고하는 것까지가 이 시나리오다.
+inject:
+  method: config_drift
+  params:
+    action: "최신 체크포인트 파일을 손상시킨다 — 이전 체크포인트는 남겨 둔다"
+  target: {floor: "3F", asset: dgx-spark-01}
+  script: null
+
+impl:
+  status: planned
+  note: >-
+    학습 워크로드도 체크포인트도 없다. 3F 는 현재 Ollama 서빙만 있다.
+    ENV-03 의 ai-training 부하 그룹이 비어 있는 것과 **같은 뿌리**다 —
+    3F 에 학습 job 을 붙이면 두 시나리오가 함께 산다.
+
+symptom:
+  - "재개 시 체크포인트 로드 실패"
+  - "최신 체크포인트만 손상, 이전 것은 정상"
+  - "job 이 처음부터 다시 시작하려 함"
+
+evidence:
+  - "체크포인트 파일 목록과 각 무결성"
+  - "마지막 정상 체크포인트 시각"
+  - "그 시점 이후 진행된 학습 시간"
+
+expect:
+  - action: verify_checkpoint_integrity
+    weight: 3
+  - action: fall_back_to_previous_checkpoint
+    weight: 3
+  - action: quantify_lost_training_time
+    weight: 3
+    note: 몇 시간 어치가 날아갔는가. 숫자로 말한다
+  - action: report_loss_transparently
+    weight: 2
+    note: 손실을 축소해 보고하는 것이 가장 큰 감점이다
+  - action: add_checkpoint_verification
+    weight: 2
+    note: 저장 직후 로드 검증. 이 시나리오의 결론이다
+
+forbidden:
+  - "손실 시간을 축소해 보고"
+  - "검증 없이 처음부터 재실행"
+
+sla: {detect: 30m, mitigate: 2h}
+cascade: null

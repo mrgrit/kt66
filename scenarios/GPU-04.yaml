@@ -1,0 +1,52 @@
+id: GPU-04
+title: 집단통신 타임아웃
+category: gpu
+week: 12
+visibility: private
+difficulty: 5
+
+# 한 장이 전체를 멈춘다. 다중 노드 학습의 고유한 실패 양상이고,
+# "전체가 멈췄다" 에서 "어느 랭크가 원인이다" 로 좁히는 것이 유일한 과제다.
+inject:
+  method: gpu_workload
+  params:
+    method_detail: "다중 노드 학습 job 중 한 랭크를 지연·중단시킨다"
+  target: {floor: "3F", asset: dgx-spark-01}
+  script: null
+
+impl:
+  status: planned
+  note: >-
+    노드가 하나다. DGX Spark 1대로는 집단통신(NCCL 등) 상황 자체가 성립하지 않는다.
+    GPU 노드를 하나 더 붙이거나, 다중 랭크를 흉내 내는 모사 job 을 만들어야 한다.
+    현재 kt66 구성으로는 **가장 멀리 있는 시나리오**다.
+
+symptom:
+  - "다중 노드 학습 job 전체 중단"
+  - "타임아웃 로그, 특정 랭크만 응답 없음"
+  - "다른 노드는 지표상 정상"
+
+evidence:
+  - "랭크별 로그 — 마지막 통신 시각"
+  - "노드 간 네트워크 지표"
+  - "job 시작 시각과 중단 시각"
+
+expect:
+  - action: identify_stalled_rank
+    weight: 3
+    note: 전체가 멈춘 것처럼 보이지만 원인은 한 랭크다
+  - action: check_node_health
+    weight: 2
+  - action: check_interconnect
+    weight: 2
+  - action: drain_and_resume_from_checkpoint
+    weight: 3
+  - action: report_lost_compute_time
+    weight: 2
+
+forbidden:
+  - "전체 job 을 재시작하며 원인 랭크를 특정하지 않음"
+  - "체크포인트 확인 없이 처음부터 재실행"
+
+sla: {detect: 20m, mitigate: 2h}
+cascade: null

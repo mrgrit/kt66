@@ -1,0 +1,56 @@
+id: CHG-02
+title: 무승인 룰 변경 발견
+category: chg
+week: 8
+visibility: public
+difficulty: 3
+
+# 드리프트를 발견했을 때의 본능은 "되돌린다" 이다. 그게 틀렸다.
+# 되돌리는 순간 누가 왜 바꿨는지 알 길이 사라진다. **기록이 복구보다 먼저다.**
+inject:
+  method: config_drift
+  params:
+    container: kt66-fw
+    action: "nftables 에 대장에 없는 허용 룰을 추가한다"
+    example: "nft add rule inet kt66 forward ip saddr 10.20.30.0/24 ip daddr 10.20.40.0/24 accept"
+  target: {floor: "2F", asset: fw}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    docker exec 로 fw/ips 의 nft 룰을 실제로 바꿀 수 있고, 보안 콘솔(8081/8082)에서
+    현재 룰셋이 그대로 보인다. agents/loops/firewall-drift-check.yaml 이 이 시나리오의 짝이다.
+
+symptom:
+  - "CMDB 기재 룰셋과 실제 nftables 불일치"
+  - "존 경계를 우회하는 허용 룰 존재"
+  - "변경 이력 없음"
+
+evidence:
+  - "fw 보안 콘솔 (8081) — 현재 룰셋"
+  - "envsim/assets.yaml 의 zone_chain — 원래 허용되어야 하는 경로"
+  - "SIEM — 룰 변경 시각 전후의 이벤트"
+
+expect:
+  - action: capture_current_state
+    weight: 3
+    note: 원상복구 **전에** 현재 룰셋을 그대로 떠 둔다. 이게 유일한 증거다
+  - action: diff_against_cmdb
+    weight: 2
+  - action: assess_exposure
+    weight: 3
+    note: 이 룰로 무엇이 뚫렸는가 — 존 체인의 어느 단계를 건너뛰는가
+  - action: trace_change_origin
+    weight: 2
+  - action: revert_with_change_record
+    weight: 2
+  - action: report
+    weight: 1
+
+forbidden:
+  - "기록 없이 즉시 원복 — 증거가 사라진다"
+  - "누가 했는지 확인 전에 종결"
+
+sla: {detect: 1h, mitigate: 4h}
+cascade: null

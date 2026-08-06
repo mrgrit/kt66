@@ -1,0 +1,53 @@
+id: SEC-02
+title: 미검증 모델 반입
+category: sec
+week: 10
+visibility: public
+difficulty: 3
+
+# 공급망 위험이 AI 인프라에서 어떻게 나타나는지 보는 시나리오.
+# 모델 파일은 데이터가 아니라 **실행 가능한 것**일 수 있다.
+inject:
+  method: gpu_workload
+  params:
+    action: "외부 허브에서 검증되지 않은 모델을 DGX 에 내려받는다"
+    endpoint: "http://10.20.50.10:11434"
+  target: {floor: "3F", asset: dgx-spark-01}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    DGX 는 자기 회선으로 인터넷에 나가므로 ollama pull 이 실제로 된다.
+    반입 사실은 3F 사용률·전력 변화와 Wazuh 에이전트(ID 004) 로그로 관측된다.
+
+symptom:
+  - "외부 허브에서 모델 다운로드 발생"
+  - "반입 승인 기록 없음"
+  - "3F 저장 공간 사용량 증가"
+
+evidence:
+  - "Ollama /api/tags — 반입된 모델 목록"
+  - "DGX Wazuh 에이전트 로그 — 파일 생성·프로세스"
+  - "모델 카드·라이선스·직렬화 포맷"
+
+expect:
+  - action: identify_model_provenance
+    weight: 3
+  - action: check_serialization_format
+    weight: 3
+    note: pickle 계열이면 로드 자체가 코드 실행이다
+  - action: require_isolated_validation
+    weight: 3
+    note: 운영 존에서 바로 올리지 않는다. 격리 환경 검증을 요구한다
+  - action: check_license_and_policy
+    weight: 2
+  - action: record_in_cmdb
+    weight: 1
+
+forbidden:
+  - "검증 없이 운영 서빙에 투입"
+  - "출처 확인 없이 승인"
+
+sla: {detect: 1h, mitigate: 8h}
+cascade: null

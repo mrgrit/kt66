@@ -66,11 +66,15 @@ nft "add table inet kt66ot" 2>/dev/null || true
 nft "add chain inet kt66ot forward { type filter hook forward priority 10 ; policy accept ; }" 2>/dev/null || true
 nft "add rule inet kt66ot forward ct state established,related accept" 2>/dev/null || true
 nft "add rule inet kt66ot forward ip saddr 10.20.60.0/24 accept" 2>/dev/null || true
+# ext 차단이 **포트 허용보다 먼저** 와야 한다. nftables 는 위에서부터 평가하므로
+# 8000/ICMP 허용을 앞에 두면 외부망이 그 두 경로로 시설망에 닿는다 — 그러면
+# "외부망 전면 차단" 이라는 이 정책의 문장 자체가 거짓이 되고, SEC-04 도 성립하지 않는다.
+nft "add rule inet kt66ot forward ip saddr 10.20.30.0/24 ip daddr 10.20.60.0/24 counter log prefix \"[kt66-ips] ext->ot DROP \" drop" 2>/dev/null || true
+# 나머지 존(dmz/int/app)은 시뮬레이터 API 와 ICMP 만.
 nft "add rule inet kt66ot forward ip daddr 10.20.60.0/24 tcp dport 8000 accept" 2>/dev/null || true
 nft "add rule inet kt66ot forward ip daddr 10.20.60.0/24 ip protocol icmp accept" 2>/dev/null || true
-nft "add rule inet kt66ot forward ip saddr 10.20.30.0/24 ip daddr 10.20.60.0/24 counter log prefix \"[kt66-ips] ext->ot DROP \" drop" 2>/dev/null || true
 nft "add rule inet kt66ot forward ip daddr 10.20.60.0/24 counter log prefix \"[kt66-ips] ->ot DROP \" drop" 2>/dev/null || true
-echo "[ips] 1F 시설망(OT) 접근통제 활성 — 시뮬레이터 API(8000)/ICMP 만 허용, 외부망 전면 차단"
+echo "[ips] 1F 시설망(OT) 접근통제 활성 — 외부망(ext) 전면 차단, 그 외 존은 API(8000)/ICMP 만"
     echo "[ips] 에이전트→manager($WAZUH_MANAGER) masquerade 활성 (비대칭 경로 SSL 끊김 방지)"
 fi
 

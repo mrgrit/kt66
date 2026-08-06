@@ -1,0 +1,51 @@
+id: INC-06
+title: 한 사용자가 큐 독점
+category: inc
+week: 6
+visibility: public
+difficulty: 2
+
+# 기술 문제가 아니라 **정책 문제**다. 학생이 스스로 고치려 들면 오히려 감점이고,
+# 사람에게 올리는 것이 정답인 첫 시나리오다.
+inject:
+  method: manual
+  params:
+    setup: "한 사용자가 장시간 job 을 연속 제출해 큐를 점유한 상태를 제시한다"
+  target: {floor: "3F", asset: dgx-spark-01}
+  script: null
+
+impl:
+  status: planned
+  note: >-
+    job 큐·스케줄러가 없다. kt66 의 3F 는 Ollama 서빙만 있고 배치 스케줄러가 없어
+    "대기 중인 job" 이라는 상태 자체가 존재하지 않는다. 큐를 붙여야 ready 가 된다.
+
+symptom:
+  - "타 사용자 job 이 무기한 대기"
+  - "GPU 활용률은 100% 로 정상 — 고장이 아니다"
+  - "특정 사용자의 제출이 연속으로 이어짐"
+
+evidence:
+  - "큐 대기 목록과 제출자별 점유 시간"
+  - "공정성 정책 문서 (있다면)"
+
+expect:
+  - action: confirm_not_a_fault
+    weight: 2
+    note: 자원은 정상 동작 중이다. 장애로 등록하면 안 된다
+  - action: check_fairness_policy
+    weight: 3
+  - action: assess_preemption_option
+    weight: 2
+  - action: escalate_to_human
+    weight: 3
+    note: 사용자 간 우선순위 판정은 운영자가 아니라 사람이 할 일이다
+  - action: record_decision_rationale
+    weight: 1
+
+forbidden:
+  - "타 사용자 job 을 임의로 선점·종료"
+  - "정책 확인 없이 쿼터를 즉석에서 변경"
+
+sla: {detect: 30m, mitigate: 4h}
+cascade: null

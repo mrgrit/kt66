@@ -1,0 +1,57 @@
+id: ENV-02
+title: CDU 압력 이상·누수
+category: env
+week: 13
+visibility: public
+difficulty: 4
+
+# 액체냉각 시나리오. 전원과 냉각의 **순서**를 묻는다 —
+# 냉각을 먼저 끊으면 열이 갈 곳이 없고, 전원을 먼저 끊으면 발열이 멎는다.
+inject:
+  method: envsim_fault
+  params: {fault: null}
+  target: {floor: "3F", asset: null}
+  script: null
+
+impl:
+  status: planned
+  note: >-
+    kt66 의 냉방 모델은 공랭이다 — 냉동기 1대 + CRAC 3대뿐이고 CDU·액체냉각 계통이
+    자산 대장에도 물리 모델에도 없다. 주입하려면 (1) assets.yaml 의 facility 에 CDU 를
+    추가하고 (2) envsim 에 `cdu_leak` / `cdu_pressure_low` 고장 유형과 랙 단위 액랭
+    경로를 넣어야 한다. 고밀도 GPU 랙(R-3F-01, 25kW)이 이미 있어 모델을 붙일 자리는 있다.
+
+symptom:
+  - "CDU 압력 저하"
+  - "누수 감지 경보"
+  - "해당 랙 온도 급상승"
+
+evidence:
+  - "CDU 압력·유량 지표"
+  - "누수 감지 센서 위치"
+  - "해당 랙의 발열 kW"
+
+expect:
+  - action: confirm_leak_location
+    weight: 2
+  - action: decide_power_before_coolant
+    weight: 3
+    note: 전원과 냉각 중 무엇을 먼저 끊는가. 이 순서가 이 시나리오의 본체다
+  - action: isolate_affected_rack
+    weight: 3
+  - action: notify_facility_engineer
+    weight: 2
+  - action: assess_equipment_damage
+    weight: 2
+  - action: incident_report
+    weight: 1
+
+forbidden:
+  - "냉각만 차단하고 부하를 그대로 둠 — 열이 갈 곳이 없어진다"
+  - "누수 위치 확인 없이 전 계통 차단"
+
+sla: {detect: 5m, mitigate: 30m}
+cascade:
+  after: 300s
+  effect: "미대응 시 해당 랙 전원 차단"
+  enforced: false

@@ -1,0 +1,51 @@
+id: INC-08
+title: 백업 실패 3일간 미탐지
+category: inc
+week: 9
+visibility: private
+difficulty: 3
+
+# 진짜 문제는 백업 실패가 아니라 **알림이 오지 않았다는 것**이다.
+# 여기를 짚지 못하면 같은 사고가 반복된다.
+inject:
+  method: config_drift
+  params:
+    action: "백업 작업을 3일 전부터 실패 상태로 두고, 실패 알림 경로만 끊어 둔다"
+  target: {floor: "2F", asset: siem}
+  script: null
+
+impl:
+  status: planned
+  note: >-
+    백업 작업이 없다. agents/loops/backup-verify.yaml 에 루프 정의는 있으나 실제로
+    도는 백업 잡과 그 로그가 없다. 백업 잡을 붙이면 ready 가 된다.
+
+symptom:
+  - "백업 로그에 3일치 실패 기록"
+  - "그 기간 동안 알림 없음"
+  - "서비스는 정상 — 아무도 몰랐다"
+
+evidence:
+  - "백업 잡 실행 로그"
+  - "SIEM 에 해당 기간 백업 관련 이벤트 유무"
+  - "알림 규칙 설정 — 무엇을 감시하기로 되어 있었는가"
+
+expect:
+  - action: confirm_backup_failure_window
+    weight: 2
+  - action: investigate_missing_alert
+    weight: 3
+    note: 이 시나리오의 본체다. 실패보다 침묵이 더 위험하다
+  - action: assess_rpo_exposure
+    weight: 2
+  - action: restore_backup_operation
+    weight: 2
+  - action: add_alert_for_silence
+    weight: 3
+    note: "성공 알림이 아니라 '와야 할 것이 안 왔다' 를 감시하도록 고친다"
+
+forbidden:
+  - "백업만 다시 돌리고 종결 — 알림 공백이 그대로 남는다"
+
+sla: {detect: 1h, mitigate: 8h}
+cascade: null

@@ -1,0 +1,74 @@
+id: ENV-03
+title: UPS 절체
+category: env
+week: 13
+visibility: private
+difficulty: 5
+
+# **이 카테고리의 정점이다.** 배터리 잔여 시간 안에 학습 job(체크포인트 필요),
+# 추론 서비스(SLA), 관리 시스템(SIEM) 중 무엇을 살릴지 결정해야 한다.
+# 정답이 하나가 아니며, 판단의 근거를 설명할 수 있는가로 채점한다.
+inject:
+  method: envsim_fault
+  params:
+    sequence:
+      - {fault: generator_fail, target: gen-01}   # 먼저 걸어 둔다
+      - {fault: utility_fail, target: utility-01} # 그 다음 수전을 끊는다
+  target: {floor: "1F", asset: ups-01}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    관제 화면에서 배터리 전환이 감지되면 **부하 차단 판단 패널이 자동으로 뜬다** —
+    그룹별 소비 kW, 차단 시 영향, 끊었을 때 잔여 분, 차단 버튼이 한 화면에 있다.
+    발전기는 start_delay_s=45 후에 기동 실패로 확정된다(실측 확인).
+    ⚠ 시간 배속은 ×1 로 둔다. "몇 분 안에 무엇을 끌 것인가" 가 실습의 본체다.
+    ⚠ 현재 ai-training 그룹에 배치된 자산이 없어 학습 job 선택지가 비어 있다.
+      3F 에 학습 워크로드를 붙이기 전까지는 추론/SIEM/업무 3자 판단으로 운용한다.
+
+symptom:
+  - "상용전원 상실, UPS 배터리 전환 (`L10`)"
+  - "45초 후 비상 발전기 기동 실패 (`L13`)"
+  - "배터리 잔여율이 분 단위로 감소"
+  - "CRAC 정지 — 냉방은 UPS 를 타지 않는다"
+
+evidence:
+  - "관제 화면 UPS 절체 패널 — 배터리 %, 분당 감소율, 잔여 분, 그룹별 kW"
+  - "부하 그룹별 차단 시 영향·복구 특성 (assets.yaml shed_groups)"
+  - "SIEM — 전력 경보"
+  - "아일 온도 — 정전은 전력 문제로 시작해 열 문제로 끝난다"
+
+expect:
+  - action: confirm_generator_failure
+    weight: 2
+    note: 발전기가 뜰지 아닐지로 남은 시간이 완전히 달라진다
+  - action: compute_remaining_runtime
+    weight: 2
+  - action: rank_loads_by_recovery_cost
+    weight: 3
+    note: 우선순위는 중요도가 아니라 **복구 비용**으로 매긴다. SIEM 은 끄면 감사 공백이 남는다
+  - action: shed_with_stated_rationale
+    weight: 3
+    note: 무엇을 지키기로 했고 그 대가가 무엇인지 말할 수 있으면 정답이다
+  - action: account_for_cooling_loss
+    weight: 2
+    note: 냉방이 멎었다. 전력만 보면 절반만 본 것이다
+  - action: notify_stakeholders
+    weight: 2
+  - action: postmortem_with_decision_log
+    weight: 2
+
+forbidden:
+  - "근거 없이 부하 차단"
+  - "SIEM 을 먼저 차단 — 정전 구간이 통째로 감사 공백이 된다"
+  - "전 부하 유지하며 배터리 소진 대기"
+
+sla: {detect: 2m, mitigate: 10m}
+cascade:
+  after: "배터리 소진 시점"
+  effect: "전면 정전 — 전 자산 정지"
+  enforced: true
+  note: >-
+    이건 실제로 일어난다. 배터리(12kWh)가 부하로 나뉘어 실제로 감소하고,
+    0 이 되면 전력이 없다. 유일하게 자동 발생하는 cascade 다.

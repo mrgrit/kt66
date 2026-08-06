@@ -1,0 +1,52 @@
+id: GPU-02
+title: ECC 정정불가 오류
+category: gpu
+week: 12
+visibility: public
+difficulty: 4
+
+# 정정가능(correctable)과 정정불가(uncorrectable)는 대응 등급이 다르다.
+# 정정불가는 하드웨어 교체 사안이고, 학생이 소프트웨어로 해결하려 들면 안 된다.
+inject:
+  method: gpu_workload
+  params:
+    method_detail: dcgm_metric_override
+    counter: uncorrectable_ecc
+  target: {floor: "3F", asset: dgx-spark-01}
+  script: null
+
+impl:
+  status: planned
+  note: GPU-01 과 동일 — DCGM 지표 주입 경로가 없다.
+
+symptom:
+  - "정정불가 ECC 카운터 발생"
+  - "해당 GPU 에서 실행된 job 결과 신뢰성 의심"
+
+evidence:
+  - "ECC 카운터 (정정가능 / 정정불가 구분)"
+  - "페이지 리타이어먼트 목록"
+  - "해당 GPU 에서 돌던 job 목록"
+
+expect:
+  - action: distinguish_correctable_vs_not
+    weight: 3
+    note: 등급이 여기서 갈린다
+  - action: drain_node
+    weight: 3
+  - action: check_page_retirement
+    weight: 2
+  - action: invalidate_affected_results
+    weight: 2
+    note: 그 GPU 에서 나온 결과는 믿을 수 없다. 재계산 대상을 특정한다
+  - action: request_hardware_replacement
+    weight: 2
+  - action: postmortem
+    weight: 1
+
+forbidden:
+  - "소프트웨어 재시작으로 해결 시도"
+  - "영향 받은 job 결과를 그대로 사용"
+
+sla: {detect: 15m, mitigate: 2h}
+cascade: null

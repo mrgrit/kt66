@@ -1,0 +1,60 @@
+id: ENV-01
+title: CRAC 정지
+category: env
+week: 13
+visibility: public
+difficulty: 3
+
+# 환경 계열의 입구. 온도가 **진짜로** 오른다 — envsim 이 컨테이너 CPU 와 GPU 상태에서
+# 발열을 읽기 때문이다. 시설은 가상이지만 부하는 실측이다.
+inject:
+  method: envsim_fault
+  params: {fault: crac_fail, target: crac-01}
+  target: {floor: "2F", asset: crac-01}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    관제 화면 강사 패널에서 클릭 한 번이다. 유휴 상태에서는 분당 0.2°C 라 한 교시 안에
+    전개되지 않으므로 **시간 배속을 ×10 이상으로 올린다**(강사 패널 상단).
+    배속이 걸리면 상단바에 `시간 ×N` 이 뜬다.
+
+symptom:
+  - "해당 아일 냉방 출력 0kW"
+  - "온도 상승 개시"
+  - "`L10 항온항습기 정지` 경보"
+  - "27°C 초과 시 `L7 구역 온도 상승`"
+
+evidence:
+  - "관제 화면 우측 레일 — 아일 온습도, 발열 대비 냉방"
+  - "관제 화면 2F 층 뷰 — CRAC 이 빨갛게 표시, 급기 화살표 소멸"
+  - "SIEM — 환경 경보가 시스템 알림과 같은 화면에 들어온다"
+
+expect:
+  - action: confirm_scope_of_cooling_loss
+    weight: 2
+    note: 어느 아일인가. 냉동기 전체인가 CRAC 한 대인가
+  - action: estimate_time_to_threshold
+    weight: 3
+    note: 발열 kW 와 열용량으로 27°C 까지 몇 분인지 계산한다. 분 단위 대응이다
+  - action: notify_facility_engineer
+    weight: 2
+  - action: assess_workload_migration
+    weight: 3
+    note: 부하를 옮길 것인가 낮출 것인가 — 온도가 오르기 전에 결정해야 한다
+  - action: incident_ticket
+    weight: 1
+
+forbidden:
+  - "온도가 임계에 닿을 때까지 관망"
+  - "시설 담당 통보 없이 혼자 처리"
+
+sla: {detect: 5m, mitigate: 20m}
+cascade:
+  after: 90s
+  effect: "해당 아일 GPU 스로틀링 — 처리량 저하"
+  enforced: false
+  note: >-
+    선언만 되어 있다. envsim 에 온도→성능 저하 연동이 아직 없어 자동 발생하지 않는다.
+    현재는 강사가 GPU-03 을 이어서 제시하는 방식으로 연쇄를 만든다.

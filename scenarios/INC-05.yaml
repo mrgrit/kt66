@@ -1,0 +1,52 @@
+id: INC-05
+title: GPU 메모리 고갈로 job 실패
+category: inc
+week: 6
+visibility: public
+difficulty: 2
+
+# 요청한 자원과 실제 쓰는 자원이 다르다는 것을 몸으로 알게 하는 시나리오.
+# 쿼터 조정은 결론이지 시작이 아니다.
+inject:
+  method: gpu_workload
+  params:
+    action: "통합메모리(119GB)에 남는 공간보다 큰 모델을 추가로 적재한다"
+    endpoint: "http://10.20.50.10:11434"
+  target: {floor: "3F", asset: dgx-spark-01}
+  script: null
+
+impl:
+  status: partial
+  note: >-
+    실물 DGX 에서 진짜로 재현되지만 **공유 자원이다.** 다른 실습조의 추론까지 같이 죽는다.
+    조별 시간 분리 또는 전용 모델 네임스페이스가 정해지기 전에는 강사 입회 하에만 쓴다.
+
+symptom:
+  - "OOM 으로 job 종료가 반복"
+  - "재시도해도 같은 지점에서 실패"
+  - "관제 화면 3F 사용률이 튀었다가 0 으로 떨어짐"
+
+evidence:
+  - "Ollama /api/ps — 적재 모델 목록과 크기 합"
+  - "DGX 의 서빙 로그"
+  - "관제 화면 3F 자산 상태 — 도달 불가 시 정지로 표시된다"
+
+expect:
+  - action: compare_requested_vs_actual
+    weight: 3
+    note: 요청 자원과 실사용량을 나란히 놓는 것이 첫 걸음이다
+  - action: identify_memory_consumer
+    weight: 2
+  - action: propose_quota_adjustment
+    weight: 2
+  - action: notify_job_owner
+    weight: 2
+  - action: incident_ticket
+    weight: 1
+
+forbidden:
+  - "다른 사용자의 job 을 통보 없이 종료"
+  - "원인 분석 없이 모델을 내리고 종결"
+
+sla: {detect: 15m, mitigate: 60m}
+cascade: null

@@ -1,0 +1,74 @@
+id: AGT-01
+title: 에이전트 오조치
+category: agt
+week: 13
+visibility: private
+difficulty: 5
+
+# **이 교과목의 결론을 담는 장치다.** 에이전트는 확신을 갖고 틀린다.
+# 요약 보고서는 깔끔하고, 실행 로그를 열어야만 문제가 보인다.
+#
+# 설정: 에이전트가 INC-09(로그 볼륨 급증)를 감지하고 허용목록에 있는 로그 순환을 실행한다.
+# 그러나 급증의 실제 원인은 **진행 중인 공격의 탐지 로그**였다.
+# 순환으로 증적 일부가 압축·이동되어 조사가 어려워진다.
+inject:
+  method: agent_loop
+  params:
+    prerequisite: INC-09
+    loop: disk-capacity-check          # 유일한 L3(무인) 루프
+    owner: systems-engineer
+    trap: >-
+      에이전트 보고서는 "디스크 사용률 정상화, 조치 완료" 로 깔끔하다.
+      요약만 읽으면 문제없어 보인다. 실행 로그를 열어 어떤 파일이 순환되었는지
+      봐야만 보안 로그가 섞여 있었음이 드러난다.
+  target: {floor: "2F", asset: web}
+  script: null
+
+impl:
+  status: planned
+  note: >-
+    루프 정의(agents/loops/disk-capacity-check.yaml, L3 + 런북 등록)와 페르소나는 있으나
+    **루프를 실제로 도는 런타임이 아직 붙어 있지 않다.** agentctl 은 bastion/hermes/claude
+    형식으로 렌더만 하고, 실행·로그 적재는 각 런타임 몫이다.
+    선결 과제: (1) 런타임 하나를 골라 실제 실행 (2) 실행 로그를 관제 화면에서 열람 가능하게
+    (3) 순환 허용목록을 게이트로 강제. 이 셋이 되면 시나리오가 통째로 산다.
+
+symptom:
+  - "에이전트가 자율적으로 조치를 수행하고 '완료' 로 보고"
+  - "디스크 사용률은 실제로 정상화됨"
+  - "표면상 아무 문제 없음"
+
+evidence:
+  - "에이전트 실행 로그 — 요약이 아니라 이력"
+  - "순환된 파일 목록"
+  - "그 시각 SIEM 의 탐지 이벤트 — 왜 로그가 급증했는가"
+  - "루프의 게이트 정의 (agents/loops/disk-capacity-check.yaml)"
+
+expect:
+  - action: read_execution_trace_not_summary
+    weight: 3
+    note: 요약 보고서는 깨끗하다. 이력을 열지 않으면 영원히 못 본다
+  - action: find_security_logs_in_rotated_list
+    weight: 3
+  - action: assess_evidence_recoverability
+    weight: 3
+    note: 원본 복구가 되는가. 안 되면 무엇이 소실됐는지 특정한다
+  - action: fix_the_gate
+    weight: 3
+    note: "/var/log/ 하위 보안 로그 경로를 순환 허용목록에서 제외한다"
+  - action: update_skill_document
+    weight: 2
+    note: "'디스크 압박의 원인을 확인하기 전에 정리하지 않는다' 를 스킬 문서에 추가"
+
+forbidden:
+  - "에이전트 보고서만 읽고 정상 종결"
+  - "에이전트를 통째로 비활성화 — 원인은 게이트이지 에이전트가 아니다"
+
+sla: {detect: 4h, mitigate: 1d}
+cascade: null
+
+grading:
+  rule: "expect 5개 중 3개 이상"
+  instructor_note: >-
+    발견 자체를 못 한 학생에게는 강사가 직접 짚어주고 재제출을 받는다.
+    이 경험은 감점 대상이 아니라 반드시 겪어야 할 학습이다.

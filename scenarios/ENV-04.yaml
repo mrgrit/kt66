@@ -1,0 +1,59 @@
+id: ENV-04
+title: 소방 설비 오작동
+category: env
+week: 13
+visibility: private
+difficulty: 3
+
+# 경보가 울렸는데 불은 없다. **성급한 차단이 오히려 사고**가 되는 유일한 시나리오다.
+# 다른 모든 시나리오에서 "빨리 조치하라" 고 배운 학생을 한 번 반대로 시험한다.
+inject:
+  method: envsim_fault
+  params: {fault: smoke, target: "2F"}
+  target: {floor: "2F", asset: fm200-02}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    envsim 의 smoke 고장을 층 단위로 주입한다. `L14 연기 감지 — 소방 설비 대기` 경보가
+    SIEM 까지 그대로 올라간다. 실제 온도 변화는 없으므로 "온도는 정상인데 연기 경보만
+    있다" 는 오작동의 특징이 그대로 나타난다 — 판별 근거가 화면에 이미 있다.
+
+symptom:
+  - "`L14 연기 감지` 경보"
+  - "실제 온도 상승 없음"
+  - "해당 구역 CCTV 상 이상 없음"
+  - "소방 설비 방출 대기 상태"
+
+evidence:
+  - "관제 화면 아일 온도 — 화재라면 온도가 올라야 한다. 안 오른다"
+  - "CCTV 상태 (관제 화면 1F/2F 시설 항목)"
+  - "다른 센서와의 교차 확인 — 단일 센서만 반응하는가"
+
+expect:
+  - action: cross_check_other_sensors
+    weight: 3
+    note: 온도·CCTV·다른 층 센서. 하나만 울면 오작동을 의심한다
+  - action: verify_physically_or_visually
+    weight: 3
+    note: 확인 없이 방출하면 그 자체가 사고다
+  - action: hold_suppression_until_confirmed
+    weight: 3
+    note: 성급한 차단 금지. 이 시나리오에서만 '기다리는 것'이 정답이다
+  - action: notify_facility_and_safety
+    weight: 2
+  - action: report_false_alarm_with_evidence
+    weight: 2
+  - action: request_sensor_maintenance
+    weight: 1
+
+forbidden:
+  - "확인 없이 소방 방출·전원 차단"
+  - "경보를 무시하고 종결 — 반대 극단도 오답이다"
+
+sla: {detect: 2m, mitigate: 20m}
+cascade:
+  after: null
+  effect: "오조치 시 불필요한 셧다운 — 학생의 조치가 곧 연쇄의 원인이 된다"
+  enforced: false

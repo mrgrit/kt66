@@ -1,0 +1,54 @@
+id: INC-07
+title: 체크포인트 쓰기로 스토리지 포화
+category: inc
+week: 6
+visibility: private
+difficulty: 3
+
+# 주기적 IO 스파이크라는 **패턴**을 읽어야 원인이 보인다. 디스크가 찼다는 사실만
+# 보고 지우면 다음 주기에 다시 찬다.
+inject:
+  method: container_exec
+  params:
+    container: kt66-aicompanion
+    action: "일정 주기로 대용량 파일을 쓴다 — 체크포인트 저장을 모사"
+    fill_to: "85%"
+  target: {floor: "2F", asset: aicompanion}
+  script: null
+
+impl:
+  status: partial
+  note: >-
+    디스크 채우기는 container_exec 로 바로 되지만 스크립트가 없다.
+    실제 체크포인트가 아니라 주기적 대용량 쓰기로 모사한다 — 판단 훈련이 목적이므로 충분하다.
+
+symptom:
+  - "주기적 IO 스파이크"
+  - "디스크 사용률 85% 초과"
+  - "쓰기 지연이 서비스 응답에 반영되기 시작"
+
+evidence:
+  - "df / du — 무엇이 차지하는가"
+  - "쓰기 시각의 주기성 — 타임스탬프 간격"
+  - "보존 정책 설정"
+
+expect:
+  - action: identify_top_consumer
+    weight: 2
+  - action: find_write_periodicity
+    weight: 3
+    note: 주기가 보이면 원인이 프로세스라는 뜻이다. 일회성 사고가 아니다
+  - action: check_retention_policy
+    weight: 2
+  - action: verify_backup_before_delete
+    weight: 3
+    note: 지우기 전에 백업 확인. 순서를 바꾸면 복구 불가가 된다
+  - action: propose_policy_change
+    weight: 2
+
+forbidden:
+  - "백업 확인 없이 삭제"
+  - "보존 정책 확인 없이 오래된 파일 일괄 삭제"
+
+sla: {detect: 30m, mitigate: 2h}
+cascade: null

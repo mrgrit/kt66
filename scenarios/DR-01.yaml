@@ -1,0 +1,57 @@
+id: DR-01
+title: 스토리지 노드 손실
+category: dr
+week: 9
+visibility: public
+difficulty: 4
+
+# 복구 순서를 정하는 훈련. 전부 동시에 살릴 수 없으니 무엇부터인가를 정해야 하고,
+# AI 인프라에서는 여기에 **재계산 비용**이라는 축이 하나 더 붙는다.
+inject:
+  method: docker_control
+  params:
+    action: "데이터 볼륨을 마운트 해제하거나 해당 컨테이너를 정지시켜 접근 불가를 만든다"
+    volumes: [wazuh-indexer-data, aicompanion-data]
+  target: {floor: "2F", asset: indexer}
+  script: null
+
+impl:
+  status: partial
+  note: >-
+    kt66 에 독립 스토리지 노드가 없다. docker 볼륨을 쓰는 컨테이너를 죽여 "데이터 접근
+    불가" 는 만들 수 있으나, RPO·복구 순서 실습의 전제인 **백업 세트가 없다.**
+    백업 잡(INC-08 과 같은 선결 과제)을 붙여야 온전해진다.
+
+symptom:
+  - "데이터 접근 불가"
+  - "의존 서비스 연쇄 오류"
+  - "관제 화면에서 여러 자산이 동시에 정지"
+
+evidence:
+  - "마지막 성공 백업 시각 (RPO)"
+  - "서비스 간 의존 관계 — 무엇이 무엇을 필요로 하는가"
+  - "진행 중이던 작업의 체크포인트"
+
+expect:
+  - action: confirm_rpo
+    weight: 3
+    note: 언제 것까지 살아 있는가. 이게 정해져야 나머지가 정해진다
+  - action: map_service_dependencies
+    weight: 2
+  - action: decide_recovery_order
+    weight: 3
+    note: 의존이 아래에서 위로 가므로 아래부터 살린다
+  - action: estimate_recompute_cost
+    weight: 2
+    note: 소실 구간을 다시 계산하는 데 드는 GPU 시간을 산정한다
+  - action: execute_and_verify
+    weight: 2
+  - action: report_data_loss_window
+    weight: 1
+
+forbidden:
+  - "RPO 확인 없이 복구 시작"
+  - "의존 역순으로 복구해 반복 실패"
+
+sla: {detect: 15m, mitigate: 4h}
+cascade: null

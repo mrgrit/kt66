@@ -1,0 +1,58 @@
+id: SEC-04
+title: 관리 대상 존 접근 시도
+category: sec
+week: 10
+visibility: private
+difficulty: 3
+
+# 원본 카탈로그는 "mgmt 세그먼트"라고 썼지만 kt66 에 mgmt 는 논리 존이다(L2 경계가 아니다).
+# 그래서 **실제로 격리된 세그먼트인 ot(시설망)** 로 옮겼다. 오히려 더 낫다 —
+# ips 의 kt66ot 테이블이 ext→ot 를 전면 차단하고 로그를 남기므로 증거가 확실하다.
+inject:
+  method: traffic_gen
+  params:
+    from: kt66-attacker
+    to: "10.20.60.0/24 (ot 시설망)"
+    note: "ips 가 ext->ot DROP 으로 차단하고 로그를 남긴다"
+  target: {floor: "1F", asset: envsim}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    ips/entrypoint.sh 의 kt66ot 테이블에 `ext->ot DROP` 로그 규칙이 이미 있다.
+    attacker 에서 10.20.60.10 으로 접근하면 차단 로그가 그대로 발생한다.
+
+symptom:
+  - "ips 차단 로그에 ext → ot 시도 반복"
+  - "시설망 대상 포트 스캔 흔적"
+  - "서비스 영향은 없음 — 차단은 정상 동작했다"
+
+evidence:
+  - "ips 로그 prefix `[kt66-ips] ext->ot DROP`"
+  - "SIEM — 같은 출발지의 다른 활동"
+  - "관제 화면 존 범례 — ot 가 왜 격리되어 있는가"
+
+expect:
+  - action: confirm_block_worked
+    weight: 2
+    note: 막혔다는 사실을 먼저 확인한다. 뚫렸는지부터 봐야 등급이 정해진다
+  - action: identify_source_host
+    weight: 2
+  - action: classify_insider_vs_misconfig
+    weight: 3
+    note: 내부자인가 오조작인가. 같은 로그로 결론이 정반대가 된다
+  - action: escalate_as_high
+    weight: 3
+    note: 시설망 접근 시도는 긴급 등급이다. 실패했어도 보고한다
+  - action: preserve_evidence
+    weight: 2
+  - action: review_segment_policy
+    weight: 1
+
+forbidden:
+  - "차단됐으니 문제없다고 종결"
+  - "출발지 확인 없이 로그 정리"
+
+sla: {detect: 10m, mitigate: 30m}
+cascade: null

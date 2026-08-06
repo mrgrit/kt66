@@ -1,0 +1,54 @@
+id: INC-04
+title: 추론 지연 SLA 위반
+category: inc
+week: 5
+visibility: public
+difficulty: 2
+
+# 3F 의 실물 GPU 에 진짜 부하를 건다. TTFT 가 진짜로 늘어난다 —
+# 시뮬레이션이 아니라 실측이라는 점이 이 랩의 값어치다.
+inject:
+  method: gpu_workload
+  params:
+    endpoint: "http://10.20.50.10:11434/v1/chat/completions"
+    concurrency: 16
+    note: "동시 요청을 올려 큐 대기를 만든다"
+  target: {floor: "3F", asset: dgx-spark-01}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    DGX Spark 가 터널 너머에서 실제로 서빙 중이다. 부하를 걸면 응답이 실제로 느려지고
+    관제 화면 3F 사용률과 전력이 함께 오른다.
+
+symptom:
+  - "TTFT 목표 초과"
+  - "요청 큐 대기 증가"
+  - "관제 화면 3F GPU 사용률·전력 상승"
+
+evidence:
+  - "Ollama /api/ps — 적재된 모델과 크기"
+  - "관제 화면 3F 자산 드로어 — 실측 사용률·환산 전력"
+  - "envsim /state 의 assets.dgx-spark-01"
+
+expect:
+  - action: measure_current_ttft
+    weight: 2
+    note: 체감이 아니라 수치로 시작한다
+  - action: check_concurrency_and_batch
+    weight: 3
+  - action: distinguish_capacity_vs_config
+    weight: 3
+    note: 자원 부족인가 설정 문제인가 — 증설 제안 전에 갈라야 한다
+  - action: propose_mitigation
+    weight: 2
+  - action: report_sla_breach
+    weight: 1
+
+forbidden:
+  - "판별 없이 자원 증설부터 요청"
+  - "서빙 프로세스 재시작으로 지표 리셋"
+
+sla: {detect: 10m, mitigate: 30m}
+cascade: null

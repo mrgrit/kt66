@@ -1,0 +1,56 @@
+id: AUD-01
+title: 모의 감사
+category: aud
+week: 14
+visibility: public
+difficulty: 3
+
+# **평소 기록이 없으면 이 주차에 만들 수 없다.** 그것이 이 시나리오의 유일한 교훈이고,
+# 그래서 14주차에 배치되어 있다. 1~13주차의 기록 습관이 여기서 채점된다.
+inject:
+  method: manual
+  params:
+    request: "최근 3개월치 변경 이력·접근 기록·인시던트 대응 기록을 제출하라"
+  target: {floor: "4F", asset: portal}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    제출할 원본이 실제로 있다 — Wazuh 알림, Suricata 로그, WAF 접근 로그, 관제 화면
+    이벤트 타임라인, envsim 경보 이력, 그리고 학생 본인이 그동안 남긴 티켓·변경 기록.
+    agents/loops/evidence-collection.yaml 이 이 시나리오의 짝이다.
+    주입 대상이 없을 뿐 실습 재료는 전부 갖춰져 있다.
+
+symptom:
+  - "감사 요구 접수 — 장애 아님"
+  - "제출 기한 명시"
+
+evidence:
+  - "SIEM 알림 이력 (Wazuh)"
+  - "ips Suricata 로그 · WAF 접근 로그"
+  - "관제 화면 이벤트 타임라인 · envsim 경보 이력"
+  - "학생이 그동안 작성한 티켓·변경 요청서·사후 보고서"
+
+expect:
+  - action: enumerate_required_evidence
+    weight: 2
+  - action: collect_from_authoritative_sources
+    weight: 3
+    note: 재구성한 문서가 아니라 원본 로그에서 뽑는다
+  - action: identify_gaps_honestly
+    weight: 3
+    note: 없는 기간은 없다고 적는다. 메우려 들면 그것이 감사 실패다
+  - action: assess_evidence_completeness
+    weight: 2
+  - action: propose_recording_improvements
+    weight: 2
+  - action: submit_within_deadline
+    weight: 1
+
+forbidden:
+  - "사후에 기록을 만들어 채워 넣기"
+  - "공백을 숨기고 제출"
+
+sla: {detect: null, mitigate: 5d}
+cascade: null

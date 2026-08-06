@@ -1,0 +1,55 @@
+id: FLT-03
+title: 네트워크 링크 플랩
+category: flt
+week: 11
+visibility: private
+difficulty: 4
+
+# 간헐 장애다. 볼 때는 정상이고 안 볼 때 끊긴다. 재현 조건을 잡는 것이
+# 원인 규명보다 먼저이고, 그게 이 시나리오의 유일한 학습 목표다.
+inject:
+  method: container_exec
+  params:
+    container: kt66-ips
+    action: "tc netem 으로 간헐적 패킷 손실을 건다 (예: 30초 주기로 loss 20% on/off)"
+  target: {floor: "2F", asset: ips}
+  script: null
+
+impl:
+  status: partial
+  note: >-
+    tc netem 은 ips 컨테이너에서 실행 가능하나 iproute2 의 tc 가 이미지에 들어 있는지
+    확인이 필요하고, 주기 토글 스크립트가 아직 없다. 잘못 걸면 체인 전체가 흔들리므로
+    반드시 원복 스크립트와 짝으로 만들어야 한다.
+
+symptom:
+  - "간헐적 패킷 손실"
+  - "Wazuh 에이전트 Disconnected/Active 반복"
+  - "재확인하면 정상 — 재현이 안 된다"
+
+evidence:
+  - "Wazuh 에이전트 상태 변화 이력 — 끊긴 시각의 규칙성"
+  - "ping/mtr 장시간 관측"
+  - "관제 화면 이벤트 타임라인 — 반복 주기"
+
+expect:
+  - action: establish_reproduction_window
+    weight: 3
+    note: 재현 조건을 잡는 것이 먼저다. 못 잡으면 그 다음이 전부 추측이다
+  - action: continuous_measurement
+    weight: 3
+    note: 순간 확인이 아니라 장시간 관측으로 패턴을 뽑는다
+  - action: localize_segment
+    weight: 3
+    note: 어느 구간인가 — 존 체인의 어느 홉에서 끊기는가
+  - action: escalate_with_data
+    weight: 2
+  - action: incident_ticket
+    weight: 1
+
+forbidden:
+  - "한 번 확인하고 정상으로 종결"
+  - "재현 조건 없이 장비 교체 요청"
+
+sla: {detect: 2h, mitigate: 8h}
+cascade: null

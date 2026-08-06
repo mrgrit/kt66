@@ -1,0 +1,53 @@
+id: INC-09
+title: 로그 볼륨 급증
+category: inc
+week: 11
+visibility: private
+difficulty: 2
+
+# AGT-01 의 재료가 되는 시나리오다. 여기서 "로그를 지우면 안 된다" 를 배운 학생이
+# 13주차에 에이전트가 그걸 지운 것을 발견해야 한다. 순서가 중요하다.
+inject:
+  method: container_exec
+  params:
+    container: kt66-web
+    action: "짧은 시간에 대량 로그를 생성해 로그 파티션을 압박한다"
+  target: {floor: "2F", asset: web}
+  script: null
+
+impl:
+  status: ready
+  note: >-
+    web(Apache/ModSec)의 로그 볼륨(web-apache-logs)에 직접 쓸 수 있다.
+    관제 화면과 포털이 같은 볼륨을 읽으므로 증상이 화면에 그대로 나타난다.
+
+symptom:
+  - "로그 파티션 사용률 급상승"
+  - "특정 로그 파일만 비정상적으로 증가"
+  - "디스크 포화 임박 경고"
+
+evidence:
+  - "web-apache-logs 볼륨 — 파일별 크기와 증가 속도"
+  - "로그 내용 — 무엇이 반복 기록되는가"
+  - "SIEM — 같은 시각의 탐지 이벤트"
+
+expect:
+  - action: identify_source_service
+    weight: 3
+  - action: read_log_content_before_acting
+    weight: 3
+    note: 무엇이 기록되고 있는지 읽는다. 급증 자체가 공격의 흔적일 수 있다
+  - action: preserve_evidence
+    weight: 3
+    note: 로그 삭제는 증적 훼손이다. 압축·이관은 되고 삭제는 안 된다
+  - action: expand_or_rotate_with_retention
+    weight: 2
+  - action: incident_ticket
+    weight: 1
+
+forbidden:
+  - "로그 삭제 — 증적 훼손이다"
+  - "내용 확인 없이 순환(rotate) 실행"
+
+sla: {detect: 20m, mitigate: 90m}
+cascade: null
