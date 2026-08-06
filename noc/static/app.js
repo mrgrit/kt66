@@ -23,19 +23,41 @@ let ST = null;          // /api/state  — 전력·열·경보·컨테이너 (�
 let ROSTER = { workers: [] };
 let FAULTS = { available: {}, active: {} };
 let EVENTS = [];
-let VIEW = { mode: 'building', floor: null, zoom: 1, panx: 0, pany: 0 };
+let VIEW = { mode: 'building', floor: null, zoom: 1, panx: 0, pany: 0, rot: 0 };
 let BASE_VB = null;
 let SELECTED = null;
 let upsDismissed = false;
 
 /* ── 좌표계 ──────────────────────────────────────────────────────── */
 const GW = 26, GD = 14;                 // 층 평면 격자 (가로, 세로)
-const XS = 24, YS = 5.6, ZS = 34;       // 아이소메트릭 단위
+// XS:YS 가 시선의 각도다. 이 비가 크면 바닥을 눕혀 보는 것이고, 눕힐수록 안쪽 면이
+// 안 보인다. 3:1 정도가 "데이터센터 바닥이 보이면서 건물도 4층으로 읽히는" 절충이다.
+const XS = 24, YS = 8.0, ZS = 32;
 // 층간 높이. 이 값이 작으면 위층의 뒷변이 아래층의 앞변을 덮어 4개 층이 뒤엉킨다.
-// 겹치지 않을 조건은  FLOOR_H * ZS  >  (GW + GD) * YS  — 지금은 228 vs 224 로
-// 거의 딱 맞춰 두었다. 더 벌리면 건물이 세로로 길어져 화면에서 오히려 작아진다.
-const FLOOR_H = 6.7;
-const iso = (x, y, z) => [(x - y) * XS, (x + y) * YS - z * ZS];
+// 겹치지 않을 조건은  FLOOR_H * ZS  >  (GW + GD) * YS  — 지금은 323 vs 320.
+const FLOOR_H = 10.1;
+
+/** 평면 회전. 보고 싶은 면이 뒤로 가 버리면 각도를 바꾸는 것 말고 방법이 없다.
+ *  90° 단위로만 돌린다 — 아이소메트릭의 면 음영이 그 사이에서만 성립한다. */
+function turn(x, y) {
+  switch (VIEW.rot & 3) {
+    case 1:  return [y, GW - x];
+    case 2:  return [GW - x, GD - y];
+    case 3:  return [GD - y, x];
+    default: return [x, y];
+  }
+}
+function iso(x, y, z) {
+  const [rx, ry] = turn(x, y);
+  return [(rx - ry) * XS, (rx + ry) * YS - z * ZS];
+}
+/** 회전해도 왼쪽/오른쪽 끝이 바뀌므로 명패·터널은 투영된 네 모서리에서 자리를 잡는다. */
+function edges(z) {
+  const c = [[0, 0], [GW, 0], [GW, GD], [0, GD]].map(([x, y]) => iso(x, y, z));
+  const xs = c.map(p => p[0]), ys = c.map(p => p[1]);
+  return { left: Math.min(...xs), right: Math.max(...xs),
+           mid: (Math.min(...ys) + Math.max(...ys)) / 2 };
+}
 
 // 층 안의 띠 — 뒤에서 앞으로: 존 영역 → 콜드아일 → 랙 열 → 핫아일 → 근무자.
 // 실제 전산실이 이 순서로 되어 있다. 랙 앞뒤로 찬 공기와 더운 공기가 갈리는 것이
@@ -212,7 +234,7 @@ function drawFloorContent(fid, z, detail) {
   // ── 수직 코어(계단·전기 샤프트) ─────────────────────────────
   g.appendChild(isoBox(1.1, 4.2, zf, 1.9, 3.4, 2.4, '#0f766e',
     { stroke: 'rgba(45,212,191,.5)' }));
-  if (detail) g.appendChild(label(1.1, 7.6, zf, '샤프트', { size: 8, fill: '#2dd4bf', dy: 12 }));
+  if (detail) g.appendChild(label(1.1, 7.6, zf, '샤프트', { size: 10, fill: '#2dd4bf', dy: 14 }));
 
   // ── 존 영역 — 이 화면의 뼈대다 ──────────────────────────────
   const n = zones.length;
@@ -239,9 +261,9 @@ function drawFloorContent(fid, z, detail) {
     // 라벨
     const zn2 = assets.filter(a => a.zone === zo.id).length;
     zg.appendChild(label(zx, zy, zf, `${zo.id} · ${zo.name}${zn2 ? `  (${zn2})` : ''}`,
-      { size: detail ? 11.5 : 10, fill: zo.color, weight: 600, dy: -11 }));
+      { size: detail ? 14 : 12.5, fill: zo.color, weight: 700, dy: -13 }));
     zg.appendChild(label(zx, zy, zf, `${zo.cidr || '세그먼트 없음'}  sec:${zo.trust}`,
-      { size: detail ? 9 : 7.8, fill: 'rgba(200,214,230,.5)', mono: true, dy: -2 }));
+      { size: detail ? 11 : 9.5, fill: 'rgba(200,214,230,.55)', mono: true, dy: -2 }));
     zg.appendChild(tip(`${zo.id} · ${zo.name}\n${zo.cidr || '세그먼트 없음'} · ${zo.trust}\n${zo.role}`));
     g.appendChild(zg);
 
@@ -267,8 +289,8 @@ function drawFloorContent(fid, z, detail) {
     const [tx, ty] = iso(px + .25, py + .25, zf + .9);
     pg.appendChild(el('polygon', { points: `${tx},${ty - 13} ${tx - 5},${ty - 5} ${tx + 5},${ty - 5}`,
       fill: '#fbbf24', class: 'pulse' }));
-    pg.appendChild(el('text', { x: tx + 8, y: ty - 5, 'font-size': detail ? 9 : 7.5,
-      fill: '#fbbf24', class: 'mono', text: `PEP ${c.via}` }));
+    pg.appendChild(el('text', { x: tx + 8, y: ty - 5, 'font-size': detail ? 11.5 : 10,
+      fill: '#fbbf24', class: 'mono', 'font-weight': 600, text: `PEP ${c.via}` }));
     pg.appendChild(tip(`${c.from} → ${c.to}\n경유: ${c.via}\n${c.label}`));
     g.appendChild(pg);
   }
@@ -284,7 +306,7 @@ function drawFloorContent(fid, z, detail) {
         'stroke-dasharray': '7 6', opacity: .8 }));
       g.appendChild(label(box.x, box.y + box.d, zf,
         `${logical.id} · ${logical.name} — 망 경계가 아니다 (자산 ${own.length})`,
-        { size: detail ? 9.5 : 8, fill: logical.color, dy: 13 }));
+        { size: detail ? 11.5 : 10, fill: logical.color, dy: 15 }));
     }
   }
 
@@ -311,11 +333,11 @@ function drawFloorContent(fid, z, detail) {
       { fill: a ? tempColor(a.temp_c + 6) : '#7f1d2b', opacity: .22 }));
     if (detail) {
       g.appendChild(label(x0, BAND.coldY, zf, `콜드 아일 · CRAC 급기`,
-        { size: 8, fill: '#38bdf8', dy: 10 }));
+        { size: 10, fill: '#38bdf8', dy: 12 }));
       g.appendChild(label(x0, BAND.hotY + .75, zf,
         a ? `핫 아일 ${aisleId} · ${a.temp_c}°C · 발열 ${a.it_kw}kW / 냉방 ${a.cooling_kw}kW`
           : `핫 아일 ${aisleId}`,
-        { size: 8, fill: a ? tempColor(a.temp_c) : '#67809a', dy: 11 }));
+        { size: 10, fill: a ? tempColor(a.temp_c) : '#67809a', dy: 13 }));
     }
     // 케이블 트레이 — 랙 열 위를 가로지른다. 전산실이라는 신호다
     const tray = el('g', { opacity: .5 });
@@ -358,7 +380,7 @@ function drawFloorContent(fid, z, detail) {
     if (detail) g.appendChild(label(9.0, 10.6, zf,
       p?.on_battery ? '배전 모선 — 배터리 급전' :
       p?.generator_running ? '배전 모선 — 발전기 급전' : '배전 모선 — 상용전원',
-      { size: 8.5, fill: bc, mono: true }));
+      { size: 10.5, fill: bc, mono: true }));
   }
 
   // ── 근무자 ───────────────────────────────────────────────────
@@ -371,19 +393,19 @@ function drawFloorContent(fid, z, detail) {
 
   // ── 층 명패 (건물 뷰 전용 — 층 뷰에서는 왼쪽 위 오버레이가 대신한다) ──
   if (detail) return g;
-  const [lx, ly] = iso(0, GD, zf);
+  const E = edges(zf);
   const plate = el('g', {
-    class: 'hit', transform: `translate(${lx - 214},${ly - 30})`,
+    class: 'hit', transform: `translate(${E.left - 232},${E.mid - 32})`,
     on: { click: e => { e.stopPropagation(); enterFloor(fid); } } });
-  plate.appendChild(el('rect', { width: 200, height: 56, rx: 5,
+  plate.appendChild(el('rect', { width: 218, height: 62, rx: 5,
     fill: 'rgba(8,13,20,.92)', stroke: 'rgba(34,211,238,.28)', class: 'hl' }));
-  plate.appendChild(el('text', { x: 11, y: 19, 'font-size': 15, 'font-weight': 700,
+  plate.appendChild(el('text', { x: 12, y: 21, 'font-size': 17, 'font-weight': 700,
     fill: '#22d3ee', class: 'mono', text: fid }));
-  plate.appendChild(el('text', { x: 44, y: 19, 'font-size': 12, fill: '#c8d6e6', text: f.name }));
-  plate.appendChild(el('text', { x: 11, y: 34, 'font-size': 9.5, class: 'mono',
+  plate.appendChild(el('text', { x: 50, y: 21, 'font-size': 13.5, fill: '#c8d6e6', text: f.name }));
+  plate.appendChild(el('text', { x: 12, y: 38, 'font-size': 11, class: 'mono',
     fill: '#67809a',
     text: `zone: ${zones.map(z2 => z2.id).join(' → ')}` }));
-  plate.appendChild(el('text', { x: 11, y: 48, 'font-size': 9.5, class: 'mono',
+  plate.appendChild(el('text', { x: 12, y: 54, 'font-size': 11, class: 'mono',
     fill: temp == null ? '#41566d' : heat,
     text: temp == null ? `자산 ${assets.length} · 센서 없음`
       : `${temp.toFixed(1)}°C · ${(ST?.floors?.[fid]?.it_kw ?? 0).toFixed(1)}kW · 자산 ${assets.length}` }));
@@ -424,8 +446,8 @@ function assetUnit(a, x, y, z, detail) {
     fill: up ? (st.util > .7 ? '#ff4d6a' : st.util > .35 ? '#fbbf24' : '#3ddc97') : '#ff4d6a',
     class: up ? null : 'blink' }));
   if (detail) g.appendChild(label(x, y + .68, z, a.name,
-    { size: 7.6, fill: up ? 'rgba(200,214,230,.75)' : '#ff9fb0',
-      dy: 10 + (a._lblRow || 0) * 8.5 }));
+    { size: 9.5, fill: up ? 'rgba(200,214,230,.8)' : '#ff9fb0',
+      dy: 12 + (a._lblRow || 0) * 11 }));
   g.appendChild(tip(`${a.name} (${a.id})\n존 ${a.zone}`
     + (a.logical_zone ? ` · 권한 ${a.logical_zone}` : '')
     + `\n${a.rack || '랙 외'} · ${a.ip || ''}`
@@ -457,10 +479,10 @@ function rackCabinet(rack, x, y, z, detail) {
       opacity: up ? .3 + st.util * .7 : 1, class: up ? null : 'blink' }));
   });
   g.appendChild(label(x, y, z, `${rack.id}`,
-    { size: detail ? 9 : 8, fill: '#8fa5bd', mono: true, dy: -8 }));
+    { size: detail ? 11 : 9.5, fill: '#8fa5bd', mono: true, dy: -9 }));
   if (detail) g.appendChild(label(x, y, z,
     `${kw.toFixed(1)}/${rack.design_kw}kW · ${rack.aisle}아일`,
-    { size: 8, fill: over ? '#ff4d6a' : '#67809a', mono: true, dy: 1 }));
+    { size: 10, fill: over ? '#ff4d6a' : '#67809a', mono: true, dy: 1 }));
   g.appendChild(tip(`${rack.id} · ${rack.aisle} 아일 · ${rack.u}U\n`
     + `부하 ${kw.toFixed(2)} / 설계 ${rack.design_kw}kW`
     + (aisle ? `\n아일 ${aisle.temp_c}°C · 냉방 ${aisle.cooling_kw}kW` : '')));
@@ -488,7 +510,7 @@ function facilityUnit(item, x, y, z, detail) {
   g.appendChild(isoBox(x, y, z, s.w, s.d, s.h, down ? '#7f1d2b' : s.c,
     { stroke: down ? '#ff4d6a' : 'rgba(0,0,0,.4)', hl: true }));
   const [cx, cy] = iso(x + s.w / 2, y + s.d / 2, z + s.h);
-  if (s.t) g.appendChild(el('text', { x: cx, y: cy + 3, 'font-size': s.w > 1.5 ? 8.5 : 7,
+  if (s.t) g.appendChild(el('text', { x: cx, y: cy + 3, 'font-size': s.w > 1.5 ? 10.5 : 8.5,
     'text-anchor': 'middle', fill: down ? '#ffd0d8' : 'rgba(5,10,16,.85)',
     'font-weight': 700, class: 'mono', text: s.t }));
   if (down) g.appendChild(el('circle', { cx, cy: cy - 16, r: 3.6, fill: '#ff4d6a', class: 'blink' }));
@@ -502,7 +524,7 @@ function facilityUnit(item, x, y, z, detail) {
     }
   }
   if (detail && s.w > 1.2) g.appendChild(label(x, y + s.d, z, item.name || item.id,
-    { size: 8, fill: down ? '#ff9fb0' : '#67809a', dy: 11 }));
+    { size: 10, fill: down ? '#ff9fb0' : '#67809a', dy: 13 }));
   g.appendChild(tip(`${item.name || item.id} (${item.id})${down ? '\n⚠ 이상' : ''}`));
   return g;
 }
@@ -528,7 +550,7 @@ function crewFigure(w, x, y, z, detail) {
   g.appendChild(el('rect', { x: -5, y: -4, width: 4, height: 5, fill: '#1e293b' }));
   g.appendChild(el('rect', { x: 1, y: -4, width: 4, height: 5, fill: '#1e293b' }));
   g.appendChild(el('text', { x: 0, y: 15, 'text-anchor': 'middle',
-    'font-size': detail ? 9 : 8, fill: '#8fa5bd', text: w.name }));
+    'font-size': detail ? 11 : 10, fill: '#8fa5bd', text: w.name }));
   g.appendChild(tip(`${w.name} (${w.id})\n${w.runtime} · ${w.autonomy} · ${w.zone} 존`
     + (w.loops?.length ? `\n루프: ${w.loops.join(', ')}` : '\n루프 없음')));
   return g;
@@ -560,12 +582,13 @@ function drawBuilding() {
   // 외부 회선 — 공격자는 건물 밖에서 들어온다
   const i2 = floors().findIndex(f => f.id === '2F');
   if (i2 >= 0) {
-    const [ex, ey] = iso(-1, 3, i2 * FLOOR_H + 1.2);
-    root.appendChild(el('circle', { cx: ex - 84, cy: ey, r: 4.5, fill: '#ff4d6a', class: 'pulse' }));
-    root.appendChild(el('text', { x: ex - 76, y: ey + 4, 'font-size': 10.5,
+    const E2 = edges(i2 * FLOOR_H + 1.2);
+    const ex = E2.left, ey = E2.mid - 26;
+    root.appendChild(el('circle', { cx: ex - 96, cy: ey, r: 5, fill: '#ff4d6a', class: 'pulse' }));
+    root.appendChild(el('text', { x: ex - 87, y: ey + 4.5, 'font-size': 12,
       fill: '#ff4d6a', text: '외부 / 인터넷' }));
-    root.appendChild(el('line', { x1: ex - 78, y1: ey, x2: ex + 40, y2: ey + 12,
-      stroke: '#ff4d6a', 'stroke-width': 1.3, opacity: .5, class: 'flow' }));
+    root.appendChild(el('line', { x1: ex - 90, y1: ey, x2: ex + 24, y2: ey + 16,
+      stroke: '#ff4d6a', 'stroke-width': 1.4, opacity: .5, class: 'flow' }));
   }
 
   // WireGuard 터널 — DGX Spark 는 건물 밖 실물이다. 감추지 않는다.
@@ -573,8 +596,9 @@ function drawBuilding() {
   const dgx = (LAYOUT?.it_assets || []).find(a => a.remote);
   if (i3 >= 0 && dgx) {
     const z = i3 * FLOOR_H + 1.6;
-    const [ax, ay] = iso(GW, 1, z);
-    const bx = ax + 150, by = ay - 34;
+    const E3 = edges(z);
+    const ax = E3.right, ay = E3.mid;
+    const bx = ax + 130, by = ay - 40;
     const live = alive(dgx);
     root.appendChild(el('path', {
       d: `M${ax},${ay} C${ax + 70},${ay - 10} ${bx - 70},${by + 8} ${bx},${by}`,
@@ -1269,6 +1293,9 @@ const zoom = k => { VIEW.zoom = Math.max(.4, Math.min(VIEW.zoom * k, 6)); applyV
 $('#z-in').onclick = () => zoom(1.25);
 $('#z-out').onclick = () => zoom(1 / 1.25);
 $('#z-fit').onclick = () => { VIEW.zoom = 1; VIEW.panx = VIEW.pany = 0; applyVB(); };
+const spin = d => { VIEW.rot = (VIEW.rot + d + 4) & 3; VIEW.panx = VIEW.pany = 0; render(); };
+$('#z-ccw').onclick = () => spin(-1);
+$('#z-cw').onclick = () => spin(1);
 
 // 휠 확대 · 드래그 이동
 const scene = $('#scene');
