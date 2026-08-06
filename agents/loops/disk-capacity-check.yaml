@@ -1,0 +1,14 @@
+id: disk-capacity-check
+owner: systems-engineer
+autonomy: L3            # 런북이 있는 작업만 무인 허용 — 로그 로테이션은 되돌리기가 명확
+cadence: "*/30 * * * *"
+budget: { max_tokens: 20000, max_tool_calls: 15 }
+state: [usage_history, growth_rate]
+runbook: runbooks/log-rotation.md      # L3 필수 — 런북 없으면 L2 로 강등
+steps:
+  - read: disk_usage
+  - assess: "사용률이 아니라 증가율. 60%에서 시간당 5% 상승이 90% 정체보다 급하다"
+  - on_threshold: { run_runbook: log-rotation, then_report: service-desk }
+gates:
+  - name: 런북범위
+    rule: "런북에 적힌 경로 외의 삭제는 금지. 벗어나면 L2 로 강등해 승인 요청"

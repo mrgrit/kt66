@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""agentctl — kt66 근무자 에이전트 제어 CLI.
+
+중립 스펙(personas/ + loops/ + roster.yaml)을 각 런타임 형식으로 렌더한다.
+포털은 이 CLI 하나만 호출하므로 UI 는 뒤에 어떤 런타임이 있는지 알 필요가 없다.
+
+    ./agentctl list
+    ./agentctl render <persona> | --all
+    ./agentctl runtime <persona> <bastion|hermes|claude>
+    ./agentctl diff <persona>
+"""
+import argparse
+import pathlib
+import re
+import shutil
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent
+PERSONAS = ROOT / "personas"
+LOOPS = ROOT / "loops"
+SKILLS = ROOT / "skills"
+OUT = ROOT / "runtimes"
+ROSTER = ROOT / "roster.yaml"
+
+RUNTIMES = ("bastion", "hermes", "claude")
+AUTONOMY = {"L1": "보고 전용", "L2": "승인 후 실행", "L3": "무인", "approver": "승인 전담"}
+
+
+# ── roster ──────────────────────────────────────────────────────────
+# PyYAML 없이도 돌아야 한다(컨테이너 최소 이미지). roster 는 형식이 고정이라 직접 읽는다.
+def load_roster():
+    workers, cur, in_workers = [], None, False
+    for raw in ROSTER.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#")[0].rstrip() if not raw.strip().startswith("#") else ""
+        if not line.strip():
+            continue
+        if line.startswith("workers:"):
+            in_workers = True
+            continue
+        if not in_workers:
+            continue
+        if re.match(r"^\s*-\s+id:", line):
+            if cur:
+                workers.append(cur)
+            cur = {"id": line.split("id:", 1)[1].strip()}
+        elif cur is not None and re.match(r"^\s+\w+:", line):
+            k, _, v = line.strip().partition(":")
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                v = [x.strip() for x in v[1:-1].split(",") if x.strip()]
+            cur[k] = v
+    if cur:
+        workers.append(cur)
+    return workers
+
+
+def get(worker, key, default=""):
+    return worker.get(key, default)
+
+
+# ── persona 파싱 ────────────────────────────────────────────────────
+def split_front_matter(text):
+    if not text.startswith("---"):
+        return {}, text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}, text
+    head, body = text[3:end], text[end + 4:]
+    meta = {}
+    for line in head.splitlines():
+        if ":" in line and not line.strip().startswith("#"):
+            k, _, v = line.partition(":")
+            meta[k.strip()] = v.strip().strip('"')
+    return meta, body.lstrip("\n")
+
+
+def load_persona(pid):
+    f = PERSONAS / f"{pid}.md"
+    if not f.exists():
+        sys.exit(f"[agentctl] 페르소나 없음: {f}")
+    return split_front_matter(f.read_text(encoding="utf-8"))
+
+
+def persona_loops(worker):
+    names = get(worker, "loops", [])
+    if isinstance(names, str):
+        names = [names] if names else []
+    out = []
+    for n in names:
+        f = LOOPS / f"{n}.yaml"
+        if f.exists():
+            out.append((n, f.read_text(encoding="utf-8")))
+    return out
+
+
+# ── 어댑터 ──────────────────────────────────────────────────────────
+def render_bastion(worker, meta, body, loops, dest):
+    """bastion — .bastion/agents/<id>.md (frontmatter 보존형)."""
+    d = dest / ".bastion" / "agents"
+    d.mkdir(parents=True, exist_ok=True)
+    fm = [
+        "---",
+        f"name: {worker['id']}",
+        f"description: \"{meta.get('description', '')}\"",
+        f"model: {meta.get('model', 'reasoning')}",
+        f"tools: {meta.get('tools', '')}",
+        f"can_write: {'false' if get(worker, 'autonomy') in ('L1', 'approver') else 'true'}",
+        f"origin: kt66",
+        f"floor: {get(worker, 'floor')}",
+        f"zone: {get(worker, 'zone')}",
+        "---",
+        "",
+    ]
+    extra = ""
+    if loops:
+        extra = "\n\n## 일상 작업(루프)\n\n" + "\n".join(
+            f"- `{n}` — 정의는 `agents/loops/{n}.yaml`" for n, _ in loops
+        ) + (
+            "\n\n> bastion 에는 스케줄러가 없다. 이 루프들은 포털의 스케줄러가 "
+            "`agentctl run` 으로 트리거한다."
+        )
+    (d / f"{worker['id']}.md").write_text("\n".join(fm) + body + extra, encoding="utf-8")
+    return [d / f"{worker['id']}.md"]
+
+
+def render_hermes(worker, meta, body, loops, dest):
+    """hermes — SOUL.md(정체성) + skills/ + cron/(루프)."""
+    dest.mkdir(parents=True, exist_ok=True)
+    soul = (
+        f"# {get(worker, 'name', worker['id'])} ({worker['id']})\n\n"
+        f"너는 kt66 AI데이터센터의 **{get(worker, 'name')}**다. "
+        f"근무 층은 {get(worker, 'floor')}, 담당 존은 {get(worker, 'zone')}다.\n\n"
+        f"자율성 등급: **{get(worker, 'autonomy')}** — {AUTONOMY.get(get(worker, 'autonomy'), '')}.\n"
+    )
+    if get(worker, "autonomy") == "L2":
+        soul += (
+            "\n상태를 바꾸는 작업은 계획을 먼저 제시하고 `ops-lead` 승인을 받은 뒤에만 "
+            "실행한다. 승인 없이 실행하지 않는다.\n"
+        )
+    elif get(worker, "autonomy") == "L1":
+        soul += "\n너는 관찰자다. 상태를 바꾸지 않는다. 발견은 티켓으로만 남긴다.\n"
+    soul += "\n---\n\n" + body
+    (dest / "SOUL.md").write_text(soul, encoding="utf-8")
+
+    written = [dest / "SOUL.md"]
+    if loops:
+        cron = dest / "cron"
+        cron.mkdir(exist_ok=True)
+        for n, text in loops:
+            (cron / f"{n}.yaml").write_text(text, encoding="utf-8")
+            written.append(cron / f"{n}.yaml")
+    if SKILLS.exists():
+        sk = dest / "skills"
+        if sk.exists():
+            shutil.rmtree(sk)
+        shutil.copytree(SKILLS, sk)
+        written.append(sk)
+    return written
+
+
+def render_claude(worker, meta, body, loops, dest):
+    """claude — .claude/agents/<id>.md + CLAUDE.md."""
+    d = dest / ".claude" / "agents"
+    d.mkdir(parents=True, exist_ok=True)
+    fm = [
+        "---",
+        f"name: {worker['id']}",
+        f"description: {meta.get('description', '')}",
+        "---",
+        "",
+    ]
+    (d / f"{worker['id']}.md").write_text("\n".join(fm) + body, encoding="utf-8")
+    (dest / "CLAUDE.md").write_text(
+        f"# kt66 — {get(worker, 'name')} ({get(worker, 'floor')})\n\n"
+        f"자율성 {get(worker, 'autonomy')}: {AUTONOMY.get(get(worker, 'autonomy'), '')}\n",
+        encoding="utf-8",
+    )
+    return [d / f"{worker['id']}.md", dest / "CLAUDE.md"]
+
+
+ADAPTERS = {"bastion": render_bastion, "hermes": render_hermes, "claude": render_claude}
+
+
+def render(worker, runtime=None):
+    rt = runtime or get(worker, "runtime", "bastion")
+    if rt not in ADAPTERS:
+        sys.exit(f"[agentctl] 알 수 없는 런타임: {rt} (가능: {', '.join(RUNTIMES)})")
+    meta, body = load_persona(worker["id"])
+    dest = OUT / rt / "rendered" / worker["id"]
+    if dest.exists():
+        shutil.rmtree(dest)
+    files = ADAPTERS[rt](worker, meta, body, persona_loops(worker), dest)
+    return rt, files
+
+
+# ── 명령 ────────────────────────────────────────────────────────────
+def cmd_list(_):
+    ws = load_roster()
+    print(f"{'ID':<24}{'이름':<22}{'층':<5}{'존':<7}{'런타임':<10}{'자율성'}")
+    print("-" * 82)
+    for w in ws:
+        print(f"{w['id']:<24}{get(w,'name'):<22}{get(w,'floor'):<5}"
+              f"{get(w,'zone'):<7}{get(w,'runtime'):<10}{get(w,'autonomy')}")
+    print("-" * 82)
+    for rt in RUNTIMES:
+        n = sum(1 for w in ws if get(w, "runtime") == rt)
+        print(f"  {rt:<10} {n}명")
+
+
+def cmd_render(args):
+    ws = load_roster()
+    targets = ws if args.all else [w for w in ws if w["id"] == args.persona]
+    if not targets:
+        sys.exit(f"[agentctl] 명단에 없음: {args.persona}")
+    for w in targets:
+        rt, files = render(w, args.runtime)
+        print(f"[{rt}] {w['id']} → {len(files)}개")
+        for f in files:
+            print(f"    {f.relative_to(ROOT)}")
+
+
+def cmd_runtime(args):
+    if args.runtime not in RUNTIMES:
+        sys.exit(f"[agentctl] 가능한 런타임: {', '.join(RUNTIMES)}")
+    text = ROSTER.read_text(encoding="utf-8")
+    pat = re.compile(rf"(- id: {re.escape(args.persona)}\b.*?\n)(\s+runtime:)([^\n]*)", re.S)
+    if not pat.search(text):
+        sys.exit(f"[agentctl] roster 에서 못 찾음: {args.persona}")
+    ROSTER.write_text(pat.sub(rf"\1\2 {args.runtime}", text, count=1), encoding="utf-8")
+    print(f"[agentctl] {args.persona} 런타임 → {args.runtime}")
+
+
+def cmd_diff(args):
+    """같은 페르소나를 두 런타임으로 렌더해 비교한다 — 15주차 실습용."""
+    ws = load_roster()
+    w = next((x for x in ws if x["id"] == args.persona), None)
+    if not w:
+        sys.exit(f"[agentctl] 명단에 없음: {args.persona}")
+    for rt in (args.a, args.b):
+        _, files = render(w, rt)
+        print(f"\n===== {rt} =====")
+        for f in files:
+            if f.is_file():
+                print(f"--- {f.relative_to(ROOT)} ---")
+                print(f.read_text(encoding="utf-8")[:600])
+
+
+def main():
+    p = argparse.ArgumentParser(prog="agentctl", description="kt66 근무자 에이전트 제어")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("list", help="명단 출력").set_defaults(func=cmd_list)
+
+    r = sub.add_parser("render", help="런타임 형식으로 렌더")
+    r.add_argument("persona", nargs="?")
+    r.add_argument("--all", action="store_true")
+    r.add_argument("--runtime", choices=RUNTIMES, help="roster 값 대신 강제 지정")
+    r.set_defaults(func=cmd_render)
+
+    t = sub.add_parser("runtime", help="런타임 교체")
+    t.add_argument("persona")
+    t.add_argument("runtime")
+    t.set_defaults(func=cmd_runtime)
+
+    d = sub.add_parser("diff", help="두 런타임 렌더 결과 비교")
+    d.add_argument("persona")
+    d.add_argument("-a", default="bastion", choices=RUNTIMES)
+    d.add_argument("-b", default="hermes", choices=RUNTIMES)
+    d.set_defaults(func=cmd_diff)
+
+    args = p.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

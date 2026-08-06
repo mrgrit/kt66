@@ -1,0 +1,13 @@
+id: access-log-review
+owner: physical-security
+autonomy: L1
+cadence: "0 8 * * *"
+budget: { max_tokens: 30000, max_tool_calls: 20 }
+state: [normal_patterns, flagged_events]
+steps:
+  - read: [access_log, cctv_events, change_tickets]
+  - crosscheck: "전산실 출입 ↔ 변경관리 티켓 — 티켓 없는 출입은 그 자체로 발견"
+  - correlate: "출입 시각 ↔ 시스템 로그인 시각·주체"
+gates:
+  - name: 평소와비교
+    rule: "절대 시각이 아니라 그 사람의 평소 패턴과 비교한다"

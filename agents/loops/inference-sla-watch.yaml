@@ -1,0 +1,13 @@
+id: inference-sla-watch
+owner: gpu-platform-engineer
+autonomy: L1
+cadence: "*/5 * * * *"
+budget: { max_tokens: 25000, max_tool_calls: 20 }
+state: [latency_history, sla_breaches]
+steps:
+  - read: [ollama_api, sla_metrics, env_alarms]
+  - assess: "지연 원인을 분리한다 — GPU 경합 / 터널 네트워크 / 큐 대기 / 모델 스왑"
+  - on_breach: { create_ticket: true, notify: service-desk }
+gates:
+  - name: 환경우선확인
+    rule: "1F 냉방 경보가 떠 있으면 GPU 원인 단정 전에 환경 연쇄를 먼저 배제한다"

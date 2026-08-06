@@ -1,0 +1,16 @@
+id: backup-verify
+owner: systems-engineer
+autonomy: L2
+cadence: "0 3 * * *"
+budget: { max_tokens: 40000, max_tool_calls: 35 }
+state: [last_restore_test, rto_rpo_measured]
+steps:
+  - read: backup_catalog
+  - restore_test: { target: 격리된_임시_위치 }   # 원본을 덮지 않는다
+  - measure: [rto, rpo]
+  - report: { to: service-desk }
+gates:
+  - name: 복구로검증
+    rule: "'백업 성공'은 증적이 아니다. 복원 시험을 통과해야 검증이다"
+  - name: 원본보호
+    rule: "복원 대상은 항상 별도 위치. 원본 덮어쓰기 제안은 자동 반려"

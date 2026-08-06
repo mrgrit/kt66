@@ -1,0 +1,13 @@
+id: power-capacity-check
+owner: facility-engineer
+autonomy: L2
+cadence: "0 9 * * *"
+budget: { max_tokens: 30000, max_tool_calls: 20 }
+state: [capacity_history, growth_rate]
+steps:
+  - read: [pdu_load, ups_runtime, rack_power_by_floor]
+  - assess: "사용률이 아니라 증가율로 본다. 현재 여유가 아니라 '언제 한계에 닿는가'를 낸다"
+  - report: { to: service-desk, format: 용량계획 }
+gates:
+  - name: 숫자로
+    rule: "'여유 있음' 금지. 잔여 kW 와 도달 예상 시점을 숫자로 적는다"

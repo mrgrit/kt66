@@ -1,0 +1,15 @@
+id: evidence-collection
+owner: compliance-auditor
+autonomy: L1
+cadence: "0 6 * * 1"
+budget: { max_tokens: 50000, max_tool_calls: 40 }
+state: [control_mapping, gaps]
+steps:
+  - read: [audit_log, cmdb, ticket_history, change_history]
+  - map: "통제 항목 ↔ 증적 1:1"
+  - export: 증적매핑표
+gates:
+  - name: 자연발생증적
+    rule: "감사를 위해 새로 만든 문서는 증적이 아니다. 운영 중 남은 기록만 인정"
+  - name: 미충족은미충족
+    rule: "미충족을 완화해 적지 않는다"

@@ -1,0 +1,16 @@
+id: gpu-quota-review
+owner: gpu-platform-engineer
+autonomy: L2
+cadence: "0 */6 * * *"
+budget: { max_tokens: 50000, max_tool_calls: 40 }
+state: [quota_allocations, contention_events, model_load_history]
+steps:
+  - read: [nvidia_smi, ollama_ps, session_queue]
+  - assess: |
+      통합 메모리다 — CPU/GPU 를 따로 세지 않고 하나의 풀로 계획한다.
+      경합이 있으면 누구의 몫을 줄일지 명시한다. 총량만 말하지 않는다.
+  - on_contention:
+      - request_approval: ops-lead
+gates:
+  - name: 누구몫
+    rule: "쿼터 변경안은 반드시 '누구의 몫이 얼마나 줄어드는지'를 포함한다"

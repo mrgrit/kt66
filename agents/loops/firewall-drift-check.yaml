@@ -1,0 +1,13 @@
+id: firewall-drift-check
+owner: network-engineer
+autonomy: L2
+cadence: "0 */4 * * *"
+budget: { max_tokens: 35000, max_tool_calls: 25 }
+state: [baseline_ruleset_hash, known_drifts]
+steps:
+  - read: [nft_ruleset, repo_nftables_conf]
+  - diff: "저장소 정의 vs 실행 중 룰셋"
+  - on_drift: { create_ticket: true, request_approval: ops-lead }
+gates:
+  - name: 체인불변
+    rule: "attacker→fw→ips→web 순서를 깨는 변경은 승인 요청 없이 즉시 반려"

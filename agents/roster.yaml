@@ -1,0 +1,119 @@
+# kt66 근무자 명단 — 단일 진실원천.
+#
+# 층(floor)은 물리 배치, 존(zone)은 네트워크 보안등급이다. 둘은 직교한다 —
+# 같은 층 랙에 다른 존이 섞일 수 있고, 같은 존이 여러 층에 걸칠 수 있다.
+# 이 어긋남 자체가 교보재다(1주차 Zone·보안등급).
+#
+# runtime  : bastion | hermes | claude   ← 페르소나마다 따로 고른다
+# autonomy : L1(보고전용) | L2(승인후실행) | L3(무인) | approver(승인전담)
+#            L3 는 loops/ 에 런북이 등록된 작업에만 허용한다.
+
+version: 1
+
+defaults:
+  runtime: bastion
+  autonomy: L1
+  model_endpoint: gpu        # endpoints 참조
+
+endpoints:
+  gpu:                        # DGX Spark 의 Ollama (OpenAI 호환)
+    base_url: http://10.20.50.10:11434/v1
+    model: gemma4:31b
+  local:
+    base_url: ${LLM_BASE_URL}
+    model: ${LLM_MODEL}
+
+workers:
+  # ── 1F 시설·보안층 ────────────────────────────────────────────
+  - id: facility-engineer
+    name: 시설 담당(전기/기계)
+    floor: 1F
+    zone: ot
+    runtime: hermes           # 주기 점검이 많아 cron 이 있는 hermes 가 맞다
+    autonomy: L2
+    loops: [env-health-sweep, power-capacity-check]
+    assets: [ups, pdu, crac, chiller, fm200]
+    curriculum: [W1, W5, W13]
+
+  - id: physical-security
+    name: 물리보안(출입/CCTV)
+    floor: 1F
+    zone: ot
+    runtime: hermes
+    autonomy: L1
+    loops: [access-log-review]
+    assets: [access-control, cctv]
+    curriculum: [W5, W13, W14]
+
+  # ── 2F 일반 전산실 ────────────────────────────────────────────
+  - id: network-engineer
+    name: 네트워크 엔지니어
+    floor: 2F
+    zone: dmz
+    runtime: bastion          # 방화벽·IPS 스킬이 bastion 에 이미 있다
+    autonomy: L2
+    loops: [firewall-drift-check]
+    assets: [kt66-fw, kt66-ips, kt66-web]
+    curriculum: [W2, W9, W11]
+
+  - id: systems-engineer
+    name: 시스템/스토리지 엔지니어
+    floor: 2F
+    zone: int
+    runtime: bastion
+    autonomy: L2
+    loops: [backup-verify, disk-capacity-check]
+    assets: [kt66-neobank, kt66-govportal, kt66-mediforum, kt66-adminconsole, kt66-aicompanion]
+    curriculum: [W7, W9, W10, W12]
+
+  # ── 3F AI 전산실 ──────────────────────────────────────────────
+  - id: gpu-platform-engineer
+    name: GPU/플랫폼 엔지니어
+    floor: 3F
+    zone: app
+    runtime: hermes           # mlops 스킬 트리를 그대로 쓴다
+    autonomy: L2
+    loops: [gpu-quota-review, inference-sla-watch]
+    assets: [dgx-spark-01, ollama, model-registry]
+    curriculum: [W3, W7, W12]
+
+  # ── 4F 운영층 (NOC/SOC) ───────────────────────────────────────
+  - id: service-desk
+    name: 서비스데스크
+    floor: 4F
+    zone: mgmt
+    runtime: bastion
+    autonomy: L2
+    loops: [ticket-triage]
+    assets: [itsm, cmdb]
+    curriculum: [W6, W8, W9]
+
+  - id: soc-analyst
+    name: SOC 분석가
+    floor: 4F
+    zone: mgmt
+    runtime: bastion
+    autonomy: L1
+    loops: [siem-alert-triage]
+    assets: [kt66-siem, kt66-wazuh-indexer, kt66-wazuh-dashboard]
+    curriculum: [W11, W12, W14]
+
+  - id: ops-lead
+    name: 운영 리드
+    floor: 4F
+    zone: mgmt
+    runtime: bastion
+    autonomy: approver        # 스스로 실행하지 않는다. L2 요청을 판정만 한다
+    loops: []
+    assets: []
+    curriculum: [W6, W8, W9, W15]
+
+  - id: compliance-auditor
+    name: 컴플라이언스 감사인
+    floor: 4F
+    zone: mgmt
+    runtime: claude
+    autonomy: L1              # 감사인은 관찰자다. 상태를 바꾸지 않는다
+    loops: [evidence-collection]
+    assets: [audit-log, cmdb]
+    curriculum: [W14]

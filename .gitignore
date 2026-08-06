@@ -1,0 +1,39 @@
+.env
+*.log
+.DS_Store
+__pycache__/
+*.pyc
+node_modules/
+.idea/
+.vscode/
+docker-compose.yaml.bak-*
+
+# 학생 환경마다 다른 SSH key 자동 생성 (kt66.sh up 의 ensure_ssh_keys). public/private
+# 둘 다 학생 환경 전용 — public 도 다른 학생 환경에 쓰면 안 됨. keys/.gitkeep 만 push.
+keys/id_rsa
+keys/id_rsa.pub
+
+
+
+
+# Wazuh TLS certs — 배포 시 생성/복사, 절대 push 금지 (사설키 포함)
+wazuh-config/certs/*.pem
+wazuh-config/certs/*.key
+
+# kt66 deploy-time 생성물 (절대 push 금지 — ssl/key.pem 사설키 포함)
+ssl/
+sigma/sigma_rules.xml
+# 컨테이너가 레포 경로에 만드는 런타임 데이터
+configs/
+files/
+logs/
+gnupg/
+
+# harness 실행별 산출물(런타임)
+bastion/src/harness/workspace/
+
+# harness 자동생성 아티팩트(런타임)
+bastion/src/harness/generated/
+
+# agentctl 렌더 산출물 — roster/personas 에서 언제든 재생성된다
+agents/runtimes/*/rendered/

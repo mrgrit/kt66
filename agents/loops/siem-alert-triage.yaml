@@ -1,0 +1,22 @@
+# SOC 트리아지. autonomy L1 — 관찰만 한다. 차단은 network-engineer 에게 요청으로 넘긴다.
+id: siem-alert-triage
+owner: soc-analyst
+autonomy: L1
+cadence: "*/10 * * * *"
+budget: { max_tokens: 60000, max_tool_calls: 50 }
+state: [triaged_alert_ids, known_false_positives, active_campaigns]
+steps:
+  - read: [wazuh_alerts, suricata_eve, modsec_audit]
+  - dedupe: triaged_alert_ids
+  - correlate: |
+      세 계층 교차 확인이 필수다 — fw 카운터(경로) / Suricata alert(패킷) / CRS 룰+403(요청).
+      하나만 보고 단정하지 않는다. 출발지 IP 는 NAT 되지 않으므로 그대로 신뢰한다.
+  - classify: [실제, 오탐, 보류]
+  - on_real:
+      - create_ticket: { co_owner: service-desk }
+      - request_block: network-engineer     # 실행은 L2 담당자 몫
+gates:
+  - name: 근거인용
+    rule: "'실제'로 분류하려면 로그 원문을 인용해야 한다. 인용 없으면 '보류'"
+  - name: 오탐도근거
+    rule: "'오탐' 판정에도 근거를 남긴다"

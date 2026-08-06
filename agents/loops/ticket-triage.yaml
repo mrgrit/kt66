@@ -1,0 +1,16 @@
+id: ticket-triage
+owner: service-desk
+autonomy: L2
+cadence: "*/5 * * * *"
+budget: { max_tokens: 40000, max_tool_calls: 30 }
+state: [open_tickets, sla_clocks, assignment_history]
+steps:
+  - read: [new_tickets, alarms]
+  - classify: "영향도 × 긴급도"
+  - assign: "자산의 층·존 → roster.yaml 의 담당자"
+  - track_sla: "시계는 접수 시각이 아니라 발생 시각부터"
+gates:
+  - name: 인시던트-문제분리
+    rule: "복구(인시던트)와 근본원인(문제)을 한 티켓에 담지 않는다"
+  - name: 롤백없으면반려
+    rule: "변경 티켓에 롤백 계획이 없으면 반려"
