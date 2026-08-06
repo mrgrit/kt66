@@ -56,6 +56,21 @@ if [ -n "$DMZ_IFACE" ]; then
     nft "add rule ip kt66mgr postrouting oifname \"$DMZ_IFACE\" ip daddr $WAZUH_MANAGER ip saddr 10.20.31.0/24 masquerade" 2>/dev/null || true
     # 3F GPU 존도 같은 비대칭 문제를 겪는다 — siem 의 회신이 호스트로 새면 SSL 이 끊긴다.
     nft "add rule ip kt66mgr postrouting oifname \"$DMZ_IFACE\" ip daddr $WAZUH_MANAGER ip saddr 10.20.50.0/24 masquerade" 2>/dev/null || true
+    nft "add rule ip kt66mgr postrouting oifname \"$DMZ_IFACE\" ip daddr $WAZUH_MANAGER ip saddr 10.20.60.0/24 masquerade" 2>/dev/null || true
+
+# ─── 1F 시설망(OT) 접근통제 ────────────────────────────────────────────
+# 실제 DC 에서 BMS/시설 계통은 업무망과 분리한다. 여기서도 같다 —
+# 외부망(ext)은 시설망에 아예 닿지 못하고, 나머지 존은 시뮬레이터 API(8000)만 열린다.
+# 시설망이 뚫리면 냉방·전력을 조작당한다는 것을 정책으로 보여주는 자리다.
+nft "add table inet kt66ot" 2>/dev/null || true
+nft "add chain inet kt66ot forward { type filter hook forward priority 10 ; policy accept ; }" 2>/dev/null || true
+nft "add rule inet kt66ot forward ct state established,related accept" 2>/dev/null || true
+nft "add rule inet kt66ot forward ip saddr 10.20.60.0/24 accept" 2>/dev/null || true
+nft "add rule inet kt66ot forward ip daddr 10.20.60.0/24 tcp dport 8000 accept" 2>/dev/null || true
+nft "add rule inet kt66ot forward ip daddr 10.20.60.0/24 ip protocol icmp accept" 2>/dev/null || true
+nft "add rule inet kt66ot forward ip saddr 10.20.30.0/24 ip daddr 10.20.60.0/24 counter log prefix \"[kt66-ips] ext->ot DROP \" drop" 2>/dev/null || true
+nft "add rule inet kt66ot forward ip daddr 10.20.60.0/24 counter log prefix \"[kt66-ips] ->ot DROP \" drop" 2>/dev/null || true
+echo "[ips] 1F 시설망(OT) 접근통제 활성 — 시뮬레이터 API(8000)/ICMP 만 허용, 외부망 전면 차단"
     echo "[ips] 에이전트→manager($WAZUH_MANAGER) masquerade 활성 (비대칭 경로 SSL 끊김 방지)"
 fi
 

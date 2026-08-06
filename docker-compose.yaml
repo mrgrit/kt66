@@ -161,6 +161,8 @@ services:
         ipv4_address: 10.20.32.1
       app:
         ipv4_address: 10.20.50.1      # 3F GPU 존 게이트웨이 — 존 밖 트래픽은 반드시 여기를 지난다
+      ot:
+        ipv4_address: 10.20.60.1      # 1F 시설망(OT) 게이트웨이. IT 망과 분리 — 실제 DC 구조다
     cap_add: [NET_ADMIN, NET_RAW]
     sysctls:
       net.ipv4.ip_forward: "1"
@@ -399,6 +401,35 @@ services:
         ipv4_address: 10.20.50.2
     restart: unless-stopped
 
+  # ╭─ 1F 시설 계통 — 환경 시뮬레이터 (OT 망) ─────────────────╮
+  # 전력·냉방·소방·물리보안은 가상이지만 **부하는 실제다**. docker.sock 으로 컨테이너
+  # CPU 를, 터널 너머 DGX Spark 의 Ollama 로 GPU 상태를 읽어 발열을 계산한다.
+  # 그래서 3F 에 부하를 걸면 온도가 진짜로 오르고, 냉동기를 죽이면 갈 곳을 잃는다.
+  #
+  # 시설망(ot)을 IT 망과 분리한 것은 실제 DC 구조이자 그 자체로 교보재다.
+  envsim:
+    container_name: kt66-envsim
+    build: ./envsim
+    hostname: envsim
+    depends_on: [siem]
+    environment:
+      SYSLOG_HOST: 10.20.32.100     # 환경 경보도 같은 SIEM 으로 — 13주차 연쇄 실습의 전제
+      SYSLOG_PORT: "514"
+      TICK_SEC: "5"
+      API_KEY: ${API_KEY:-ccc-api-key-2026}
+      TZ: Asia/Seoul
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${INT_HOST_IP:-192.168.136.145}:8010:8000"   # 강사/UI 접근 (내부 전용)
+    networks:
+      ot:
+        ipv4_address: 10.20.60.10
+        aliases: [envsim, facility]
+      dmz:
+        ipv4_address: 10.20.32.60   # SIEM 으로 syslog 를 보내는 다리
+    restart: unless-stopped
+
   # ╭─ int tier: vuln endpoints (behind WAF) ─────────────────╮
   juiceshop:
     container_name: kt66-juiceshop
@@ -514,6 +545,15 @@ networks:
       config:
         - subnet: 10.20.50.0/24
           gateway: 10.20.50.254
+
+  # 1F 시설망(OT). 실제 DC 에서 BMS/시설 계통은 IT 망과 분리한다 — 그 구조를 따른다.
+  ot:
+    name: kt66-ot
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.60.0/24
+          gateway: 10.20.60.254
 
 
 volumes:

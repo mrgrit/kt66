@@ -28,6 +28,8 @@ ip route add 10.20.32.0/24 via "$IPS_PIPE_IP" 2>/dev/null || true
 ip route add 10.20.40.0/24 via "$IPS_PIPE_IP" 2>/dev/null || true
 # 3F GPU 존. 터널 너머 DGX Spark 도 이 대역이라 외부→GPU 트래픽이 ips 를 지난다.
 ip route add 10.20.50.0/24 via "$IPS_PIPE_IP" 2>/dev/null || true
+# 1F 시설망(OT). 외부에서 시설 계통에 직접 닿지 못하게 ips 가 통제한다.
+ip route add 10.20.60.0/24 via "$IPS_PIPE_IP" 2>/dev/null || true
 
 # ─── nftables ─────────────────────────────────────────
 echo "[fw] applying nftables (six_filter / six_nat tables)"
