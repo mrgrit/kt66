@@ -19,6 +19,72 @@
 # 그래서 학생이 3F 에 실제 부하를 걸면 온도가 진짜로 오른다. 시뮬레이터는
 # measured_kw(실측 원값)도 함께 노출하므로 환산 사실을 숨기지 않는다.
 
+# ── 존(zone) — kt66 자체 체계 ─────────────────────────────────────
+# 캡처 시안의 Zone0~3 을 빌려오지 않았다. kt66 의 실제 세그먼트가 곧 존이다.
+# trust 는 "밖에서 얼마나 쉽게 닿는가"이지 "얼마나 중요한가"가 아니다 —
+# 학생이 가장 자주 뒤집어 생각하는 지점이라 그렇게 정의했다.
+zones:
+  - id: ext
+    name: 외부 접점
+    cidr: 10.20.30.0/24
+    trust: L0
+    color: "#ff4d6a"
+    gateway: 10.20.30.1
+    role: 인터넷 접점 · 공격자 단말 · 점프 호스트 진입. 신뢰하지 않는다
+  - id: pipe
+    name: 검사 구간
+    cidr: 10.20.31.0/24
+    trust: L1
+    color: "#ff9f43"
+    gateway: 10.20.31.2
+    role: fw ↔ ips 사이. 통과 트래픽만 있고 붙어 사는 서비스는 없다
+  - id: dmz
+    name: 완충 구간
+    cidr: 10.20.32.0/24
+    trust: L2
+    color: "#ffd93d"
+    gateway: 10.20.32.1
+    role: WAF · SIEM · 관리 포털. 외부에 응답하되 내부를 대신 받는다
+  - id: int
+    name: 내부 서비스
+    cidr: 10.20.40.0/24
+    trust: L3
+    color: "#3ddc97"
+    gateway: 10.20.40.80
+    role: 업무 애플리케이션 백엔드. WAF 를 거치지 않으면 도달하지 못한다
+  - id: app
+    name: AI 존
+    cidr: 10.20.50.0/24
+    trust: L3
+    color: "#a78bfa"
+    gateway: 10.20.50.1
+    role: GPU 추론·학습. 터널 너머 DGX Spark 도 이 존의 정식 구성원이다
+  - id: ot
+    name: 시설망(OT)
+    cidr: 10.20.60.0/24
+    trust: L3
+    isolated: true
+    color: "#4fc3f7"
+    gateway: 10.20.60.1
+    role: 전력·냉방·소방·출입. IT 망과 분리 — ips 가 tcp/8000·ICMP 만 통과시킨다
+  - id: mgmt
+    name: 운영 권한 경계
+    cidr: null
+    logical: true               # L2 세그먼트가 아니다
+    trust: L2
+    color: "#94a3b8"
+    role: >-
+      kt66 에는 별도 관리망이 없다. mgmt 는 "누가 무엇을 만질 수 있는가"의 경계이지
+      네트워크 경계가 아니다. 권한 경계와 망 경계가 어긋나 있다는 사실 자체가 1주차 교보재다
+
+# 존 사이를 건너는 길은 이것뿐이다. 우회로가 없다는 것이 이 랩의 핵심 성질이다.
+zone_chain:
+  - { from: ext,  to: pipe, via: fw,  label: L3 포트분기 DNAT }
+  - { from: pipe, to: dmz,  via: ips, label: Suricata inline 검사 }
+  - { from: dmz,  to: int,  via: web, label: ModSecurity WAF 종료 }
+  - { from: pipe, to: app,  via: ips, label: GPU 존 — 터널 구간도 여기를 지난다 }
+  - { from: pipe, to: ot,   via: ips, label: 시설망 — tcp/8000 · ICMP 만 }
+
 building:
   name: kt66 미니 AI데이터센터
   # 열용량 kWh/°C. 작을수록 빨리 변한다. 20kW 부하에서 냉방이 끊기면 분당 0.67°C —
@@ -30,25 +96,31 @@ building:
   # ENV-03(UPS 절체)은 "11분 안에 무엇을 끌 것인가"가 실습이므로 실시간이 맞다.
   time_scale: 1.0
 
+# 층은 물리 배치다. grid 는 평면도 좌표계(가로 x, 세로 y, 단위칸).
+# 랙·CRAC·출입문의 pos 가 이 좌표를 쓴다 — 시각화 UI 의 배치도가 여기서 나온다.
 floors:
   - id: "1F"
     name: 시설·보안층
-    zone: ot
+    zone: [ot]
+    grid: [12, 8]
     role: 전력·냉방·소방·물리보안. 여기가 무너지면 위층이 함께 무너진다
     curriculum: [W1, W5, W13]
   - id: "2F"
     name: 일반 전산실
-    zone: [dmz, int, pipe]
-    role: 코어 인프라 — 방화벽·IPS·WAF·웹앱·SIEM
+    zone: [ext, pipe, dmz, int]
+    grid: [12, 8]
+    role: 코어 인프라 — 방화벽·IPS·WAF·웹앱·SIEM. 존 체인 전체가 이 층에 있다
     curriculum: [W2, W9, W10, W11]
   - id: "3F"
     name: AI 전산실
-    zone: app
+    zone: [app]
+    grid: [12, 8]
     role: GPU 존 — 추론·학습. 랙당 전력밀도가 다른 층의 5~10배
     curriculum: [W3, W7, W12]
   - id: "4F"
     name: 운영층 (NOC/SOC)
-    zone: mgmt
+    zone: [mgmt, dmz, ext, ot]
+    grid: [12, 8]
     role: 사람(에이전트)이 일하는 곳. 서버가 아니라 운영이 있는 층
     curriculum: [W4, W6, W8, W14, W15]
 
@@ -56,10 +128,10 @@ floors:
 # 냉방은 랙이 아니라 '아일(aisle)' 단위로 작동한다. 핫아일을 공유하는 랙끼리 열이
 # 섞이므로 한 랙의 폭주가 옆 랙의 온도를 올린다 — 핫/콜드 아일 실습의 근거다.
 racks:
-  - { id: R-2F-01, floor: "2F", aisle: A, u: 42, design_kw: 8.0 }
-  - { id: R-2F-02, floor: "2F", aisle: A, u: 42, design_kw: 10.0 }
-  - { id: R-3F-01, floor: "3F", aisle: B, u: 42, design_kw: 25.0 }   # GPU 랙 — 고밀도
-  - { id: R-4F-01, floor: "4F", aisle: C, u: 24, design_kw: 4.0 }
+  - { id: R-2F-01, floor: "2F", aisle: A, u: 42, design_kw: 8.0,  pos: [3, 3] }
+  - { id: R-2F-02, floor: "2F", aisle: A, u: 42, design_kw: 10.0, pos: [3, 5] }   # 같은 아일 — 열이 섞인다
+  - { id: R-3F-01, floor: "3F", aisle: B, u: 42, design_kw: 25.0, pos: [4, 4] }   # GPU 랙 — 고밀도
+  - { id: R-4F-01, floor: "4F", aisle: C, u: 24, design_kw: 4.0,  pos: [8, 2] }
 
 # ── 부하 그룹 — 차단 시 영향 ───────────────────────────────────────
 # ENV-03(UPS 절체)의 핵심. 배터리 잔여 시간 안에 무엇을 끌지 결정해야 하고,
@@ -98,6 +170,7 @@ facility:
     floor: "1F"
     name: 수전설비
     capacity_kw: 60.0
+    pos: [1, 1]
   generator:                          # 발전기 — UPS 가 버티는 동안 기동해야 한다
     - id: gen-01
       floor: "1F"
@@ -105,6 +178,7 @@ facility:
       capacity_kw: 50.0
       start_delay_s: 45               # 정상 기동 시 소요
       fuel_hours: 8.0
+      pos: [1, 5]
   ups:
     - id: ups-01
       floor: "1F"
@@ -112,33 +186,37 @@ facility:
       capacity_kw: 45.0
       battery_kwh: 12.0               # 38kW 부하에서 약 19분 (캡처 설계와 정합)
       feeds: [pdu-01, pdu-02, pdu-03, pdu-04]
+      pos: [4, 3]
   pdu:
-    - { id: pdu-01, floor: "2F", rack: R-2F-01, capacity_kw: 10.0 }
-    - { id: pdu-02, floor: "2F", rack: R-2F-02, capacity_kw: 12.0 }
-    - { id: pdu-03, floor: "3F", rack: R-3F-01, capacity_kw: 32.0 }
-    - { id: pdu-04, floor: "4F", rack: R-4F-01, capacity_kw: 6.0 }
+    - { id: pdu-01, floor: "2F", rack: R-2F-01, capacity_kw: 10.0, pos: [2, 3] }
+    - { id: pdu-02, floor: "2F", rack: R-2F-02, capacity_kw: 12.0, pos: [2, 5] }
+    - { id: pdu-03, floor: "3F", rack: R-3F-01, capacity_kw: 32.0, pos: [3, 4] }
+    - { id: pdu-04, floor: "4F", rack: R-4F-01, capacity_kw: 6.0,  pos: [7, 2] }
   chiller:
-    - { id: chiller-01, floor: "1F", name: 냉동기, capacity_kw: 55.0 }
+    - { id: chiller-01, floor: "1F", name: 냉동기, capacity_kw: 55.0, pos: [8, 3] }
   crac:
-    - { id: crac-01, floor: "2F", aisle: A, name: 항온항습기 A, capacity_kw: 18.0 }
-    - { id: crac-02, floor: "3F", aisle: B, name: 항온항습기 B, capacity_kw: 30.0 }
-    - { id: crac-03, floor: "4F", aisle: C, name: 항온항습기 C, capacity_kw: 8.0 }
+    - { id: crac-01, floor: "2F", aisle: A, name: 항온항습기 A, capacity_kw: 18.0, pos: [9, 4] }
+    - { id: crac-02, floor: "3F", aisle: B, name: 항온항습기 B, capacity_kw: 30.0, pos: [9, 4] }
+    - { id: crac-03, floor: "4F", aisle: C, name: 항온항습기 C, capacity_kw: 8.0,  pos: [10, 2] }
   fire:
-    - { id: fm200-01, floor: "1F", agent: FM-200 }
-    - { id: fm200-02, floor: "2F", agent: FM-200 }
-    - { id: fm200-03, floor: "3F", agent: FM-200 }
+    - { id: fm200-01, floor: "1F", agent: FM-200, pos: [10, 6] }
+    - { id: fm200-02, floor: "2F", agent: FM-200, pos: [10, 6] }
+    - { id: fm200-03, floor: "3F", agent: FM-200, pos: [10, 6] }
   security:
-    - { id: door-main, floor: "1F", name: 정문 출입구 }
-    - { id: door-2f,   floor: "2F", name: 전산실 출입문 }
-    - { id: door-3f,   floor: "3F", name: AI 전산실 출입문 }
-    - { id: cctv-01,   floor: "1F", name: 로비 CCTV }
-    - { id: cctv-02,   floor: "2F", name: 전산실 CCTV }
-    - { id: cctv-03,   floor: "3F", name: AI 전산실 CCTV }
+    - { id: door-main, floor: "1F", name: 정문 출입구,      kind: door, pos: [0, 4] }
+    - { id: door-2f,   floor: "2F", name: 전산실 출입문,    kind: door, pos: [0, 4] }
+    - { id: door-3f,   floor: "3F", name: AI 전산실 출입문, kind: door, pos: [0, 4] }
+    - { id: cctv-01,   floor: "1F", name: 로비 CCTV,        kind: cctv, pos: [11, 1] }
+    - { id: cctv-02,   floor: "2F", name: 전산실 CCTV,      kind: cctv, pos: [11, 1] }
+    - { id: cctv-03,   floor: "3F", name: AI 전산실 CCTV,   kind: cctv, pos: [11, 1] }
 
 # ── IT 자산 ───────────────────────────────────────────────────────
 # container 가 있으면 실재한다 — docker 로 실제 CPU 를 읽는다.
 # remote 가 있으면 터널 너머의 실물이다 — GPU 상태를 폴링한다.
 # idle_kw ~ rated_kw : 실측 사용률로 이 사이를 선형 보간한다(대표 DC 규모 환산).
+#
+# web / ssh 는 관제 UI 의 접속 버튼이 쓴다. ${INT_HOST}(내부전용 NIC)와
+# ${WEB_HOST}(강의실 NIC)는 배포 시 실제 IP 로 치환된다 — 하드코딩하지 않는다.
 it_assets:
   # 3F — AI 전산실
   - id: dgx-spark-01
@@ -154,28 +232,34 @@ it_assets:
     measured_idle_w: 90       # 실측 참고값 — 환산 전 진짜 소비
     measured_max_w: 240
     u: 1
-  - { id: gpu-gw, name: GPU 게이트웨이, floor: "3F", rack: R-3F-01, zone: app, container: kt66-gpu-gw, shed_group: infra, idle_kw: 0.1, rated_kw: 0.4, u: 1 }
+    ip: 10.20.50.10
+    ssh: ssh mrgrit@211.170.162.109
+    api: http://10.20.50.10:11434
+  - { id: gpu-gw, name: GPU 게이트웨이, floor: "3F", rack: R-3F-01, zone: app, ip: 10.20.50.2, container: kt66-gpu-gw, shed_group: infra, idle_kw: 0.1, rated_kw: 0.4, u: 1 }
 
-  # 2F — 코어 인프라
-  - { id: fw,        name: 방화벽,        floor: "2F", rack: R-2F-01, zone: ext,  container: kt66-fw,             shed_group: infra,        idle_kw: 0.3, rated_kw: 1.0, u: 1 }
-  - { id: ips,       name: IPS,           floor: "2F", rack: R-2F-01, zone: pipe, container: kt66-ips,            shed_group: infra,        idle_kw: 0.6, rated_kw: 3.0, u: 1 }
-  - { id: web,       name: WAF/웹서버,    floor: "2F", rack: R-2F-01, zone: dmz,  container: kt66-web,            shed_group: business,     idle_kw: 0.4, rated_kw: 2.0, u: 1 }
-  - { id: siem,      name: SIEM 매니저,   floor: "2F", rack: R-2F-02, zone: dmz,  container: kt66-siem,           shed_group: security-mgmt, idle_kw: 0.8, rated_kw: 2.5, u: 2 }
-  - { id: indexer,   name: 인덱서,        floor: "2F", rack: R-2F-02, zone: dmz,  container: kt66-wazuh-indexer,  shed_group: security-mgmt, idle_kw: 1.2, rated_kw: 3.5, u: 2 }
-  - { id: dashboard, name: SIEM 대시보드, floor: "2F", rack: R-2F-02, zone: dmz,  container: kt66-wazuh-dashboard,shed_group: security-mgmt, idle_kw: 0.5, rated_kw: 1.2, u: 1 }
-  - { id: juiceshop,    name: Juice Shop,   floor: "2F", rack: R-2F-01, zone: int, container: kt66-juiceshop,    shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1 }
-  - { id: dvwa,         name: DVWA,         floor: "2F", rack: R-2F-01, zone: int, container: kt66-dvwa,         shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1 }
-  - { id: neobank,      name: NeoBank,      floor: "2F", rack: R-2F-02, zone: int, container: kt66-neobank,      shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1 }
-  - { id: govportal,    name: GovPortal,    floor: "2F", rack: R-2F-02, zone: int, container: kt66-govportal,    shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1 }
-  - { id: mediforum,    name: MediForum,    floor: "2F", rack: R-2F-02, zone: int, container: kt66-mediforum,    shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1 }
-  - { id: adminconsole, name: AdminConsole, floor: "2F", rack: R-2F-02, zone: int, container: kt66-adminconsole, shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1 }
-  - { id: aicompanion,  name: AICompanion,  floor: "2F", rack: R-2F-02, zone: int, container: kt66-aicompanion,  shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1 }
+  # 2F — 코어 인프라. 존 체인(ext→pipe→dmz→int)이 전부 이 층에 있다.
+  - { id: fw,        name: 방화벽,        floor: "2F", rack: R-2F-01, zone: ext,  ip: 10.20.30.1,  container: kt66-fw,             shed_group: infra,         idle_kw: 0.3, rated_kw: 1.0, u: 1, web: "http://${INT_HOST}:8081/" }
+  - { id: ips,       name: IPS,           floor: "2F", rack: R-2F-01, zone: pipe, ip: 10.20.31.2,  container: kt66-ips,            shed_group: infra,         idle_kw: 0.6, rated_kw: 3.0, u: 1, web: "http://${INT_HOST}:8082/" }
+  - { id: web,       name: WAF/웹서버,    floor: "2F", rack: R-2F-01, zone: dmz,  ip: 10.20.32.80, container: kt66-web,            shed_group: business,      idle_kw: 0.4, rated_kw: 2.0, u: 1, web: "http://${INT_HOST}:8083/" }
+  - { id: siem,      name: SIEM 매니저,   floor: "2F", rack: R-2F-02, zone: dmz,  ip: 10.20.32.100, container: kt66-siem,          shed_group: security-mgmt, idle_kw: 0.8, rated_kw: 2.5, u: 2 }
+  - { id: indexer,   name: 인덱서,        floor: "2F", rack: R-2F-02, zone: dmz,  ip: 10.20.32.110, container: kt66-wazuh-indexer, shed_group: security-mgmt, idle_kw: 1.2, rated_kw: 3.5, u: 2 }
+  - { id: dashboard, name: SIEM 대시보드, floor: "2F", rack: R-2F-02, zone: dmz,  ip: 10.20.32.120, container: kt66-wazuh-dashboard, shed_group: security-mgmt, idle_kw: 0.5, rated_kw: 1.2, u: 1, web: "https://${INT_HOST}:5601/" }
+  - { id: juiceshop,    name: Juice Shop,   floor: "2F", rack: R-2F-01, zone: int, ip: 10.20.40.81, container: kt66-juiceshop,    shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1, web: "http://${WEB_HOST}:8001/" }
+  - { id: dvwa,         name: DVWA,         floor: "2F", rack: R-2F-01, zone: int, ip: 10.20.40.82, container: kt66-dvwa,         shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1, web: "http://${WEB_HOST}:8002/" }
+  - { id: neobank,      name: NeoBank,      floor: "2F", rack: R-2F-02, zone: int, ip: 10.20.40.83, container: kt66-neobank,      shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1, web: "http://${WEB_HOST}:8003/" }
+  - { id: govportal,    name: GovPortal,    floor: "2F", rack: R-2F-02, zone: int, ip: 10.20.40.84, container: kt66-govportal,    shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1, web: "http://${WEB_HOST}:8004/" }
+  - { id: mediforum,    name: MediForum,    floor: "2F", rack: R-2F-02, zone: int, ip: 10.20.40.85, container: kt66-mediforum,    shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1, web: "http://${WEB_HOST}:8005/" }
+  - { id: adminconsole, name: AdminConsole, floor: "2F", rack: R-2F-02, zone: int, ip: 10.20.40.86, container: kt66-adminconsole, shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1, web: "http://${WEB_HOST}:8006/" }
+  - { id: aicompanion,  name: AICompanion,  floor: "2F", rack: R-2F-02, zone: int, ip: 10.20.40.87, container: kt66-aicompanion,  shed_group: business, idle_kw: 0.2, rated_kw: 0.8, u: 1, web: "http://${WEB_HOST}:8007/" }
 
-  # 4F — 운영층
-  - { id: portal,   name: 관리 포털,   floor: "4F", rack: R-4F-01, zone: mgmt, container: kt66-portal,   shed_group: security-mgmt, idle_kw: 0.3, rated_kw: 1.0, u: 1 }
-  - { id: bastion,  name: 점프 호스트, floor: "4F", rack: R-4F-01, zone: mgmt, container: kt66-bastion,  shed_group: infra,         idle_kw: 0.2, rated_kw: 0.8, u: 1 }
-  - { id: envsim,   name: 시설 관제,   floor: "4F", rack: R-4F-01, zone: ot,   container: kt66-envsim,   shed_group: security-mgmt, idle_kw: 0.1, rated_kw: 0.3, u: 1 }
-  - { id: attacker, name: 공격자 단말, floor: "4F", rack: R-4F-01, zone: ext,  container: kt66-attacker, shed_group: business,      idle_kw: 0.2, rated_kw: 1.0, u: 1 }
+  # 4F — 운영층.
+  # zone 은 **실제로 붙어 있는 세그먼트**를 적는다. logical_zone: mgmt 는 권한 경계다.
+  # 포털이 dmz 에 있는데 관리 도구라는 어긋남을 감추지 않는다 — 그게 1주차 실습 재료다.
+  - { id: noc,      name: 관제 화면,   floor: "4F", rack: R-4F-01, zone: dmz, logical_zone: mgmt, ip: 10.20.32.51,  container: kt66-noc,     shed_group: security-mgmt, idle_kw: 0.1, rated_kw: 0.4, u: 1, web: "http://${INT_HOST}:8020/" }
+  - { id: portal,   name: 관리 포털,   floor: "4F", rack: R-4F-01, zone: dmz, logical_zone: mgmt, ip: 10.20.32.50,  container: kt66-portal,  shed_group: security-mgmt, idle_kw: 0.3, rated_kw: 1.0, u: 1, web: "http://${INT_HOST}:8000/" }
+  - { id: bastion,  name: 점프 호스트, floor: "4F", rack: R-4F-01, zone: ext, logical_zone: mgmt, ip: 10.20.30.201, container: kt66-bastion, shed_group: infra,         idle_kw: 0.2, rated_kw: 0.8, u: 1, ssh: "ssh ccc@${WEB_HOST} -p 2204", api: "http://${WEB_HOST}:9100/health" }
+  - { id: envsim,   name: 시설 관제,   floor: "4F", rack: R-4F-01, zone: ot,  logical_zone: mgmt, ip: 10.20.60.10,  container: kt66-envsim,  shed_group: security-mgmt, idle_kw: 0.1, rated_kw: 0.3, u: 1, web: "http://${INT_HOST}:8010/" }
+  - { id: attacker, name: 공격자 단말, floor: "4F", rack: R-4F-01, zone: ext, ip: 10.20.30.202, container: kt66-attacker, shed_group: business, idle_kw: 0.2, rated_kw: 1.0, u: 1, ssh: "ssh ccc@${WEB_HOST} -p 2202" }
 
 # ── 경보 규칙 ─────────────────────────────────────────────────────
 # level 은 Wazuh 로 넘어가는 심각도다. 온도 임계는 ASHRAE 권고(18~27°C) 기준.

@@ -412,6 +412,7 @@ services:
     build: ./envsim
     hostname: envsim
     depends_on: [siem]
+    cap_add: [NET_ADMIN]          # 기동 시 GPU 존 경로를 ips 로 잡는다(entrypoint.sh)
     environment:
       SYSLOG_HOST: 10.20.32.100     # 환경 경보도 같은 SIEM 으로 — 13주차 연쇄 실습의 전제
       SYSLOG_PORT: "514"
@@ -428,6 +429,34 @@ services:
         aliases: [envsim, facility]
       dmz:
         ipv4_address: 10.20.32.60   # SIEM 으로 syslog 를 보내는 다리
+    restart: unless-stopped
+
+  # ╭─ 관제 화면(NOC) — 4F 운영층의 창 ─────────────────────────╮
+  # 상태를 만들지 않고 모으기만 한다: envsim(전력·열·경보) + roster(근무자) +
+  # docker.sock(컨테이너 생사). 화면이 자기 값을 만들기 시작하면 학생이 보는 숫자와
+  # SIEM 에 남는 숫자가 갈라지고, 그 순간 교보재가 아니라 장식이 된다.
+  #
+  # 존은 dmz 다(관리 포털과 같다). 4F 운영층이라는 것은 물리 배치이자 권한 경계이지
+  # 별도 세그먼트가 아니다 — 그 어긋남을 화면이 그대로 드러낸다.
+  noc:
+    container_name: kt66-noc
+    build: ./noc
+    hostname: noc
+    depends_on: [envsim]
+    environment:
+      ENVSIM_URL: http://10.20.32.60:8000   # envsim 의 dmz 다리
+      INT_HOST: ${INT_HOST_IP:-192.168.136.145}
+      WEB_HOST: ${WEB_HOST_IP:-192.168.12.100}
+      API_KEY: ${API_KEY:-ccc-api-key-2026}
+      TZ: Asia/Seoul
+    volumes:
+      - ./agents:/agents:ro                 # 근무자 명단·루프 — 편집하면 5초 뒤 화면에 반영
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${INT_HOST_IP:-192.168.136.145}:8020:8000"
+    networks:
+      dmz:
+        ipv4_address: 10.20.32.51
     restart: unless-stopped
 
   # ╭─ int tier: vuln endpoints (behind WAF) ─────────────────╮

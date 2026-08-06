@@ -49,34 +49,42 @@ def _docker_client() -> httpx.AsyncClient:
 
 
 async def collect_container_util() -> dict[str, float]:
-    """컨테이너 CPU 사용률(0~1). docker 의 누적 카운터 차분으로 계산한다."""
+    """컨테이너 CPU 사용률(0~1). docker 의 누적 카운터 차분으로 계산한다.
+
+    one-shot + 동시 요청인 이유: stream=false 기본 동작은 docker 가 1초 간격 표본
+    두 개를 뜰 때까지 기다린다. 자산 20개를 순차로 돌면 한 틱이 40초 가까이 걸리고,
+    그러면 UPS 잔여 시간이 화면에서 멈춘 것처럼 보인다. 차분은 우리가 직접 하므로
+    docker 가 기다려 줄 이유가 없다.
+    """
     out: dict[str, float] = {}
     targets = {a["container"]: a["id"] for a in assets["it_assets"] if a.get("container")}
     if not targets:
         return out
+
+    async def one(c: httpx.AsyncClient, cname: str, aid: str):
+        try:
+            r = await c.get(f"/containers/{cname}/stats",
+                            params={"stream": "false", "one-shot": "true"})
+            if r.status_code != 200:
+                return
+            cpu = r.json().get("cpu_stats", {})
+            total = cpu.get("cpu_usage", {}).get("total_usage")
+            system = cpu.get("system_cpu_usage")
+            if total is None or system is None:
+                return
+            prev = _cpu_prev.get(cname)
+            _cpu_prev[cname] = (total, system)
+            if not prev:
+                return
+            d_total, d_sys = total - prev[0], system - prev[1]
+            if d_sys > 0 and d_total >= 0:
+                out[aid] = max(0.0, min(d_total / d_sys, 1.0))
+        except Exception:
+            return
+
     try:
         async with _docker_client() as c:
-            for cname, aid in targets.items():
-                try:
-                    r = await c.get(f"/containers/{cname}/stats", params={"stream": "false"})
-                    if r.status_code != 200:
-                        continue
-                    s = r.json()
-                    cpu = s.get("cpu_stats", {})
-                    total = cpu.get("cpu_usage", {}).get("total_usage")
-                    system = cpu.get("system_cpu_usage")
-                    ncpu = cpu.get("online_cpus") or 1
-                    if total is None or system is None:
-                        continue
-                    prev = _cpu_prev.get(cname)
-                    _cpu_prev[cname] = (total, system)
-                    if not prev:
-                        continue
-                    d_total, d_sys = total - prev[0], system - prev[1]
-                    if d_sys > 0 and d_total >= 0:
-                        out[aid] = max(0.0, min(d_total / d_sys, 1.0))
-                except Exception:
-                    continue
+            await asyncio.gather(*(one(c, n, a) for n, a in targets.items()))
     except Exception as e:
         log.warning("docker 수집 실패: %s", e)
     return out
@@ -234,6 +242,22 @@ def shed_analysis():
             "on_battery": sim.power.on_battery}
 
 
+@app.post("/timescale")
+def timescale(value: float, key: str | None = None):
+    """시뮬레이션 시간 가속.
+
+    유휴 상태의 랩은 발열이 5kW 남짓이라 냉동기를 죽여도 분당 0.2°C 밖에 안 오른다.
+    한 교시 안에 전개시키려면 강사가 시간을 당겨야 한다. 다만 ENV-03(UPS 절체)은
+    "11분 안에 무엇을 끌 것인가"가 실습의 본체이므로 ×1 로 둔다.
+    """
+    _auth(key)
+    if not 0.1 <= value <= 120.0:
+        raise HTTPException(400, "시간 배속은 0.1~120 사이여야 합니다")
+    old, sim.time_scale = sim.time_scale, float(value)
+    sim._event("info", f"시간 배속 변경: ×{old:g} → ×{value:g}")
+    return {"time_scale": sim.time_scale}
+
+
 @app.post("/reset")
 def reset(key: str | None = None):
     _auth(key)
@@ -244,7 +268,8 @@ def reset(key: str | None = None):
 def root():
     return JSONResponse({
         "name": "kt66 환경 시뮬레이터",
-        "endpoints": ["/state", "/assets", "/alarms", "/events", "/faults",
-                      "POST /inject?fault=&target=", "POST /reset", "/health"],
+        "endpoints": ["/state", "/assets", "/alarms", "/events", "/faults", "/shed",
+                      "POST /inject?fault=&target=", "POST /shed?group=",
+                      "POST /timescale?value=", "POST /reset", "/health"],
         "faults": FAULTS,
     })

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kt66 NOC — 미니 AI데이터센터 관제</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">
+    <span class="logo">kt66</span>
+    <span class="sub" id="bld-name">미니 AI데이터센터</span>
+  </div>
+
+  <div class="kpis" id="kpis">
+    <div class="kpi" id="kpi-power"><label>전력</label><b>—</b><small></small></div>
+    <div class="kpi" id="kpi-ups"><label>UPS</label><b>—</b><small></small></div>
+    <div class="kpi" id="kpi-temp"><label>최고 온도</label><b>—</b><small></small></div>
+    <div class="kpi" id="kpi-alarm"><label>활성 경보</label><b>—</b><small></small></div>
+    <div class="kpi" id="kpi-cont"><label>가동 자산</label><b>—</b><small></small></div>
+  </div>
+
+  <div class="topright">
+    <span class="tsbadge" id="tsbadge" hidden></span>
+    <span class="clock" id="clock">--:--:--</span>
+    <button class="btn ghost" id="btn-instructor">강사 패널</button>
+    <span class="link" id="link-status" title="envsim 연결">●</span>
+  </div>
+</header>
+
+<main>
+  <section id="stage">
+    <div class="stage-head">
+      <nav class="crumbs" id="crumbs"><button class="crumb active" data-view="building">건물</button></nav>
+      <div class="stage-legend" id="zone-legend"></div>
+    </div>
+    <div class="stage-body">
+      <svg id="scene" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="stage-hint" id="stage-hint">층을 클릭하면 전산실 내부로 들어갑니다</div>
+    </div>
+    <div class="chain" id="chain"></div>
+  </section>
+
+  <aside id="rail">
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="power">전력·냉방</button>
+      <button class="tab" data-tab="crew">근무자</button>
+      <button class="tab" data-tab="alarm">경보</button>
+      <button class="tab" data-tab="log">이벤트</button>
+    </nav>
+    <div class="tabbody">
+      <div class="pane active" id="pane-power"></div>
+      <div class="pane" id="pane-crew"></div>
+      <div class="pane" id="pane-alarm"></div>
+      <div class="pane" id="pane-log"></div>
+    </div>
+  </aside>
+</main>
+
+<!-- 자산 상세 · 접속 -->
+<div class="drawer" id="drawer" hidden>
+  <div class="drawer-head">
+    <div><b id="dr-name">—</b><span class="zpill" id="dr-zone"></span></div>
+    <button class="btn ghost sm" id="dr-close">닫기</button>
+  </div>
+  <div class="drawer-body" id="dr-body"></div>
+</div>
+
+<!-- UPS 절체 판단 (on_battery 일 때만) -->
+<div class="modal" id="ups-modal" hidden>
+  <div class="modal-card wide">
+    <div class="modal-head alarm">
+      <b>UPS 절체 — 부하 차단 판단</b>
+      <span id="ups-sub"></span>
+      <button class="btn ghost sm" id="ups-close">접기</button>
+    </div>
+    <div class="ups-stats" id="ups-stats"></div>
+    <div class="modal-body" id="ups-body"></div>
+    <div class="modal-foot">
+      정답은 하나가 아니다. <b>무엇을 지키기로 했고 그 대가가 무엇인지</b> 말할 수 있으면 된다.
+    </div>
+  </div>
+</div>
+
+<!-- 강사 패널 -->
+<div class="modal" id="inj-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <b>강사 패널 — 고장 주입</b>
+      <button class="btn ghost sm" id="inj-close">닫기</button>
+    </div>
+    <div class="modal-body" id="inj-body"></div>
+    <div class="modal-foot">
+      <button class="btn danger" id="btn-reset">전체 해제 (reset)</button>
+      <span class="dim">주입 즉시 SIEM 으로 syslog 가 나갑니다 — 학생 화면과 같은 사건입니다.</span>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

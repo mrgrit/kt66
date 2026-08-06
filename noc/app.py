@@ -1,0 +1,209 @@
+"""kt66 관제 화면(NOC) — 백엔드.
+
+역할은 셋뿐이다. 스스로 상태를 만들지 않는다.
+
+  ① 합성 — 흩어진 진실원천을 한 화면 분량으로 모은다
+        envsim/assets.yaml  (건물·존·자산 대장)
+        envsim /state       (전력·열·경보 — 실측 기반)
+        agents/roster.yaml  (근무자 명단)
+        docker.sock         (컨테이너가 실제로 살아 있는가)
+  ② 치환 — ${INT_HOST}/${WEB_HOST} 를 배포된 실제 IP 로 바꾼다
+  ③ 중계 — 브라우저의 고장 주입·부하 차단을 envsim 으로 넘긴다
+
+시뮬레이션 로직은 여기 없다. 전부 envsim 에 있다. 관제 화면이 상태를 만들기
+시작하면 화면과 실제가 갈라지고, 그 순간 교보재로서 못 쓰게 된다.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import pathlib
+import re
+import time
+
+import httpx
+import yaml
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+log = logging.getLogger("noc")
+logging.basicConfig(level=logging.INFO, format="[noc] %(message)s")
+
+ENVSIM_URL = os.getenv("ENVSIM_URL", "http://10.20.60.10:8000")
+ROSTER_PATH = pathlib.Path(os.getenv("ROSTER_PATH", "/agents/roster.yaml"))
+LOOPS_DIR = pathlib.Path(os.getenv("LOOPS_DIR", "/agents/loops"))
+DOCKER_SOCK = os.getenv("DOCKER_SOCK", "/var/run/docker.sock")
+INT_HOST = os.getenv("INT_HOST", "192.168.136.145")
+WEB_HOST = os.getenv("WEB_HOST", "192.168.12.100")
+API_KEY = os.getenv("API_KEY", "")
+STATIC = pathlib.Path(__file__).parent / "static"
+
+app = FastAPI(title="kt66 NOC", version="1.0")
+
+_cache: dict[str, tuple[float, object]] = {}
+
+
+def _sub(obj):
+    """${INT_HOST}/${WEB_HOST} 치환. 대장에 IP 를 박아두면 배포마다 깨진다."""
+    if isinstance(obj, str):
+        return obj.replace("${INT_HOST}", INT_HOST).replace("${WEB_HOST}", WEB_HOST)
+    if isinstance(obj, dict):
+        return {k: _sub(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sub(v) for v in obj]
+    return obj
+
+
+def _cached(key: str, ttl: float, fn):
+    hit = _cache.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    val = fn()
+    _cache[key] = (time.time(), val)
+    return val
+
+
+# ── envsim 중계 ─────────────────────────────────────────────────────
+async def _env(method: str, path: str, **kw):
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.request(method, f"{ENVSIM_URL}{path}", **kw)
+            return r.status_code, r.json()
+    except Exception as e:
+        raise HTTPException(502, f"envsim 도달 실패: {e}")
+
+
+# ── 근무자 명단 ─────────────────────────────────────────────────────
+def load_roster() -> dict:
+    if not ROSTER_PATH.exists():
+        return {"workers": [], "error": f"{ROSTER_PATH} 없음"}
+    data = yaml.safe_load(ROSTER_PATH.read_text(encoding="utf-8")) or {}
+    defaults = data.get("defaults", {})
+    loops = load_loops()
+    for w in data.get("workers", []):
+        w.setdefault("runtime", defaults.get("runtime", "bastion"))
+        w.setdefault("autonomy", defaults.get("autonomy", "L1"))
+        # 루프 요약을 붙여 준다 — 화면에서 "이 사람이 무슨 주기로 뭘 도는가"가 보여야 한다
+        w["loop_detail"] = [loops[i] for i in w.get("loops", []) or [] if i in loops]
+    return data
+
+
+def load_loops() -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    if not LOOPS_DIR.is_dir():
+        return out
+    for p in sorted(LOOPS_DIR.glob("*.yaml")):
+        try:
+            d = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            lid = d.get("id", p.stem)
+            out[lid] = {"id": lid, "name": d.get("name", lid),
+                        "owner": d.get("owner"), "autonomy": d.get("autonomy"),
+                        "cadence": d.get("cadence"), "runbook": d.get("runbook"),
+                        "steps": len(d.get("steps") or []),
+                        "gates": len(d.get("gates") or [])}
+        except Exception as e:
+            log.warning("루프 %s 읽기 실패: %s", p.name, e)
+    return out
+
+
+# ── 컨테이너 실제 상태 ──────────────────────────────────────────────
+async def container_states() -> dict[str, dict]:
+    """대장에 적힌 것과 실제로 떠 있는 것이 다를 수 있다. 그 차이를 화면에 보여준다."""
+    out: dict[str, dict] = {}
+    try:
+        transport = httpx.AsyncHTTPTransport(uds=DOCKER_SOCK)
+        async with httpx.AsyncClient(transport=transport, base_url="http://docker",
+                                     timeout=8.0) as c:
+            r = await c.get("/containers/json", params={"all": "true"})
+            if r.status_code != 200:
+                return out
+            for ct in r.json():
+                name = (ct.get("Names") or ["/?"])[0].lstrip("/")
+                out[name] = {"state": ct.get("State"), "status": ct.get("Status"),
+                             "image": ct.get("Image"),
+                             "health": (ct.get("State") == "running")}
+    except Exception as e:
+        log.warning("docker 조회 실패: %s", e)
+    return out
+
+
+# ── API ─────────────────────────────────────────────────────────────
+@app.get("/api/health")
+async def health():
+    code, _ = await _env("GET", "/health")
+    return {"ok": True, "envsim": code == 200,
+            "hosts": {"int": INT_HOST, "web": WEB_HOST}}
+
+
+@app.get("/api/layout")
+async def layout():
+    """건물 배치도 + 존 정의 + 자산 대장. 화면이 처음 한 번 받아 가는 정적 모델."""
+    _, assets = await _env("GET", "/assets")
+    return _sub(assets)
+
+
+@app.get("/api/state")
+async def state():
+    """매 폴링마다 받아 가는 동적 상태. envsim 상태 + 컨테이너 생사."""
+    (_, st), ct = await _env("GET", "/state"), await container_states()
+    st["containers"] = ct
+    return st
+
+
+@app.get("/api/events")
+async def events(limit: int = 60):
+    _, d = await _env("GET", "/events", params={"limit": limit})
+    return d
+
+
+@app.get("/api/roster")
+def roster():
+    return _cached("roster", 5.0, load_roster)
+
+
+@app.get("/api/faults")
+async def faults():
+    _, d = await _env("GET", "/faults")
+    return d
+
+
+@app.post("/api/inject")
+async def inject(fault: str, target: str = "*", clear: bool = False):
+    """강사 조작. 화면 밖으로 나가지 않고 여기서 시나리오를 넣는다."""
+    code, d = await _env("POST", "/inject",
+                         params={"fault": fault, "target": target,
+                                 "clear": str(clear).lower(), "key": API_KEY})
+    if code >= 400:
+        raise HTTPException(code, d.get("detail", "주입 실패"))
+    return d
+
+
+@app.post("/api/shed")
+async def shed(group: str, restore: bool = False):
+    """학생 판단. ENV-03 에서 무엇을 끊을지 여기서 누른다."""
+    code, d = await _env("POST", "/shed",
+                         params={"group": group, "restore": str(restore).lower(),
+                                 "key": API_KEY})
+    if code >= 400:
+        raise HTTPException(code, d.get("detail", "차단 실패"))
+    return d
+
+
+@app.post("/api/timescale")
+async def timescale(value: float):
+    """시간 배속. 유휴 랩은 열이 천천히 오르므로 강사가 수업 속도에 맞춘다."""
+    code, d = await _env("POST", "/timescale", params={"value": value, "key": API_KEY})
+    if code >= 400:
+        raise HTTPException(code, d.get("detail", "배속 변경 실패"))
+    return d
+
+
+@app.post("/api/reset")
+async def reset():
+    _, d = await _env("POST", "/reset", params={"key": API_KEY})
+    _cache.clear()
+    return d
+
+
+app.mount("/", StaticFiles(directory=str(STATIC), html=True), name="static")

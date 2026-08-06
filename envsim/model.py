@@ -340,9 +340,12 @@ class Simulator:
         groups = self.assets.get("shed_groups", {})
         rows = []
         for gid, g in groups.items():
+            members = [a for a in self.assets["it_assets"] if a.get("shed_group") == gid]
             kw = sum(kw for aid, kw in self.asset_kw.items() if self._group_of(aid) == gid)
             rows.append({
                 "group": gid, "name": g["name"], "kw": round(kw, 2),
+                # 배치된 자산 수. 0 이면 "끊어도 아무 일이 없다" — 화면이 그걸 숨기면 안 된다.
+                "assets": len(members),
                 "priority": g.get("priority", 0),
                 "impact": g.get("impact", ""), "recovery": g.get("recovery", ""),
                 "shed": gid in self.shed,
