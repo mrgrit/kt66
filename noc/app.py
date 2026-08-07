@@ -31,6 +31,7 @@ log = logging.getLogger("noc")
 logging.basicConfig(level=logging.INFO, format="[noc] %(message)s")
 
 ENVSIM_URL = os.getenv("ENVSIM_URL", "http://10.20.60.10:8000")
+INJECTOR_URL = os.getenv("INJECTOR_URL", "http://10.20.32.52:8000")
 ROSTER_PATH = pathlib.Path(os.getenv("ROSTER_PATH", "/agents/roster.yaml"))
 LOOPS_DIR = pathlib.Path(os.getenv("LOOPS_DIR", "/agents/loops"))
 DOCKER_SOCK = os.getenv("DOCKER_SOCK", "/var/run/docker.sock")
@@ -65,13 +66,21 @@ def _cached(key: str, ttl: float, fn):
 
 
 # ── envsim 중계 ─────────────────────────────────────────────────────
-async def _env(method: str, path: str, **kw):
+async def _relay(base: str, who: str, method: str, path: str, **kw):
     try:
-        async with httpx.AsyncClient(timeout=10.0) as c:
-            r = await c.request(method, f"{ENVSIM_URL}{path}", **kw)
+        async with httpx.AsyncClient(timeout=120.0) as c:
+            r = await c.request(method, f"{base}{path}", **kw)
             return r.status_code, r.json()
     except Exception as e:
-        raise HTTPException(502, f"envsim 도달 실패: {e}")
+        raise HTTPException(502, f"{who} 도달 실패: {e}")
+
+
+async def _env(method: str, path: str, **kw):
+    return await _relay(ENVSIM_URL, "envsim", method, path, **kw)
+
+
+async def _inj(method: str, path: str, **kw):
+    return await _relay(INJECTOR_URL, "injector", method, path, **kw)
 
 
 # ── 근무자 명단 ─────────────────────────────────────────────────────
@@ -187,6 +196,48 @@ async def shed(group: str, restore: bool = False):
                                  "key": API_KEY})
     if code >= 400:
         raise HTTPException(code, d.get("detail", "차단 실패"))
+    return d
+
+
+# ── IT 계통 주입기 중계 ────────────────────────────────────────────
+# 시설(OT) 고장은 envsim, 나머지 38종은 injector 가 갖고 있다. 강사는 그 구분을
+# 알 필요가 없으므로 관제 화면이 두 곳을 하나의 패널로 합친다.
+@app.get("/api/inj/catalog")
+async def inj_catalog():
+    _, d = await _inj("GET", "/catalog")
+    return d
+
+
+@app.get("/api/inj/active")
+async def inj_active():
+    _, d = await _inj("GET", "/active")
+    return d
+
+
+@app.post("/api/inj/inject")
+async def inj_inject(id: str, target: str, ttl: int | None = None, params: str | None = None):
+    q = {"id": id, "target": target, "key": API_KEY}
+    if ttl is not None:
+        q["ttl"] = ttl
+    if params:
+        q["params"] = params
+    code, d = await _inj("POST", "/inject", params=q)
+    if code >= 400:
+        raise HTTPException(code, d.get("detail", "주입 실패"))
+    return d
+
+
+@app.post("/api/inj/clear")
+async def inj_clear(handle: str):
+    code, d = await _inj("POST", "/clear", params={"handle": handle, "key": API_KEY})
+    if code >= 400:
+        raise HTTPException(code, d.get("detail", "해제 실패"))
+    return d
+
+
+@app.post("/api/inj/clear_all")
+async def inj_clear_all():
+    _, d = await _inj("POST", "/clear_all", params={"key": API_KEY})
     return d
 
 

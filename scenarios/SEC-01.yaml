@@ -15,12 +15,12 @@ inject:
     volume: "40GB 상당 (실습에서는 축소 후 지표로 환산)"
   target: {floor: "4F", asset: attacker}
   script: null
+  injector: [sec_exfil]
 
 impl:
-  status: partial
+  status: ready
   note: >-
-    전송 자체는 attacker 컨테이너에서 즉시 가능하고 Suricata/WAF 로그에 잡힌다.
-    다만 실제 40GB 를 흘리면 랩 디스크·시간을 잡아먹으므로 축소 전송 + 지표 환산으로 운용한다.
+    injector 의 sec_exfil 이 attacker 에서 실제 아웃바운드를 만든다. 전송량은 랩 사정에 맞게 줄이고(기본 200MB) 지표로 환산해 제시한다 — 40GB 를 실제로 흘리지 않는 이유를 학생에게 밝힌다.
 
 symptom:
   - "비정상적 아웃바운드 트래픽량 탐지"

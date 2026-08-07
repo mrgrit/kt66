@@ -15,12 +15,12 @@ inject:
     command: "부하 발생 — CPU 점유로 앱 계층만 느리게 만든다"
   target: {floor: "2F", asset: juiceshop}
   script: null
+  injector: [proc_pause, cpu_throttle, net_delay, load_slow_backend]
 
 impl:
-  status: partial
+  status: ready
   note: >-
-    주입 명령은 docker exec 로 즉시 가능하나 스크립트가 아직 없다.
-    앱 계층만 느려지고 fw/ips/web 은 정상이라 계층 절단 실습의 조건은 갖춰진다.
+    네 가지로 각각 다른 원인을 만들 수 있다 — proc_pause(응답 없음), cpu_throttle(느려짐), net_delay(구간 지연), load_slow_backend(백엔드만 지연). 같은 증상에 원인이 다르므로 계층별 절단 훈련이 제대로 성립한다.
 
 symptom:
   - "juice.kt66.lab 응답시간 증가, 간헐적 타임아웃"

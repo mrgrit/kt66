@@ -14,12 +14,12 @@ inject:
     path: wazuh-config/certs/
   target: {floor: "2F", asset: dashboard}
   script: null
+  injector: [sec_certexpiry]
 
 impl:
-  status: partial
+  status: ready
   note: >-
-    인증서 교체는 가능하지만 indexer↔manager↔dashboard 의 상호 신뢰 사슬을 건드리므로
-    잘못하면 SIEM 스택 전체가 안 뜬다. 원본 certs 백업과 복구 절차를 스크립트에 포함해야 한다.
+    injector 의 sec_certexpiry 가 만료 인증서로 교체한다. **원본을 스냅샷으로 떠 두고** 해제 시 복구하므로 SIEM 신뢰 사슬이 영구히 깨지지 않는다.
 
 symptom:
   - "TLS 오류로 접속 불가"

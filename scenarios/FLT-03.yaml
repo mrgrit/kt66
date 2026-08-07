@@ -14,13 +14,12 @@ inject:
     action: "tc netem 으로 간헐적 패킷 손실을 건다 (예: 30초 주기로 loss 20% on/off)"
   target: {floor: "2F", asset: ips}
   script: null
+  injector: [net_flap, net_loss, net_mtu]
 
 impl:
-  status: partial
+  status: ready
   note: >-
-    tc netem 은 ips 컨테이너에서 실행 가능하나 iproute2 의 tc 가 이미지에 들어 있는지
-    확인이 필요하고, 주기 토글 스크립트가 아직 없다. 잘못 걸면 체인 전체가 흔들리므로
-    반드시 원복 스크립트와 짝으로 만들어야 한다.
+    injector 의 net_flap(주기 토글)·net_loss·net_mtu 로 주입한다. tc netem 이 실제로 걸리고 TTL 이 지나면 스스로 풀린다. NET_ADMIN 이 있는 컨테이너(fw·ips·web·attacker·bastion·gpu-gw)에만 걸리는데, 체인 전 구간이 여기 포함되므로 진단 실습에는 부족함이 없다.
 
 symptom:
   - "간헐적 패킷 손실"

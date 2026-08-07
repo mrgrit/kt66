@@ -443,9 +443,10 @@ services:
     container_name: kt66-noc
     build: ./noc
     hostname: noc
-    depends_on: [envsim]
+    depends_on: [envsim, injector]
     environment:
       ENVSIM_URL: http://10.20.32.60:8000   # envsim 의 dmz 다리
+      INJECTOR_URL: http://10.20.32.52:8000
       INT_HOST: ${INT_HOST_IP:-192.168.136.145}
       WEB_HOST: ${WEB_HOST_IP:-192.168.12.100}
       API_KEY: ${API_KEY:-ccc-api-key-2026}
@@ -459,6 +460,35 @@ services:
       dmz:
         ipv4_address: 10.20.32.51
     restart: unless-stopped
+
+  # ╭─ 고장 주입기 — IT 계통 38종 ─────────────────────────────────╮
+  # 시설(OT) 10종은 envsim 이 물리 모델과 함께 갖고 있고, 여기는 나머지다 —
+  # 시스템·스토리지·네트워크·보안·부하. 둘을 합치지 않은 이유는 역할이 다르기
+  # 때문이다: envsim 은 물리 시뮬레이터이고 여기는 **랩을 실제로 조작하는** 서비스다.
+  # 물리 엔진에 docker.sock 쓰기 권한을 주면 시뮬레이션 버그가 인프라를 망가뜨린다.
+  #
+  # ⚠ docker.sock 을 **쓰기**로 마운트하는 유일한 상시 서비스다. 그래서 화이트리스트
+  #   카탈로그만 실행하고 임의 명령 입구는 두지 않았다. 모든 state 형 주입은 TTL 이
+  #   지나면 스스로 풀린다 — 앞 조의 고장이 다음 조에 남으면 안 된다.
+  injector:
+    container_name: kt66-injector
+    build: ./injector
+    hostname: injector
+    depends_on: [siem]
+    environment:
+      API_KEY: ${API_KEY:-ccc-api-key-2026}
+      SYSLOG_HOST: 10.20.32.100     # 강사의 주입도 사건이다 — 학생 타임라인에 같이 남는다
+      SYSLOG_PORT: "514"
+      TZ: Asia/Seoul
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${INT_HOST_IP:-192.168.136.145}:8030:8000"
+    networks:
+      dmz:
+        ipv4_address: 10.20.32.52
+    restart: unless-stopped
+
 
   # ╭─ int tier: vuln endpoints (behind WAF) ─────────────────╮
   juiceshop:

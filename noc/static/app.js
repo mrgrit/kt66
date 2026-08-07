@@ -25,6 +25,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 let LAYOUT = null, ST = null, ROSTER = { workers: [] }, FAULTS = { available: {} }, EVENTS = [];
+let INJCAT = { injections: [] }, INJACT = { active: [] };
 let VIEW = { mode: 'building', floor: null, zoom: 1, panx: 0, pany: 0 };
 let BASE_VB = null, SELECTED = null, upsDismissed = false;
 let MOUSE = { x: 0, y: 0 };
@@ -1092,32 +1093,133 @@ function faultTargets(fault) {
     default: return ['*'];
   }
 }
+/* 주입 목록은 두 곳에서 온다 — 시설(OT) 10종은 envsim, IT 38종은 injector.
+ * 강사는 그 구분을 알 필요가 없으므로 한 목록으로 합쳐 보여준다. */
+const DOM_ALL = {
+  facility: { name: '시설 · 환경(OT)', color: '#4fc3f7' },
+  system:   { name: '시스템 · 프로세스', color: '#38bdf8' },
+  storage:  { name: '스토리지 · 디스크', color: '#ffb020' },
+  network:  { name: '네트워크', color: '#a78bfa' },
+  security: { name: '보안', color: '#ff4d6a' },
+  load:     { name: '부하 · 성능', color: '#3ddc97' },
+};
+let INJDOM = 'facility', INJQ = '';
+
+function allInjections() {
+  const fac = Object.entries(FAULTS.available || {}).map(([k, desc]) => ({
+    src: 'env', id: k, domain: 'facility', name: desc, desc: '',
+    teaches: '', kind: 'state', danger: 2, targets: faultTargets(k), params: [], scenarios: [],
+  }));
+  return [...fac, ...(INJCAT.injections || []).map(i => ({ ...i, src: 'inj' }))];
+}
+
+/** 지금 걸려 있는 것. envsim 은 fault→대상 목록, injector 는 handle 단위다. */
+function activeInjections() {
+  const out = [];
+  for (const [k, ts] of Object.entries(ST?.faults || {}))
+    for (const t of ts) out.push({ src: 'env', id: k, target: t, domain: 'facility',
+      name: FAULTS.available?.[k] || k, remaining: null });
+  for (const a of (INJACT.active || []))
+    out.push({ src: 'inj', handle: a.handle, id: a.id, target: a.target,
+      domain: a.domain, name: a.name, remaining: a.remaining, elapsed: a.elapsed });
+  return out;
+}
+
+async function clearOne(a) {
+  if (a.src === 'env') await post('/api/inject', { fault: a.id, target: a.target, clear: true });
+  else await post('/api/inj/clear', { handle: a.handle });
+}
+
 function renderInjector() {
-  const body = $('#inj-body'), active = ST?.faults || {}, ts = ST?.time_scale ?? 1;
+  const body = $('#inj-body'), ts = ST?.time_scale ?? 1;
+  const list = allInjections();
+  const act = activeInjections();
+  const counts = {};
+  list.forEach(i => counts[i.domain] = (counts[i.domain] || 0) + 1);
+  const q = INJQ.trim().toLowerCase();
+  const shown = list.filter(i => i.domain === INJDOM &&
+    (!q || (i.name + i.id + (i.desc || '') + (i.scenarios || []).join()).toLowerCase().includes(q)));
+
+  const DANGER = ['', '국소', '서비스 영향', '랩 전체'];
+
   body.innerHTML = `
-    <div class="frow" style="margin-bottom:12px">
-      <span class="fname">시간 배속<small>열 시나리오는 ×10 이상 · UPS 절체(ENV-03)는 ×1 유지</small></span>
-      <select id="ts-sel">${[1, 5, 10, 30, 60].map(v =>
-        `<option value="${v}" ${v === ts ? 'selected' : ''}>×${v}${v === 1 ? ' 실시간' : ''}</option>`).join('')}</select>
-      <button class="btn sm act" id="ts-apply">적용</button></div>
-    <div class="fgrid">${Object.entries(FAULTS.available || {}).map(([k, desc]) => {
-      const on = active[k] || [], tg = faultTargets(k);
-      return `<div class="frow ${on.length ? 'active' : ''}">
-        <span class="fname">${desc}<small>${k}${on.length ? ` · 진행 중: ${on.join(', ')}` : ''}</small></span>
-        <select data-tg="${k}">${tg.map(t => `<option value="${t}">${t}</option>`).join('')}</select>
-        <button class="btn sm danger" data-inj="${k}">주입</button>
-        <button class="btn sm" data-clr="${k}" ${on.length ? '' : 'disabled'}>해제</button></div>`;
-    }).join('')}</div>`;
+    <div class="inj-top">
+      <div class="frow" style="flex:1">
+        <span class="fname">시간 배속<small>열 시나리오는 ×10 이상 · UPS 절체(ENV-03)는 ×1 유지</small></span>
+        <select id="ts-sel">${[1, 5, 10, 30, 60].map(v =>
+          `<option value="${v}" ${v === ts ? 'selected' : ''}>×${v}${v === 1 ? ' 실시간' : ''}</option>`).join('')}</select>
+        <button class="btn sm act" id="ts-apply">적용</button>
+      </div>
+    </div>
+
+    ${act.length ? `<div class="inj-active">
+      <div class="ia-h">진행 중 ${act.length}건 <span class="muted">— state 형은 TTL 이 지나면 스스로 풀린다</span></div>
+      ${act.map((a, n) => `<div class="ia-row">
+        <i style="background:${DOM_ALL[a.domain]?.color || '#7b93ad'}"></i>
+        <b>${a.name}</b><span class="mono">${a.target}</span>
+        ${a.remaining != null ? `<span class="ttl">${Math.floor(a.remaining / 60)}:${
+          String(a.remaining % 60).padStart(2, '0')}</span>` : '<span class="ttl">—</span>'}
+        <button class="btn sm" data-clr1="${n}">해제</button></div>`).join('')}
+    </div>` : ''}
+
+    <div class="inj-tabs">${Object.entries(DOM_ALL).map(([k, v]) =>
+      `<button class="itab ${k === INJDOM ? 'on' : ''}" data-dom="${k}"
+        style="--c:${v.color}">${v.name}<em>${counts[k] || 0}</em></button>`).join('')}</div>
+
+    <input class="inj-search" id="inj-q" placeholder="이름 · ID · 시나리오로 찾기 (예: FLT-03)" value="${INJQ}">
+
+    <div class="fgrid">${shown.map((i, n) => {
+      const on = act.filter(a => a.id === i.id);
+      return `<div class="frow inj ${on.length ? 'active' : ''}">
+        <div class="fname">
+          <div class="ih"><b>${i.name}</b>
+            <span class="dg d${i.danger}">${DANGER[i.danger] || ''}</span>
+            ${i.kind === 'action' ? '<span class="kd">1회성</span>' : ''}
+            ${(i.scenarios || []).map(s => `<span class="sc">${s}</span>`).join('')}
+          </div>
+          ${i.desc ? `<small class="dsc">${i.desc}</small>` : ''}
+          ${i.teaches ? `<small class="tch">▸ ${i.teaches}</small>` : ''}
+          ${on.length ? `<small class="onn">진행 중: ${on.map(a => a.target).join(', ')}</small>` : ''}
+        </div>
+        <div class="fctl">
+          <select data-tg="${n}">${(i.targets || []).map(t =>
+            `<option value="${t}">${t.replace(/^kt66-/, '')}</option>`).join('')}</select>
+          ${(i.params || []).map(p => `<label class="pin"><span>${p.label}</span>
+            <input data-p="${n}:${p.name}" type="${p.type === 'str' ? 'text' : 'number'}"
+              value="${p.default}" ${p.type === 'float' ? 'step="0.05"' : ''}></label>`).join('')}
+          <button class="btn sm danger" data-go="${n}">주입</button>
+        </div>
+      </div>`;
+    }).join('') || '<div class="empty">해당하는 주입이 없습니다</div>'}</div>`;
+
   $('#ts-apply', body).onclick = async () => {
-    await post('/api/timescale', { value: $('#ts-sel', body).value }); await poll(); renderInjector(); };
-  const tgOf = k => $(`[data-tg="${k}"]`, body)?.value || '*';
-  $$('[data-inj]', body).forEach(b => b.onclick = async () => {
-    await post('/api/inject', { fault: b.dataset.inj, target: tgOf(b.dataset.inj) });
-    await poll(); renderInjector(); });
-  $$('[data-clr]', body).forEach(b => b.onclick = async () => {
-    for (const t of (ST?.faults?.[b.dataset.clr] || []))
-      await post('/api/inject', { fault: b.dataset.clr, target: t, clear: true });
-    await poll(); renderInjector(); });
+    await post('/api/timescale', { value: $('#ts-sel', body).value });
+    await poll(); await refreshInj(); };
+  $$('[data-dom]', body).forEach(b => b.onclick = () => { INJDOM = b.dataset.dom; renderInjector(); });
+  const qi = $('#inj-q', body);
+  qi.oninput = () => { INJQ = qi.value; renderInjector();
+    const n = $('#inj-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+  $$('[data-clr1]', body).forEach(b => b.onclick = async () => {
+    b.disabled = true; await clearOne(act[+b.dataset.clr1]); await poll(); await refreshInj(); });
+  $$('[data-go]', body).forEach(b => b.onclick = async () => {
+    const n = +b.dataset.go, i = shown[n];
+    const target = $(`[data-tg="${n}"]`, body)?.value;
+    const p = {};
+    (i.params || []).forEach(pp => {
+      const el2 = $(`[data-p="${n}:${pp.name}"]`, body);
+      if (el2) p[pp.name] = pp.type === 'str' ? el2.value : Number(el2.value);
+    });
+    b.disabled = true;
+    if (i.src === 'env') await post('/api/inject', { fault: i.id, target });
+    else await post('/api/inj/inject', Object.keys(p).length
+      ? { id: i.id, target, params: JSON.stringify(p) } : { id: i.id, target });
+    await poll(); await refreshInj();
+  });
+}
+
+async function refreshInj() {
+  try { INJACT = await get('/api/inj/active'); } catch { INJACT = { active: [] }; }
+  if (!$('#inj-modal').hidden) renderInjector();
 }
 
 /* ══ 통신 ══════════════════════════════════════════════════════ */
@@ -1150,6 +1252,9 @@ async function boot() {
   try {
     [LAYOUT, ROSTER, FAULTS] = await Promise.all([
       get('/api/layout'), get('/api/roster'), get('/api/faults')]);
+    // IT 계통 38종은 별도 서비스(injector)에 있다. 없어도 시설 10종은 돌아가야 한다.
+    try { INJCAT = await get('/api/inj/catalog'); }
+    catch (e) { console.warn('injector 미가동 — 시설 주입만 제공', e); }
   } catch (e) {
     document.body.innerHTML = `<div class="empty" style="padding:60px">초기 데이터를 읽지 못했습니다 — ${e}</div>`;
     return;
@@ -1157,6 +1262,7 @@ async function boot() {
   renderLegend();
   await poll();
   setInterval(poll, 3000);
+  setInterval(() => { if (!$('#inj-modal').hidden) refreshInj(); }, 3000);
   setInterval(() => $('#clock').textContent =
     new Date().toLocaleTimeString('ko-KR', { hour12: false }), 1000);
 }
@@ -1165,10 +1271,13 @@ async function boot() {
 $$('#tabs .tab').forEach(t => t.onclick = () => selectTab(t.dataset.tab));
 $('#dr-close').onclick = () => { $('#drawer').hidden = true; SELECTED = null; };
 $('#ups-close').onclick = () => { upsDismissed = true; $('#ups-modal').hidden = true; };
-$('#btn-instructor').onclick = () => { renderInjector(); $('#inj-modal').hidden = false; };
+$('#btn-instructor').onclick = async () => { $('#inj-modal').hidden = false;
+  renderInjector(); await refreshInj(); };
 $('#inj-close').onclick = () => $('#inj-modal').hidden = true;
 $('#btn-reset').onclick = async () => {
-  await post('/api/reset', {}); upsDismissed = false; await poll(); renderInjector(); };
+  await post('/api/reset', {});             // 시설 고장 + 부하 차단
+  await post('/api/inj/clear_all', {});     // IT 계통 주입 전부 + 잔재 정리
+  upsDismissed = false; await poll(); await refreshInj(); };
 $('#legend-toggle').onclick = () => $('#legend').hidden = !$('#legend').hidden;
 
 const zoom = k => { VIEW.zoom = Math.max(.35, Math.min(VIEW.zoom * k, 8)); render(); };

@@ -32,6 +32,9 @@ DOCKER_SOCK = os.getenv("DOCKER_SOCK", "/var/run/docker.sock")
 SYSLOG_HOST = os.getenv("SYSLOG_HOST", "10.20.32.100")
 SYSLOG_PORT = int(os.getenv("SYSLOG_PORT", "514"))
 TICK_SEC = float(os.getenv("TICK_SEC", "5"))
+# 자산 1대를 몇 코어짜리 서버로 볼 것인가. 사용률(0~1)의 분모다 —
+# 4로 두면 코어 2개를 태운 컨테이너가 50% 부하로 잡힌다.
+CORES_PER_ASSET = float(os.getenv("CORES_PER_ASSET", "4"))
 API_KEY = os.getenv("API_KEY", "")
 
 assets = yaml.safe_load(pathlib.Path(ASSETS_PATH).read_text(encoding="utf-8"))
@@ -70,6 +73,7 @@ async def collect_container_util() -> dict[str, float]:
             cpu = r.json().get("cpu_stats", {})
             total = cpu.get("cpu_usage", {}).get("total_usage")
             system = cpu.get("system_cpu_usage")
+            ncpu = cpu.get("online_cpus") or os.cpu_count() or 1
             if total is None or system is None:
                 return
             prev = _cpu_prev.get(cname)
@@ -78,7 +82,12 @@ async def collect_container_util() -> dict[str, float]:
                 return
             d_total, d_sys = total - prev[0], system - prev[1]
             if d_sys > 0 and d_total >= 0:
-                out[aid] = max(0.0, min(d_total / d_sys, 1.0))
+                # d_total/d_sys 는 **호스트 전체** 대비 비율이다. 24스레드 호스트에서
+                # 코어 2개를 완전히 태워도 0.083 이 나온다 — 그 값으로는 "이 서버가
+                # 얼마나 부하를 받고 있는가"를 말할 수 없고, 부하 시나리오가 성립하지
+                # 않는다. 그래서 코어 수로 환산한 뒤 **자산 1대의 상정 코어 수**로 나눈다.
+                cores = d_total / d_sys * ncpu
+                out[aid] = max(0.0, min(cores / CORES_PER_ASSET, 1.0))
         except Exception:
             return
 
