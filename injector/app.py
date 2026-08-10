@@ -40,6 +40,24 @@ app = FastAPI(title="kt66 고장 주입기", version="1.0")
 ACTIVE: dict[str, dict] = {}      # handle -> {id, target, params, payload, started, ttl}
 EVENTS: list[dict] = []
 
+# 활성 주입 기록을 디스크에도 남긴다. 메모리에만 두면 이 컨테이너가 재시작하는 순간
+# **무엇을 되돌려야 하는지** 를 통째로 잊는다. 기동 정리(_startup_sweep)는 프로세스와
+# 파일까지만 걷어낼 수 있어서, 기록이 있어야만 되돌릴 수 있는 것들이 그대로 남는다 —
+# 증적 백업 복원, 존 재연결, 자원 제한 원복, 정지된 컨테이너 기동.
+STATE_PATH = os.getenv("STATE_PATH", "/state/active.json")
+
+
+def _save_state():
+    """원자적으로 쓴다. 쓰다 만 파일을 다음 기동이 읽으면 원복 계획을 잃는다."""
+    try:
+        os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+        tmp = STATE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(list(ACTIVE.values()), f, ensure_ascii=False)
+        os.replace(tmp, STATE_PATH)
+    except Exception as e:                    # 저장 실패가 주입을 막아서는 안 된다
+        log.warning("상태 저장 실패 — 재시작 시 원복 정보를 잃을 수 있습니다: %s", e)
+
 
 def _auth(key: str | None):
     if API_KEY and key != API_KEY:
@@ -78,6 +96,7 @@ async def _do_inject(inj: cat.Inj, target: str, params: dict, ttl: int) -> str:
                  "target": target, "params": params, "payload": payload,
                  "kind": inj.kind, "danger": inj.danger,
                  "started": time.time(), "ttl": ttl}
+    _save_state()
     _event("inject", f"주입: {inj.name} → {target}"
                      + (f" (자동해제 {ttl}초)" if inj.kind == "state" and ttl else ""),
            inj=inj.id, target=target, handle=h)
@@ -100,6 +119,7 @@ async def _do_revert(h: str, why: str = "수동 해제") -> bool:
                inj=rec["id"], target=rec["target"], handle=h, level=12)
     finally:
         ACTIVE.pop(h, None)
+        _save_state()
     return True
 
 
@@ -115,8 +135,23 @@ async def _sweeper():
 
 
 async def _startup_sweep():
-    """기동 시 남아 있는 흔적을 걷어낸다. 앞 세션이 비정상 종료했을 수 있다."""
-    cleaned = 0
+    """기동 시 남아 있는 흔적을 걷어낸다. 앞 세션이 비정상 종료했을 수 있다.
+
+    여기서 pkill 을 쓰면 안 된다. catalog.KILL_SH 주석에 적힌 두 가지 이유가
+    그대로 적용되는데, 예전에 이 함수만 그걸 놓치고 있었다 —
+      ① `pkill -f kt66inj` 는 **자기를 실행한 부모 셸의 명령줄에도** kt66inj 가
+         들어 있어서 부모를 죽인다. 셸이 SIGKILL(137)로 끊기니 같은 줄 뒤에 있던
+         rm 이 실행되지 않는다. 프로세스는 죽고 파일만 남는다.
+      ② pkill 이 없는 이미지(kt66-portal·kt66-envsim)에서는 루프가 살아남는다.
+         rm 은 되지만 살아 있는 루프가 곧바로 파일을 다시 만든다.
+    실제로 kt66-portal 에 앞 세션의 disk_fill_slow 2개와 io_stress 2개가 살아남아
+    분당 190MB 씩 쌓고 있었다. 아무도 모르고 있었다 — 활성 목록은 0건이었다.
+
+    그래서 kill 은 catalog 의 /proc 스캔을 쓰고, **rm 은 별도 exec 로 분리**한다.
+    한쪽이 실패해도 다른 쪽은 반드시 실행되어야 한다. 죽인 개수를 세어 로그에
+    남긴다 — 조용히 아무 일도 안 하는 것이 이 함수의 원래 실패 방식이었다.
+    """
+    cleaned = killed = 0
     for c in cat.NETCAP:
         try:
             await dk.sh(c, "tc qdisc del dev eth0 root 2>/dev/null; "
@@ -126,9 +161,12 @@ async def _startup_sweep():
         except Exception:
             pass
     for c in cat.SHELL_OK:
-        try:
-            await dk.sh(c, "pkill -9 -f kt66inj 2>/dev/null; rm -rf /var/tmp/kt66-inj-* "
-                           "/var/tmp/kt66-io-* 2>/dev/null; true")
+        try:                                  # ① 표식 붙은 배경 루프를 먼저 죽인다
+            killed += await cat.kill_orphans(c)
+        except Exception as e:
+            log.warning("기동 정리 — %s 프로세스 정리 실패: %s", c, e)
+        try:                                  # ② 파일은 별도 exec 로. ①이 실패해도 여기는 돈다
+            await dk.sh(c, "rm -rf /var/tmp/kt66-inj-* /var/tmp/kt66-io-* 2>/dev/null; true")
         except Exception:
             pass
     for ct in (await dk.containers()):
@@ -139,12 +177,46 @@ async def _startup_sweep():
                 cleaned += 1
             except Exception:
                 pass
-    log.info("기동 정리 완료 — %d개 대상", cleaned)
+    log.info("기동 정리 완료 — 대상 %d개, 고아 프로세스 %d개 정리", cleaned, killed)
+
+
+async def _revert_previous_session() -> int:
+    """앞 세션이 남긴 기록으로 **제 방식대로** 원복한다.
+
+    쓸어내기 전에 기록부터 소진하는 이유: 기동 정리는 프로세스·파일·tc·nft 까지만
+    걷어낸다. 기록이 있어야만 되돌릴 수 있는 것이 따로 있다 — 증적 백업 복원,
+    존 재연결, 자원 제한 원복, 정지된 컨테이너 기동.
+
+    재시작하면 주입은 전부 풀린다. 남겨 두고 이어 가지 않는 이유는, 강사가 조종간을
+    잃은 채로 랩이 계속 망가져 있는 것보다 **아는 상태로 돌아가 있는 편이 낫기**
+    때문이다. 원칙 ① 과 같은 판단이다.
+    """
+    try:
+        with open(STATE_PATH, encoding="utf-8") as f:
+            recs = json.load(f)
+    except FileNotFoundError:
+        return 0
+    except Exception as e:
+        log.warning("앞 세션 기록을 읽지 못했습니다 — 기동 정리에만 의존합니다: %s", e)
+        return 0
+    n = 0
+    for r in recs:
+        if not isinstance(r, dict) or "handle" not in r or r.get("kind") != "state":
+            continue
+        ACTIVE[r["handle"]] = r                       # _do_revert 가 여기서 찾는다
+        if await _do_revert(r["handle"], "재시작 원복(앞 세션)"):
+            n += 1
+    ACTIVE.clear()
+    _save_state()
+    if n:
+        log.info("앞 세션 주입 %d건을 기록대로 원복했습니다", n)
+    return n
 
 
 @app.on_event("startup")
 async def _boot():
-    await _startup_sweep()
+    await _revert_previous_session()   # 기록이 있는 것부터 — 제대로 되돌린다
+    await _startup_sweep()             # 그다음 쓸어내기 — 기록에 없는 잔재까지
     asyncio.create_task(_sweeper())
     log.info("주입 카탈로그 %d종 / 영역 %d개", len(cat.C), len(cat.DOMAINS))
 

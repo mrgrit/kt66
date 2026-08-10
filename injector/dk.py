@@ -71,8 +71,47 @@ async def unpause(name: str):
 
 
 async def update(name: str, **res):
-    """자원 제한. 0 을 주면 해제된다 — 그래서 원복이 항상 가능하다."""
+    """자원 제한.
+
+    ⚠ **0 은 '해제'가 아니라 '변경 없음'이다.** 도커 update API 는 0 을 "지정하지
+    않음"으로 읽고 조용히 무시한다 — 오류도 경고도 없이 `{"Warnings":null}` 을
+    돌려주므로, 원복이 성공한 것처럼 보이면서 제한은 그대로 남는다. 실측:
+
+      NanoCPUs=0        → cgroup cpu.max 이 `5000 100000` 그대로 (해제 안 됨)
+      CpuQuota=-1       → `max 100000` 로 진짜 풀림  ← CPU 는 이걸 써야 한다
+      Memory=0          → memory.max 그대로 (해제 안 됨)
+      Memory=-1         → 거부: "Minimum memory limit allowed is 6MB"
+      Memory=아주 큰 값 → 거부: "memory+swap limit should be >= memory limit"
+
+    메모리 제한은 update 로 **없앨 수 없다**. 올리는 것만 된다. 완전한 원복은
+    컨테이너 재생성뿐이라, mem_limit 의 revert 는 사실상 무한대(호스트 RAM)까지
+    올리는 것으로 대신한다. clear_mem_limit 참고.
+    """
     await api("POST", f"/containers/{name}/update", body=res)
+
+
+async def clear_cpu_limit(name: str):
+    """CPU 제한 해제. NanoCPUs=0 이 아니라 CpuQuota=-1 이어야 실제로 풀린다."""
+    await update(name, CpuQuota=-1, CpuPeriod=0)
+
+
+def _host_ram() -> int:
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) * 1024
+    except Exception:
+        pass
+    return 32 * 1024 ** 3
+
+
+async def clear_mem_limit(name: str):
+    """메모리 제한 '해제'. 실제로는 호스트 RAM 만큼 올리는 것이다 — update API 로는
+    제한을 없앨 수 없다. 실사용 관점에서는 무제한과 같지만, inspect 의 Memory 는
+    0 이 아니라 그 큰 값으로 남는다. 완전히 지우려면 컨테이너를 재생성해야 한다."""
+    r = _host_ram()
+    await update(name, Memory=r, MemorySwap=r)
 
 
 # ── 네트워크 ────────────────────────────────────────────────────────

@@ -485,6 +485,10 @@ services:
       SYSLOG_PORT: "514"
       TZ: Asia/Seoul
     volumes:
+      # 활성 주입 기록. 컨테이너 밖에 둬야 재시작·재빌드 후에도 원복 계획이 남는다 —
+      # 메모리에만 두면 재시작하는 순간 무엇을 되돌려야 하는지 잊고, 주입된 것이
+      # 랩에 영영 남는다(실제로 kt66-portal 에 그렇게 살아남은 것들이 있었다).
+      - ./injector/state:/state
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${INT_HOST_IP:-192.168.136.145}:8030:8000"

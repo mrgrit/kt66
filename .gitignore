@@ -42,3 +42,6 @@ agents/runtimes/*/rendered/
 gpu-gw/wg/*.key
 gpu-gw/wg/*.pub
 gpu-gw/wg/*.conf
+
+# 주입기 활성 상태 — 런타임에 생긴다
+injector/state/

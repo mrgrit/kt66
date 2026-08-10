@@ -90,6 +90,17 @@ async def kill_bg(c: str, h: str | None = None, *extra: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+# 앞 세션이 비정상 종료하면 핸들을 알 수 없다. 그때는 접두어 하나로 싹 쓸어야 한다.
+# `kt66inj_` 표식뿐 아니라 파일 경로(/var/tmp/kt66-inj-*, kt66-io-*)로도 잡는다 —
+# 배경 루프의 명령줄에는 둘 중 하나가 반드시 들어 있다.
+KILL_PREFIXES = ("kt66inj_", "kt66-inj-", "kt66-io-")
+
+
+async def kill_orphans(c: str) -> int:
+    """대상 컨테이너에 남아 있는 주입 배경 프로세스를 전부 죽이고 개수를 돌려준다."""
+    return await kill_bg(c, None, *KILL_PREFIXES)
+
+
 @dataclass
 class Inj:
     id: str
@@ -167,7 +178,8 @@ reg(id="cpu_throttle", domain="system", name="CPU 기아", danger=2, kind="state
     scenarios=["INC-01"], targets=ALL, ttl=600,
     params=[{"name": "cpus", "label": "CPU 코어", "type": "float", "default": 0.05}],
     apply=lambda t, p, h: dk.update(t, NanoCPUs=int(float(p.get("cpus", .05)) * 1e9)),
-    revert=lambda t, pl: dk.update(t, NanoCPUs=0))
+    # NanoCPUs=0 은 조용히 무시된다(오류 없이 제한이 그대로 남는다). dk.update 주석 참고.
+    revert=lambda t, pl: dk.clear_cpu_limit(t))
 
 reg(id="mem_limit", domain="system", name="메모리 제한 → OOM", danger=2, kind="state",
     desc="메모리 상한을 낮춘다. 한계를 넘으면 커널이 OOM 으로 죽인다.",
@@ -176,7 +188,8 @@ reg(id="mem_limit", domain="system", name="메모리 제한 → OOM", danger=2, 
     params=[{"name": "mb", "label": "메모리(MB)", "type": "int", "default": 64}],
     apply=lambda t, p, h: dk.update(t, Memory=int(p.get("mb", 64)) * 1024 * 1024,
                                     MemorySwap=int(p.get("mb", 64)) * 1024 * 1024),
-    revert=lambda t, pl: dk.update(t, Memory=0, MemorySwap=0))
+    # Memory=0 도 마찬가지로 무시된다. update 로는 제한을 없앨 수 없어 최대치로 올린다.
+    revert=lambda t, pl: dk.clear_mem_limit(t))
 
 
 async def _netcut(t, p, h):
