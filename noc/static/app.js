@@ -121,7 +121,10 @@ const textW = (t, s) => [...t].reduce((n, c) => n + (c.charCodeAt(0) > 0x2000 ? 
  *  그래서 라벨층 전체를 픽셀 좌표계로 그리고 1/k 로 되돌린다 — k 는 지금의 화면 배율.
  *  겹치면 아래로 밀어내고, 밀려난 만큼 지시선을 긋는다. */
 function emitLabels(root, k, vb) {
-  const layer = el('g', { transform: `translate(${vb[0]},${vb[1]}) scale(${1 / k})` });
+  // 라벨은 장면 맨 위에 얹힌다. 클릭과 툴팁은 통과시켜야 한다 —
+  // 밀려난 라벨이 장비를 덮으면 그 장비를 누를 수 없게 되기 때문이다.
+  const layer = el('g', { 'pointer-events': 'none',
+    transform: `translate(${vb[0]},${vb[1]}) scale(${1 / k})` });
   const placed = [];
   const toPx = (sx, sy) => [(sx - vb[0]) * k, (sy - vb[1]) * k];
   for (const L of LBL.sort((a, b) => a.sy - b.sy)) {
@@ -1294,19 +1297,37 @@ host.addEventListener('mousemove', e => {
 host.addEventListener('mouseleave', () => $('#tip').hidden = true);
 scene.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.14 : 1 / 1.14); },
   { passive: false });
+/* 누른 자리에서 이만큼 움직여야 "끌기"다. 그 아래는 손떨림이고, 클릭으로 본다.
+ * 누르자마자 끌기로 단정하면 안 되는 이유가 둘 있다 —
+ *  1) setPointerCapture 를 걸면 뒤이은 click 이 캡처 대상(#scene)으로 옮겨 붙는다.
+ *     장면 안 <g class="hit"> 의 click 핸들러는 영영 호출되지 않는다.
+ *  2) pointerup 에서 render() 하면 replaceChildren() 이 방금 누른 노드를 떼어낸다.
+ *     click 은 pointerup 다음에 오므로, 갈 곳이 없어져 사라진다.
+ * 둘 중 하나만 있어도 장면 클릭은 전멸한다. 그래서 실제로 움직인 뒤에만 끌기로 넘어간다. */
+const DRAG_MIN = 4;
 let drag = null;
 scene.addEventListener('pointerdown', e => {
-  drag = { x: e.clientX, y: e.clientY, px: VIEW.panx, py: VIEW.pany };
-  scene.classList.add('dragging'); scene.setPointerCapture(e.pointerId);
+  drag = { x: e.clientX, y: e.clientY, px: VIEW.panx, py: VIEW.pany, moved: false };
 });
 scene.addEventListener('pointermove', e => {
   if (!drag || !BASE_VB) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (!drag.moved) {
+    if (Math.hypot(dx, dy) < DRAG_MIN) return;   // 아직 클릭일 수 있다 — 아무것도 건드리지 않는다
+    drag.moved = true;
+    scene.classList.add('dragging');
+    scene.setPointerCapture(e.pointerId);
+  }
   const s = (BASE_VB[2] / VIEW.zoom) / scene.clientWidth;
-  VIEW.panx = drag.px - (e.clientX - drag.x) * s;
-  VIEW.pany = drag.py - (e.clientY - drag.y) * s;
+  VIEW.panx = drag.px - dx * s;
+  VIEW.pany = drag.py - dy * s;
   applyVB();
 });
-const endDrag = () => { if (drag) render(); drag = null; scene.classList.remove('dragging'); };
+const endDrag = () => {
+  const d = drag; drag = null;
+  scene.classList.remove('dragging');
+  if (d?.moved) render();     // 끌었을 때만 다시 그린다 — 라벨을 새 배율에 다시 앉히려고
+};
 scene.addEventListener('pointerup', endDrag);
 scene.addEventListener('pointercancel', endDrag);
 

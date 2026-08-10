@@ -453,6 +453,10 @@ services:
       TZ: Asia/Seoul
     volumes:
       - ./agents:/agents:ro                 # 근무자 명단·루프 — 편집하면 5초 뒤 화면에 반영
+      # 화면 파일은 이미지에도 구워져 있지만(Dockerfile 의 COPY), 여기서 덮어쓴다.
+      # 재빌드 없이 브라우저 새로고침만으로 반영된다 — 수업 중에 화면을 손볼 수 있다.
+      # 이미지 안의 사본은 그대로 두었다: 이 저장소 없이 이미지만 돌려도 화면은 떠야 한다.
+      - ./noc/static:/app/static:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "${INT_HOST_IP:-192.168.136.145}:8020:8000"
