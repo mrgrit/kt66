@@ -1,0 +1,163 @@
+# 하네스 — 같은 모델을 신뢰할 수 있는 근무자로 만드는 표면.
+#
+# 강좌 모듈 2 의 **다섯 동사**를 그대로 뼈대로 쓴다. 다섯 개로 정리하는 이유는
+# 하네스 작업이 끝없이 늘어나기 때문이다. "무엇을 더 해야 하나"를 물을 때
+# 다섯 칸 중 빈 칸을 보면 된다.
+#
+#   constrain  할 수 없게 만든다        (permission · sandbox · autonomy)
+#   inform     알 수 있게 만든다        (컨텍스트 표면 · AX)
+#   verify     맞는지 검사한다          (hook · typed output · gate)
+#   correct    틀렸을 때 복구하고 조인다 (retry · ratchet)
+#   escalate   못 하겠으면 넘긴다       (누구에게 · 언제)
+#
+# ── 왜 permission 이 도구 단위인가 ────────────────────────────────
+# 자율성 등급(L1/L2/L3)만으로는 부족하다. 같은 L2 근무자라도 "온도를 읽는 것"과
+# "부하를 차단하는 것"은 위험이 다르다. 등급은 사람의 편의고, 실제 방벽은
+# **도구마다 allow/ask/deny 를 적는 것**이다.
+#
+# ── ratchet ──────────────────────────────────────────────────────
+# 사고가 나면 규칙을 하나 추가하고, 추가한 규칙은 되돌리지 않는다. 아래
+# ratchet: 목록이 그 기록이다. 비어 있는 팀은 아직 아무것도 배우지 않은 팀이다.
+
+version: 1
+
+# 모든 근무자에게 걸리는 바닥. 개별 설정이 이보다 느슨해질 수 없다.
+defaults:
+  constrain:
+    permission:
+      # 읽기는 언제나 허용한다. 읽지 못하는 에이전트는 추측하기 시작한다.
+      env_read: allow
+      metrics_read: allow
+      log_read: allow
+      cmdb_read: allow
+      ticket_create: allow
+      ticket_update: allow
+      # 상태를 바꾸는 것은 기본이 ask 다
+      env_alarm_ack: ask
+      cooling_adjust: ask
+      power_switch: ask
+      load_shed: ask
+      container_restart: ask
+      firewall_rule_change: ask
+      # 되돌릴 수 없는 것은 아예 막는다. 등급과 무관하다.
+      data_delete: deny
+      log_purge: deny
+      audit_disable: deny
+      shutdown_host: deny
+    sandbox:
+      network: lab-only          # 랩 세그먼트 밖으로 못 나간다
+      filesystem: workdir        # 자기 작업 디렉터리만
+      max_runtime_sec: 300
+    autonomy: L1                 # roster.yaml 이 근무자마다 덮어쓴다
+
+  inform:
+    # 에이전트가 매 회차에 받는 것. 너무 많이 주면 중요한 것이 묻힌다.
+    context:
+      - 담당 자산 목록과 현재 상태
+      - 활성 경보 (자기 담당 범위)
+      - 미해결 티켓 (중복 발행 방지)
+      - 회사 priority_order
+      - 소속 팀 KPI
+    on_demand:                   # 필요할 때 찾아 쓴다 (progressive disclosure)
+      - 경험그래프 subgraph 검색
+      - 자산 대장 전체
+      - 과거 인시던트 타임라인
+    ax_note: >-
+      도구 이름과 오류 메시지는 에이전트가 읽는 UI 다. "error 500" 대신
+      "UPS 잔량을 읽지 못했다 — envsim 응답 없음" 이라고 돌려준다.
+      무엇이 잘못됐는지 모르면 재시도가 무의미해진다.
+
+  verify:
+    gates:
+      - name: 되돌리기-경로
+        rule: 상태를 바꾸는 제안에는 되돌리기 경로가 함께 있어야 한다
+        blocks: [cooling_adjust, power_switch, load_shed, firewall_rule_change]
+      - name: 교차검증
+        rule: 단일 센서·단일 로그로 결론내지 않는다. 최소 2개 근거를 댄다
+      - name: 근거표시
+        rule: 경험그래프를 인용할 때는 node/edge id 를 함께 낸다 (provenance)
+    typed_output:
+      ticket: [원인추정, 영향범위, 근거, 조치안, 되돌리기경로, 예상소요]
+      escalation: [무엇을못하는가, 지금까지시도, 필요한권한또는판단]
+
+  correct:
+    retry:
+      max_attempts: 2
+      backoff_sec: 5
+      on_fail: escalate          # 두 번 실패하면 혼자 더 해 보지 않는다
+    ratchet: []                  # 사고에서 배운 규칙이 여기 쌓인다
+
+  escalate:
+    to: ops-lead
+    when:
+      - 되돌리기 경로가 없는 조치가 필요할 때
+      - 두 팀 이상의 KPI 가 충돌할 때
+      - 경험그래프에 근거가 없고 추측만 남았을 때
+      - 재시도 한도를 넘겼을 때
+    timeout_sec: 600             # 응답이 없으면 사람에게
+
+# ── 근무자별 조정 ─────────────────────────────────────────────────
+# defaults 를 덮어쓴다. 느슨하게 만드는 방향은 명시적으로만 가능하다.
+workers:
+  facility-engineer:
+    constrain:
+      permission:
+        cooling_adjust: allow    # 자기 계통이다. 냉방 조정은 즉시 허용
+        env_alarm_ack: allow
+        power_switch: ask        # 절체는 여전히 승인 — 되돌리기가 어렵다
+        load_shed: deny          # 부하는 우리 것이 아니다. 요청만 한다
+    inform:
+      context_extra: [냉각 체인 bottleneck, 축열 잔량, 외기 습구온도]
+    correct:
+      ratchet:
+        - id: R-COOL-01
+          rule: 냉각탑 경보 시 온도가 정상이어도 축열 잔량을 먼저 계산한다
+          learned_from: ENV-CT-01
+          note: 경보와 증상 사이 20분 공백에 속아 대응을 미룬 사례에서 추가
+
+  gpu-platform-engineer:
+    constrain:
+      permission:
+        load_shed: ask           # 자기 부하는 자기가 줄인다 (승인 후)
+        container_restart: allow
+    inform:
+      context_extra: [콜드플레이트 입수 온도, 체크포인트 경과, GPU 쿼터]
+
+  soc-analyst:
+    constrain:
+      autonomy: L1               # 탐지자는 관찰자다
+      permission:
+        container_restart: deny  # 증거를 지우는 행위가 된다
+        firewall_rule_change: deny
+    verify:
+      gates:
+        - name: 증거보존
+          rule: 판정 전에 원본 로그 스냅샷을 먼저 확보한다
+
+  compliance-auditor:
+    constrain:
+      autonomy: L1
+      permission:                # 감사인은 아무것도 바꾸지 않는다
+        ticket_create: allow
+        ticket_update: deny
+        env_alarm_ack: deny
+        cooling_adjust: deny
+        power_switch: deny
+        load_shed: deny
+        container_restart: deny
+
+  ops-lead:
+    constrain:
+      autonomy: approver
+      permission:
+        approve_request: allow   # 승인만 한다. 실행 도구는 갖지 않는다
+        cooling_adjust: deny
+        power_switch: deny
+        load_shed: deny
+    escalate:
+      to: human                  # 최상위. 여기서 막히면 사람이다
+
+levers:
+  - "permission 을 전부 allow 로 바꾸면? — 빨라지지만 되돌릴 수 없는 조치가 나간다"
+  - "ops-lead 에게 실행 권한을 주면? — 승인이 형식이 되고 감사가 무너진다"
+  - "ratchet 을 지우면? — 같은 사고를 다시 겪는다. 지우고 재현해 보는 것이 실습이다"

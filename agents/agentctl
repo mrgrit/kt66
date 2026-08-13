@@ -22,7 +22,7 @@ SKILLS = ROOT / "skills"
 OUT = ROOT / "runtimes"
 ROSTER = ROOT / "roster.yaml"
 
-RUNTIMES = ("bastion", "hermes", "claude")
+RUNTIMES = ("bastion", "hermes", "claude", "codex")
 AUTONOMY = {"L1": "보고 전용", "L2": "승인 후 실행", "L3": "무인", "approver": "승인 전담"}
 
 
@@ -178,7 +178,45 @@ def render_claude(worker, meta, body, loops, dest):
     return [d / f"{worker['id']}.md", dest / "CLAUDE.md"]
 
 
-ADAPTERS = {"bastion": render_bastion, "hermes": render_hermes, "claude": render_claude}
+def _cadence_of(text):
+    """루프 원문에서 cadence 한 줄만 뽑는다. 없으면 '주기 미지정'."""
+    for line in text.splitlines():
+        if line.strip().startswith("cadence:"):
+            return line.split(":", 1)[1].strip().strip('"\'') or "주기 미지정"
+    return "주기 미지정"
+
+
+def render_codex(worker, meta, body, loops, dest):
+    """codex — AGENTS.md 하나로 끝난다.
+
+    Codex 는 루프도 메모리 디렉터리도 갖지 않는다. 그래서 페르소나에 루프가 붙어
+    있으면 **렌더는 되지만 그 루프는 돌지 않는다.** 조용히 빠뜨리면 학생이
+    "왜 점검이 안 도나"로 한나절을 쓴다. 그래서 파일 안에 경고로 남긴다 —
+    런타임을 바꾸면 무엇을 잃는지 보이는 것이 W15 비교 실습의 핵심이다.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    head = [
+        f"# {get(worker, 'name')} ({worker['id']})",
+        "",
+        f"- 층/존: {get(worker, 'floor')} / {get(worker, 'zone')}",
+        f"- 자율성: {get(worker, 'autonomy')} — {AUTONOMY.get(get(worker, 'autonomy'), '')}",
+        f"- 모델: {get(worker, 'model', '-')}",
+        f"- 담당 자산: {', '.join(get(worker, 'assets', []) or []) or '-'}",
+        "",
+    ]
+    if loops:
+        head += [
+            "> **주의 — 이 런타임에는 루프가 없다.**",
+            "> 아래 작업은 명단에 등록돼 있으나 Codex 에서는 자동으로 돌지 않는다.",
+            "> 주기 실행이 필요하면 hermes 로 바꾸거나 외부 스케줄러에 건다.",
+            "",
+        ] + [f">   - {n} ({_cadence_of(text)})" for n, text in loops] + [""]
+    (dest / "AGENTS.md").write_text("\n".join(head) + body, encoding="utf-8")
+    return [dest / "AGENTS.md"]
+
+
+ADAPTERS = {"bastion": render_bastion, "hermes": render_hermes,
+            "claude": render_claude, "codex": render_codex}
 
 
 def render(worker, runtime=None):

@@ -432,6 +432,34 @@ services:
         ipv4_address: 10.20.32.60   # SIEM 으로 syslog 를 보내는 다리
     restart: unless-stopped
 
+  # ╭─ 에이전트 운영 콘솔 — 회사를 세우고 근무자를 조정한다 ────╮
+  # 관제 화면이 "지금 무슨 일이 벌어지는가"라면 여기는 "누가 어떻게 일하게
+  # 할 것인가"다. 둘을 한 화면에 넣지 않았다 — 사고 대응 중에 조직을 고치는
+  # 일은 없고, 조직을 설계할 때 경보를 볼 필요도 없다.
+  #
+  # agents/ 를 **읽기·쓰기로** 마운트한다. 이 서비스는 DB 를 갖지 않고 파일을
+  # 직접 고친다. 그래야 학생이 웹으로 바꾼 것과 셸에서 바꾼 것이 같은 것이 되고,
+  # git diff 로 자기가 무엇을 바꿨는지 볼 수 있다.
+  agentops:
+    container_name: kt66-agentops
+    build: ./agentops
+    hostname: agentops
+    # 호스트 사용자로 돈다. root 로 쓰면 학생이 셸에서 자기 파일을 못 고친다 —
+    # 웹과 셸이 같은 파일을 다룬다는 이 서비스의 전제가 거기서 깨진다.
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      AGENTS_DIR: /agents
+      API_KEY: ${API_KEY:-ccc-api-key-2026}
+      TZ: Asia/Seoul
+    volumes:
+      - ./agents:/agents
+    ports:
+      - "${INT_HOST_IP:-192.168.136.145}:8050:8000"   # 내부 전용
+    networks:
+      dmz:
+        ipv4_address: 10.20.32.61
+    restart: unless-stopped
+
   # ╭─ 관제 화면(NOC) — 4F 운영층의 창 ─────────────────────────╮
   # 상태를 만들지 않고 모으기만 한다: envsim(전력·열·경보) + roster(근무자) +
   # docker.sock(컨테이너 생사). 화면이 자기 값을 만들기 시작하면 학생이 보는 숫자와

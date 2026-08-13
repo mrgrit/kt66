@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kt66 에이전트 운영</title>
+<link rel="stylesheet" href="/static/agentops.css">
+</head>
+<body>
+<header>
+  <h1>kt66 <span>에이전트 운영</span></h1>
+  <div class="head-right">
+    <label>API 키 <input id="key" type="password" placeholder="API_KEY" autocomplete="off"></label>
+    <span id="health" class="pill">…</span>
+  </div>
+</header>
+
+<!-- 여섯 단계. 각 단계는 하나의 질문에 답한다. -->
+<nav class="steps">
+  <button class="step on" data-step="1"><b>1</b><span>회사</span><em>무엇을 하는 회사인가</em></button>
+  <button class="step" data-step="2"><b>2</b><span>조직</span><em>누가 무엇을 책임지나</em></button>
+  <button class="step" data-step="3"><b>3</b><span>팀</span><em>무엇으로 평가받나</em></button>
+  <button class="step" data-step="4"><b>4</b><span>근무자</span><em>누가 일하나</em></button>
+  <button class="step" data-step="5"><b>5</b><span>일하는 방식</span><em>어떻게 일하나</em></button>
+  <button class="step" data-step="6"><b>6</b><span>적용</span><em>실제로 반영한다</em></button>
+</nav>
+
+<div id="errbar" class="errbar" hidden></div>
+
+<!-- ── 1. 회사 ──────────────────────────────────────────── -->
+<section class="panel on" data-panel="1">
+  <div class="lead">
+    <h2>우리 회사는 무엇을 하는가</h2>
+    <p>맨 위의 한 문장이 아래 모든 판단을 정합니다. 목표는 반드시 충돌하므로,
+       <b>충돌 시의 순서</b>를 적어 두지 않으면 근무자마다 다르게 판단합니다.</p>
+  </div>
+  <div id="company-view" class="cards"></div>
+  <div class="lever-box"><h3>바꿔 보면</h3><ul id="company-levers"></ul></div>
+  <details class="raw"><summary>company.yaml 직접 편집</summary>
+    <textarea id="ed-company" spellcheck="false"></textarea>
+    <button class="primary" data-save="company">저장</button>
+    <span class="msg" data-msg="company"></span></details>
+</section>
+
+<!-- ── 2. 조직 ──────────────────────────────────────────── -->
+<section class="panel" data-panel="2">
+  <div class="lead">
+    <h2>누가 무엇을 책임지는가</h2>
+    <p>부서는 층을 따라갑니다. 층의 의존 방향(1F → 2F·3F → 4F)이 이미 단방향이라
+       조직에서도 그 성질이 유지됩니다. <b>하지 않는 일</b>을 적는 칸이 있는 이유는,
+       그것이 없으면 사고 때 두 부서가 서로 상대 일이라고 생각하기 때문입니다.</p>
+  </div>
+  <div id="dept-view" class="cards"></div>
+  <details class="raw"><summary>departments.yaml 직접 편집</summary>
+    <textarea id="ed-departments" spellcheck="false"></textarea>
+    <button class="primary" data-save="departments">저장</button>
+    <span class="msg" data-msg="departments"></span></details>
+</section>
+
+<!-- ── 3. 팀 ────────────────────────────────────────────── -->
+<section class="panel" data-panel="3">
+  <div class="lead">
+    <h2>무엇으로 평가받는가</h2>
+    <p>KPI 는 개인이 아니라 팀에 겁니다. 개인에게 걸면 각자 자기 지표만 지키다가
+       회사가 사고를 냅니다. <span class="tag shared">공유</span> 표시된 항목은
+       다른 팀과 함께 지는 지표입니다 — 이것이 협업을 강제합니다.</p>
+  </div>
+  <div id="team-view" class="cards"></div>
+  <div class="lead" style="margin-top:22px">
+    <h2>경험그래프 (E.G.)</h2>
+    <p>팀이 겪은 사고에서 뽑은 <b>사실의 그래프</b>입니다. 모든 연결은 출처를 갖습니다 —
+       출처 없는 연결은 추측이고, 추측을 사실로 저장하면 다음 판단이 오염됩니다.</p>
+  </div>
+  <div id="graph-view"></div>
+  <details class="raw"><summary>teams.yaml 직접 편집</summary>
+    <textarea id="ed-teams" spellcheck="false"></textarea>
+    <button class="primary" data-save="teams">저장</button>
+    <span class="msg" data-msg="teams"></span></details>
+  <details class="raw"><summary>experience.json 직접 편집</summary>
+    <textarea id="ed-graph" spellcheck="false"></textarea>
+    <button class="primary" data-save="graph">저장</button>
+    <span class="msg" data-msg="graph"></span></details>
+</section>
+
+<!-- ── 4. 근무자 ────────────────────────────────────────── -->
+<section class="panel" data-panel="4">
+  <div class="lead">
+    <h2>누가 일하는가</h2>
+    <p>런타임과 모델을 근무자마다 고릅니다. 고르는 기준은 “얼마나 똑똑한가”가 아니라
+       <b>틀렸을 때 무엇이 망가지는가</b>입니다. 바꾸면 즉시 저장됩니다.</p>
+  </div>
+  <div class="toolbar">
+    <button id="add-worker" class="primary">+ 근무자 추가</button>
+    <span class="muted">삭제해도 페르소나 파일은 남습니다 — 되돌릴 수 있어야 하니까.</span>
+  </div>
+  <div id="worker-view" class="workers"></div>
+  <div id="persona-box" class="raw" hidden>
+    <h3 id="persona-title"></h3>
+    <textarea id="ed-persona" spellcheck="false"></textarea>
+    <button class="primary" id="save-persona">페르소나 저장</button>
+    <span class="msg" data-msg="persona"></span>
+  </div>
+</section>
+
+<!-- ── 5. 일하는 방식 ───────────────────────────────────── -->
+<section class="panel" data-panel="5">
+  <div class="lead">
+    <h2>어떻게 일하는가</h2>
+    <p>하네스는 다섯 동사로 정리합니다. “무엇을 더 해야 하나”를 물을 때
+       빈 칸을 보면 됩니다.</p>
+  </div>
+  <div id="harness-view" class="verbs"></div>
+  <div class="lead" style="margin-top:22px">
+    <h2>루프</h2>
+    <p>회차 사이에 상태가 이어지는 작업입니다. 루프가 없는 런타임에 주기 작업을
+       맡기면 성립하지 않습니다.</p>
+  </div>
+  <div id="loop-view" class="cards"></div>
+  <details class="raw"><summary>harness.yaml 직접 편집</summary>
+    <textarea id="ed-harness" spellcheck="false"></textarea>
+    <button class="primary" data-save="harness">저장</button>
+    <span class="msg" data-msg="harness"></span></details>
+  <div id="loop-box" class="raw" hidden>
+    <h3 id="loop-title"></h3>
+    <textarea id="ed-loop" spellcheck="false"></textarea>
+    <button class="primary" id="save-loop">루프 저장</button>
+    <span class="msg" data-msg="loop"></span>
+  </div>
+</section>
+
+<!-- ── 6. 적용 ──────────────────────────────────────────── -->
+<section class="panel" data-panel="6">
+  <div class="lead">
+    <h2>실제로 반영한다</h2>
+    <p>여기까지 와야 근무자가 바뀝니다. 페르소나는 런타임 중립으로 한 번 쓰고,
+       어댑터가 각 런타임 형식으로 렌더합니다.</p>
+  </div>
+  <div class="toolbar">
+    <button id="render-all" class="primary">전체 렌더</button>
+    <span class="muted">렌더 결과는 agents/runtimes/ 아래에 생깁니다.</span>
+  </div>
+  <pre id="render-out" class="out"></pre>
+  <div class="lead" style="margin-top:22px"><h2>되돌리기</h2>
+    <p>저장할 때마다 백업이 남습니다. 되돌리기 경로 없는 조작을 학생에게 시키면서
+       우리가 그 원칙을 어길 수는 없습니다.</p></div>
+  <div id="backup-view" class="cards"></div>
+</section>
+
+<!-- 근무자 추가 대화상자 -->
+<dialog id="dlg-worker">
+  <form method="dialog">
+    <h3>근무자 추가</h3>
+    <label>id <input id="nw-id" placeholder="capacity-planner"></label>
+    <label>이름 <input id="nw-name" placeholder="용량 기획"></label>
+    <label>층 <select id="nw-floor"><option>1F</option><option>2F</option><option>3F</option><option selected>4F</option></select></label>
+    <label>존 <input id="nw-zone" value="mgmt"></label>
+    <label>팀 <select id="nw-team"></select></label>
+    <label>런타임 <select id="nw-runtime"></select></label>
+    <label>모델 <select id="nw-model"></select></label>
+    <label>자율성 <select id="nw-autonomy">
+      <option value="L1">L1 — 보고 전용</option>
+      <option value="L2">L2 — 승인 후 실행</option>
+      <option value="L3">L3 — 무인 (루프 필요)</option>
+      <option value="approver">approver — 승인 전담</option></select></label>
+    <p class="muted">페르소나 뼈대가 함께 생성됩니다. 4단계에서 내용을 채우세요.</p>
+    <menu><button value="cancel">취소</button>
+      <button id="nw-ok" value="ok" class="primary">추가</button></menu>
+  </form>
+</dialog>
+
+<script src="/static/agentops.js"></script>
+</body>
+</html>

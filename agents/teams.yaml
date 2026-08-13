@@ -1,0 +1,140 @@
+# 팀 — KPI 와 경험그래프(E.G.)를 갖는 단위.
+#
+# ── KPI 를 팀에 두는 이유 ─────────────────────────────────────────
+# 개인에게 KPI 를 걸면 에이전트가 **자기 지표만** 지킨다. 시설 담당이 온도만
+# 보고 GPU 담당이 SLA 만 보면, 둘 다 자기 KPI 를 달성하면서 회사는 사고가 난다.
+# 그래서 KPI 는 팀에 걸고, 팀 KPI 에는 **반드시 다른 팀과 겹치는 항목**을 넣는다
+# (shared 표시). 겹치는 항목이 협업을 강제한다.
+#
+# ── 경험그래프(E.G.) ─────────────────────────────────────────────
+# 강좌 모듈 4(Graph Engineering)의 knowledge graph 를 운영에 옮긴 것이다.
+# 팀이 겪은 사고에서 뽑은 **사실의 그래프**이고, 다음 사고에서 검색해 쓴다.
+#
+#   node : 자산 · 증상 · 원인 · 조치 · 규칙
+#   edge : causes · indicates · mitigates · precedes · contradicts
+#
+# 핵심 규율 두 가지를 그대로 지킨다:
+#   ① provenance — 모든 edge 는 출처(어느 인시던트에서 나왔는지)를 갖는다.
+#      출처 없는 edge 는 추측이고, 추측을 사실로 저장하면 다음 판단이 오염된다.
+#   ② grounded checker — "edge 가 없다"가 "어딘가 이상하다"를 이긴다. 그래프에
+#      근거가 없으면 에이전트는 모른다고 말해야 한다. 지어내면 안 된다.
+#
+# 파일은 graph/experience.json 하나다. 처음부터 그래프 DB 를 세우지 않는다 —
+# 강좌 10.1 의 "JSON 파일 세 개로 시작하라"를 따른다.
+
+version: 1
+
+teams:
+  # ── 시설운영부 ──────────────────────────────────────────────────
+  - id: power-team
+    name: 전력팀
+    department: facility
+    members: [facility-engineer]
+    kpi:
+      - {id: K-PWR-1, metric: ups_runtime_min_at_alarm, target: ">= 10", weight: 3, why: 경보 시점에 10분이 안 남았으면 판단할 시간이 없다}
+      - {id: K-PWR-2, metric: generator_pickup_success_rate, target: "= 1.0", weight: 3, why: 발전기 기동이 아니라 **부하 인수**로 센다. ATS 실패가 여기서 잡힌다}
+      - {id: K-PWR-3, metric: battery_temp_max_c, target: "< 45", weight: 2, why: 45°C 를 넘기면 열폭주까지 시간이 얼마 없다}
+      - {id: K-SHARED-SLA, metric: inference_p95_ms, target: "< 800", weight: 1, shared_with: [gpu-team], why: 부하 차단은 우리가 요청하고 GPU팀이 감수한다. 지표를 나눠 갖는다}
+    experience_graph: graph/experience.json
+
+  - id: cooling-team
+    name: 냉방팀
+    department: facility
+    members: [facility-engineer]
+    kpi:
+      - {id: K-COOL-1, metric: aisle_temp_max_c, target: "< 27", weight: 3, why: ASHRAE 권고 상한. 넘으면 장비 수명이 깎인다}
+      - {id: K-COOL-2, metric: cooling_margin_kw, target: ">= 8", weight: 3, why: 여유가 이 아래면 다음 고장 하나를 못 버틴다. 사고 전에 보이는 유일한 신호다}
+      - {id: K-COOL-3, metric: free_cooling_hours_ratio, target: ">= 0.4", weight: 1, why: 자연냉각 가동 시간. PUE 의 대부분이 여기서 갈린다}
+      - {id: K-SHARED-PUE, metric: pue, target: "<= 1.45", weight: 2, shared_with: [gpu-team], why: 분모가 IT 부하다. 우리만으로는 못 지킨다}
+    experience_graph: graph/experience.json
+
+  - id: physical-team
+    name: 물리보안팀
+    department: facility
+    members: [physical-security]
+    kpi:
+      - {id: K-PHY-1, metric: unauthorized_access_events, target: "0", weight: 3}
+      - {id: K-PHY-2, metric: cctv_uptime_ratio, target: ">= 0.99", weight: 2}
+      - {id: K-PHY-3, metric: containment_open_minutes, target: "< 15", weight: 2, why: 작업자가 핫아일 격리를 열어 두면 냉방 효율이 떨어진다. 물리보안이 본다}
+    experience_graph: graph/experience.json
+
+  # ── 인프라운영부 ────────────────────────────────────────────────
+  - id: network-team
+    name: 네트워크팀
+    department: infra
+    members: [network-engineer]
+    kpi:
+      - {id: K-NET-1, metric: zone_chain_violations, target: "0", weight: 3, why: 존 체인 우회로가 생기면 이 랩의 전제가 무너진다}
+      - {id: K-NET-2, metric: firewall_drift_count, target: "0", weight: 2}
+      - {id: K-NET-3, metric: change_rollback_ready_ratio, target: "= 1.0", weight: 2}
+    experience_graph: graph/experience.json
+
+  - id: systems-team
+    name: 시스템팀
+    department: infra
+    members: [systems-engineer]
+    kpi:
+      - {id: K-SYS-1, metric: backup_verify_success_ratio, target: "= 1.0", weight: 3, why: 백업 존재가 아니라 **복구 검증** 성공률이다}
+      - {id: K-SYS-2, metric: disk_capacity_headroom_pct, target: ">= 20", weight: 2}
+      - {id: K-SHARED-AUDIT, metric: audit_gap_minutes, target: "0", weight: 2, shared_with: [soc-team, audit-team]}
+    experience_graph: graph/experience.json
+
+  # ── AI플랫폼부 ──────────────────────────────────────────────────
+  - id: gpu-team
+    name: GPU플랫폼팀
+    department: ai-platform
+    members: [gpu-platform-engineer]
+    kpi:
+      - {id: K-GPU-1, metric: inference_p95_ms, target: "< 800", weight: 3}
+      - {id: K-GPU-2, metric: gpu_utilization_ratio, target: ">= 0.6", weight: 2, why: 너무 낮으면 전력을 좌초시키는 것이다(교재 9.5.1)}
+      - {id: K-GPU-3, metric: checkpoint_interval_min, target: "<= 15", weight: 2, why: 정전 시 잃는 계산량이 여기서 정해진다. 부하 차단 판단의 전제다}
+      - {id: K-SHARED-TEMP, metric: aisle_temp_max_c, target: "< 27", weight: 2, shared_with: [cooling-team], why: 우리 부하가 온도를 만든다. 냉방팀만의 지표가 아니다}
+    experience_graph: graph/experience.json
+
+  # ── 운영관리부 ──────────────────────────────────────────────────
+  - id: servicedesk-team
+    name: 서비스데스크팀
+    department: ops
+    members: [service-desk]
+    kpi:
+      - {id: K-SD-1, metric: ticket_first_response_min, target: "< 5", weight: 2}
+      - {id: K-SD-2, metric: ticket_misroute_ratio, target: "< 0.1", weight: 2, why: 잘못 배정된 티켓은 두 번 늦는다}
+      - {id: K-SD-3, metric: incident_timeline_completeness, target: ">= 0.9", weight: 3, why: 사후 분석의 재료다. 이것이 비면 경험그래프에 넣을 것이 없다}
+    experience_graph: graph/experience.json
+
+  - id: soc-team
+    name: SOC팀
+    department: ops
+    members: [soc-analyst]
+    kpi:
+      - {id: K-SOC-1, metric: alert_triage_min, target: "< 10", weight: 3}
+      - {id: K-SOC-2, metric: false_positive_ratio, target: "< 0.3", weight: 2}
+      - {id: K-SOC-3, metric: detection_coverage_ratio, target: ">= 0.8", weight: 2}
+      - {id: K-SHARED-AUDIT, metric: audit_gap_minutes, target: "0", weight: 3, shared_with: [systems-team, audit-team]}
+    experience_graph: graph/experience.json
+
+  - id: audit-team
+    name: 감사팀
+    department: ops
+    members: [compliance-auditor]
+    kpi:
+      - {id: K-AUD-1, metric: evidence_completeness_ratio, target: ">= 0.95", weight: 3}
+      - {id: K-AUD-2, metric: provenance_coverage_ratio, target: "= 1.0", weight: 3, why: 경험그래프의 모든 edge 가 출처를 갖는가. 이것이 무너지면 그래프가 추측이 된다}
+      - {id: K-AUD-3, metric: unapproved_change_count, target: "0", weight: 2}
+    experience_graph: graph/experience.json
+
+  - id: ops-lead-team
+    name: 운영리드팀
+    department: ops
+    members: [ops-lead]
+    kpi:
+      - {id: K-OPS-1, metric: approval_latency_min, target: "< 5", weight: 3, why: 승인이 늦으면 L2 근무자가 멈춘다. 승인자가 병목이 되면 자율성 등급이 무의미하다}
+      - {id: K-OPS-2, metric: approved_without_rollback_ratio, target: "0", weight: 3, why: 되돌리기 경로 없는 요청을 승인한 비율. 0 이 아니면 승인이 형식이다}
+      - {id: K-OPS-3, metric: cross_team_conflict_resolution_min, target: "< 15", weight: 2, why: 부서 간 충돌 판정. 이것이 늦으면 두 팀이 각자 판단하고 사고가 난다}
+    experience_graph: graph/experience.json
+
+# ── 학생이 만져 볼 지점 ────────────────────────────────────────────
+levers:
+  - "K-SHARED-* 를 빼면? — 팀이 자기 지표만 지키고 사고가 난다. 넣고 빼며 비교해 본다"
+  - "weight 를 바꾸면? — 충돌 시 어느 쪽을 포기하는지가 바뀐다"
+  - "K-COOL-2(냉방 여유)를 지우면? — 사고 전에 보이는 유일한 신호가 사라진다"

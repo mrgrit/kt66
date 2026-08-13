@@ -4,15 +4,20 @@
 # 같은 층 랙에 다른 존이 섞일 수 있고, 같은 존이 여러 층에 걸칠 수 있다.
 # 이 어긋남 자체가 교보재다(1주차 Zone·보안등급).
 #
-# runtime  : bastion | hermes | claude   ← 페르소나마다 따로 고른다
+# runtime  : bastion | hermes | claude | codex   ← 페르소나마다 따로 고른다
 # autonomy : L1(보고전용) | L2(승인후실행) | L3(무인) | approver(승인전담)
 #            L3 는 loops/ 에 런북이 등록된 작업에만 허용한다.
+# team     : 소속 **주 팀**. KPI 귀속과 경험그래프가 여기서 온다.
+#            겸직은 teams.yaml 의 members 가 진실원천이다 — 시설 담당은
+#            cooling-team 이 주 팀이지만 power-team 에도 들어가 있다
+# model    : models 카탈로그의 키. 근무자마다 다르게 고를 수 있다
 
 version: 1
 
 defaults:
   runtime: bastion
   autonomy: L1
+  model: local-small
   model_endpoint: gpu        # endpoints 참조
 
 endpoints:
@@ -22,6 +27,71 @@ endpoints:
   local:
     base_url: ${LLM_BASE_URL}
     model: ${LLM_MODEL}
+  anthropic:
+    base_url: https://api.anthropic.com/v1
+    model: ${ANTHROPIC_MODEL}
+
+# ── 사용 가능한 모델 ───────────────────────────────────────────────
+# 근무자마다 고를 수 있다. 고르는 기준은 "얼마나 똑똑한가"가 아니라
+# **틀렸을 때 무엇이 망가지는가**다. 감사인은 관찰만 하므로 작은 모델로도 되지만,
+# 복합 장애에서 병목이 옮겨 다니는 것을 따라가려면 추론이 강한 모델이 필요하다.
+# 이 선택을 학생이 직접 해 보고 결과를 비교하는 것이 15주차 실습이다.
+models:
+  local-small:
+    endpoint: gpu
+    name: gemma4:31b
+    tier: small
+    note: 로컬 GPU. 정형 작업·요약·분류에 충분하다. 비용 0
+  local-reasoning:
+    endpoint: gpu
+    name: qwen3:32b-thinking
+    tier: reasoning
+    note: 로컬 추론 모델. 복합 장애 진단에 쓴다. 느리다
+  claude-sonnet:
+    endpoint: anthropic
+    name: claude-sonnet-5
+    tier: frontier
+    note: 외부 API. 근거가 흩어진 복합 판단에 강하다. 비용이 든다
+  claude-opus:
+    endpoint: anthropic
+    name: claude-opus-5
+    tier: frontier
+    note: 가장 강하다. 설계·감사·사후분석처럼 회수당 가치가 큰 작업에만
+  mock:
+    endpoint:
+    name: mock
+    tier: none
+    note: 호출하지 않는다. 하네스·루프 배선만 검증할 때 쓴다
+
+# ── 에이전트 런타임 ────────────────────────────────────────────────
+# 페르소나는 런타임 중립으로 한 번 쓰고 어댑터가 각 형식으로 렌더한다.
+# 런타임이 다르면 **같은 페르소나라도 다르게 행동한다** — 루프와 메모리가 없는
+# 런타임에서는 주기 점검이 성립하지 않는다. 그 차이를 비교하는 것이 W15 실습이다.
+runtimes:
+  bastion:
+    name: Bastion
+    loop: false
+    memory: KG(sqlite)
+    sandbox: docker exec
+    note: kt66 내장. 방화벽·IPS 스킬이 이미 있다. 루프가 없어 주기 작업엔 약하다
+  hermes:
+    name: Hermes Agent
+    loop: cron
+    memory: memories/ + state.db
+    sandbox: sandboxes/
+    note: 주기 점검이 많은 시설·GPU 담당에 맞는다. 회차 간 상태가 이어진다
+  claude:
+    name: Claude Code
+    loop: false
+    memory: CLAUDE.md + 세션
+    sandbox: permission
+    note: 조사·분석에 강하다. 감사인처럼 읽고 쓰는 일에 맞는다
+  codex:
+    name: Codex
+    loop: false
+    memory: AGENTS.md
+    sandbox: 컨테이너
+    note: 코드·설정 변경 작업에 맞는다. 런북을 코드로 다루는 팀에 붙인다
 
 workers:
   # ── 1F 시설·보안층 ────────────────────────────────────────────
@@ -31,6 +101,8 @@ workers:
     zone: ot
     runtime: hermes           # 주기 점검이 많아 cron 이 있는 hermes 가 맞다
     autonomy: L2
+    team: cooling-team
+    model: local-reasoning
     loops: [env-health-sweep, power-capacity-check]
     assets: [ups, pdu, crac, chiller, fm200]
     curriculum: [W1, W5, W13]
@@ -41,6 +113,8 @@ workers:
     zone: ot
     runtime: hermes
     autonomy: L1
+    team: physical-team
+    model: local-small
     loops: [access-log-review]
     assets: [access-control, cctv]
     curriculum: [W5, W13, W14]
@@ -52,6 +126,8 @@ workers:
     zone: dmz
     runtime: bastion          # 방화벽·IPS 스킬이 bastion 에 이미 있다
     autonomy: L2
+    team: network-team
+    model: local-small
     loops: [firewall-drift-check]
     assets: [kt66-fw, kt66-ips, kt66-web]
     curriculum: [W2, W9, W11]
@@ -62,6 +138,8 @@ workers:
     zone: int
     runtime: bastion
     autonomy: L2
+    team: systems-team
+    model: local-small
     loops: [backup-verify, disk-capacity-check]
     assets: [kt66-neobank, kt66-govportal, kt66-mediforum, kt66-adminconsole, kt66-aicompanion]
     curriculum: [W7, W9, W10, W12]
@@ -73,6 +151,8 @@ workers:
     zone: app
     runtime: hermes           # mlops 스킬 트리를 그대로 쓴다
     autonomy: L2
+    team: gpu-team
+    model: local-reasoning
     loops: [gpu-quota-review, inference-sla-watch]
     assets: [dgx-spark-01, ollama, model-registry]
     curriculum: [W3, W7, W12]
@@ -84,6 +164,8 @@ workers:
     zone: mgmt
     runtime: bastion
     autonomy: L2
+    team: servicedesk-team
+    model: local-small
     loops: [ticket-triage]
     assets: [itsm, cmdb]
     curriculum: [W6, W8, W9]
@@ -94,6 +176,8 @@ workers:
     zone: mgmt
     runtime: bastion
     autonomy: L1
+    team: soc-team
+    model: local-reasoning
     loops: [siem-alert-triage]
     assets: [kt66-siem, kt66-wazuh-indexer, kt66-wazuh-dashboard]
     curriculum: [W11, W12, W14]
@@ -104,6 +188,8 @@ workers:
     zone: mgmt
     runtime: bastion
     autonomy: approver        # 스스로 실행하지 않는다. L2 요청을 판정만 한다
+    team: ops-lead-team
+    model: claude-sonnet      # 판정이 일이다. 여기서 아끼면 승인이 형식이 된다
     loops: []
     assets: []
     curriculum: [W6, W8, W9, W15]
@@ -114,6 +200,8 @@ workers:
     zone: mgmt
     runtime: claude
     autonomy: L1              # 감사인은 관찰자다. 상태를 바꾸지 않는다
+    team: audit-team
+    model: claude-sonnet
     loops: [evidence-collection]
     assets: [audit-log, cmdb]
     curriculum: [W14]
