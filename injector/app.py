@@ -47,13 +47,35 @@ EVENTS: list[dict] = []
 STATE_PATH = os.getenv("STATE_PATH", "/state/active.json")
 
 
+def _jsonable(o):
+    """저장할 수 없는 값을 문자열로 낮춘다.
+
+    ★ 배경 루프형 주입(proc_restart_loop·net_flap)의 payload 에는 asyncio.Task 가
+      들어 있다. 이것 하나가 json.dump 를 통째로 실패시켜서, **활성 주입 전체의
+      원복 정보가 저장되지 않았다.** 로그에는 경고 한 줄이 남을 뿐이라 조용히
+      지나간다 — 실측으로 잡았다:
+        "상태 저장 실패 ... Object of type Task is not JSON serializable"
+
+      Task 자체는 어차피 프로세스가 죽으면 사라지므로 저장할 값이 아니다.
+      문제는 그것 때문에 **다른 주입의 원복 정보까지 같이 날아간다**는 것이다.
+      한 항목의 결함이 전체를 무효화하지 않게 낮춰서 쓴다.
+    """
+    if isinstance(o, dict):
+        return {k: _jsonable(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_jsonable(v) for v in o]
+    if isinstance(o, (str, int, float, bool)) or o is None:
+        return o
+    return f"<{type(o).__name__}>"            # Task 등 — 복원 대상이 아니다
+
+
 def _save_state():
     """원자적으로 쓴다. 쓰다 만 파일을 다음 기동이 읽으면 원복 계획을 잃는다."""
     try:
         os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
         tmp = STATE_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(list(ACTIVE.values()), f, ensure_ascii=False)
+            json.dump(_jsonable(list(ACTIVE.values())), f, ensure_ascii=False)
         os.replace(tmp, STATE_PATH)
     except Exception as e:                    # 저장 실패가 주입을 막아서는 안 된다
         log.warning("상태 저장 실패 — 재시작 시 원복 정보를 잃을 수 있습니다: %s", e)
