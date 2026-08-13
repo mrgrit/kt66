@@ -259,8 +259,16 @@ cmd_net() { exec ./kt66-net.sh; }
 
 install_systemd() {
     # 호스트 IP alias 를 docker 기동 전에 보장 (재부팅 후 compose 바인딩 가능)
-    $SUDO cp kt66-hostip.service /etc/systemd/system/kt66-hostip.service
-    $SUDO cp kt66-net.service /etc/systemd/system/kt66-net.service
+    #
+    # 유닛의 ExecStart 경로는 **실제 저장소 위치로 치환한다.** 예전엔 유닛에
+    # /home/ccc/kt66 이 박혀 있었는데, 이 저장소는 ~/work/kt66 에 있다. 그래서
+    # enable 은 성공하고 실행은 조용히 실패했다 — 그 결과 재부팅마다 망 글루가
+    # 사라졌고, 아무도 몰랐다. 경로를 박아 두는 것은 배포에서 늘 이렇게 갚는다.
+    local here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    sed "s|__KT66_DIR__|$here|g" kt66-hostip.service \
+        | $SUDO tee /etc/systemd/system/kt66-hostip.service >/dev/null
+    sed "s|__KT66_DIR__|$here|g" kt66-net.service \
+        | $SUDO tee /etc/systemd/system/kt66-net.service >/dev/null
     $SUDO systemctl daemon-reload
     $SUDO systemctl enable kt66-hostip >/dev/null 2>&1 || true
     $SUDO systemctl enable --now kt66-net >/dev/null 2>&1 || true
@@ -296,7 +304,10 @@ cmd_up() {
     # 그런데 매번 돌아야 한다 — docker 데몬이 뜰 때마다 sysctl 이 되돌아가기 때문이다.
     docker compose $OVERLAY $ENVF up -d --force-recreate netglue >/dev/null 2>&1 || true
     ./kt66-net.sh                       # 호스트에서도 한 번 (netglue 가 실패한 경우의 그물)
-    ./kt66-net.sh --check || echo "[kt66] WARN: 망 글루 미적용 — 웹 입구가 죽어 있다"
+    # 종료코드 0 정상 · 1 어긋남 · 2 판정불가. 2 를 경고로 처리하면 거짓 경보가 된다.
+    ./kt66-net.sh --check; _c=$?
+    [ "$_c" = 1 ] && echo "[kt66] WARN: 망 글루 미적용 — 웹 입구가 죽어 있다"
+    [ "$_c" = 2 ] && echo "[kt66] 참고: 룰 확인에 root 가 필요하다 — sudo ./kt66-net.sh --check"
     install_systemd
     echo "[kt66] === sigma 적재 ==="
     cmd_sigma || echo "[kt66] WARN: sigma 적재 실패(나중에 ./kt66.sh sigma)"

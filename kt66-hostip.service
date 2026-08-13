@@ -1,6 +1,7 @@
 # kt66 호스트 IP alias — compose 포트 바인딩(.161 웹외부 / .145 내부GUI)이 가능하도록
 # docker 기동 *전에* 호스트 IP 를 보장한다 (단일 NIC 호스트 자가치유; 실 NIC 면 멱등 skip).
-# 설치: sudo cp kt66-hostip.service /etc/systemd/system/ && sudo systemctl enable kt66-hostip
+# 설치는 kt66.sh 의 install_systemd 가 한다(경로를 실제 저장소 위치로 치환).
+# 수동: sudo cp kt66-hostip.service /etc/systemd/system/ && sudo systemctl enable kt66-hostip
 [Unit]
 Description=kt66 host IP aliases for compose port binding (.161 web / .145 int-GUI)
 Wants=network-online.target
@@ -10,7 +11,7 @@ Before=docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/home/ccc/kt66/kt66-hostip.sh
+ExecStart=__KT66_DIR__/kt66-hostip.sh
 
 [Install]
 WantedBy=multi-user.target

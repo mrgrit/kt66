@@ -32,6 +32,9 @@
 set -e
 MODE="${1:-apply}"
 SUDO() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi; }
+# 진단용 — 비밀번호를 묻지 않는다(-n). root 면 sudo 자체를 거치지 않으므로
+# -n 을 붙이면 안 된다. 붙였다가 root 로 돌려도 "권한 없음"이 떴다.
+SUDO_Q() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@" 2>/dev/null; fi; }
 
 # ── 브리지 이름 찾기 ────────────────────────────────────────────────
 # docker CLI 가 있으면 그것으로, 없으면(=netglue 컨테이너 안) 호스트 인터페이스의
@@ -64,16 +67,30 @@ if [ "$MODE" = "--check" ]; then
     else
         echo "[kt66-net] ✓ bridge-nf-call-iptables=0"
     fi
-    if SUDO iptables -S DOCKER-USER 2>/dev/null | grep -q -- "-i ${BR[pipe]} -o ${BR[dmz]}"; then
-        echo "[kt66-net] ✓ DOCKER-USER 인터-브리지 ACCEPT"
+    # iptables/nft 조회는 root 가 필요하다. 권한이 없으면 **'없다'가 아니라 '못 봤다'**로
+    # 보고한다. 처음엔 조회 실패를 그냥 없음으로 처리했는데, 룰이 멀쩡히 걸려 있는데도
+    # ✗ 가 떴다. 못 본 것을 없다고 말하는 진단은 진단이 아니라 오보다.
+    _rules=""; _seen=0
+    if _rules="$(SUDO_Q iptables -S DOCKER-USER)" && [ -n "$_rules" ]; then
+        _seen=1
+        if printf '%s' "$_rules" | grep -q -- "-i ${BR[pipe]} -o ${BR[dmz]}"; then
+            echo "[kt66-net] ✓ DOCKER-USER 인터-브리지 ACCEPT"
+        else
+            echo "[kt66-net] ✗ DOCKER-USER 인터-브리지 ACCEPT 없음"; rc=1
+        fi
     else
-        echo "[kt66-net] ✗ DOCKER-USER 인터-브리지 ACCEPT 없음"; rc=1
+        echo "[kt66-net] ? DOCKER-USER — 권한이 없어 확인 못 함 (sudo $0 --check)"; rc=2
     fi
-    if SUDO nft list chain ip raw PREROUTING 2>/dev/null | grep -q "kt66-interbridge"; then
-        echo "[kt66-net] ✓ raw PREROUTING 우회룰"
+    if [ "$_seen" = 1 ]; then
+        if SUDO_Q nft list chain ip raw PREROUTING | grep -q "kt66-interbridge"; then
+            echo "[kt66-net] ✓ raw PREROUTING 우회룰"
+        else
+            echo "[kt66-net] ✗ raw PREROUTING 우회룰 없음"; rc=1
+        fi
     else
-        echo "[kt66-net] ✗ raw PREROUTING 우회룰 없음"; rc=1
+        echo "[kt66-net] ? raw PREROUTING — 권한이 없어 확인 못 함"
     fi
+    # 0 정상 · 1 어긋남 · 2 판정 불가. 셋을 구분해야 호출부가 옳게 처리한다.
     exit $rc
 fi
 
