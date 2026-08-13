@@ -21,6 +21,7 @@ danger: 1 국소 · 2 서비스 영향 · 3 랩 전체 영향(강사 확인용)
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 from dataclasses import dataclass, field
 from typing import Callable
@@ -169,24 +170,54 @@ reg(id="proc_pause", domain="system", name="프로세스 정지(freeze)", danger
 
 
 async def _restart_loop(t, p, h):
+    """죽였다 되살리기를 반복한다.
+
+    ★ 되살리는 일을 **직접** 해야 한다. 예전엔 죽이기만 하고 도커의 restart
+      정책이 되살려 주기를 기대했는데, `unless-stopped` 는 docker kill 로 죽은
+      컨테이너를 되살리지 않는다. 실측: period=8 로 걸어 두고 30초를 봤더니
+      RestartCount 는 0 인 채 상태가 `exited` 로 굳어 있었다. 즉 이 주입은
+      이름과 달리 **루프가 아니라 일회성 정지**였다 — proc_kill 과 같았다.
+      한 번도 CrashLoop 을 보여 준 적이 없다.
+
+    ★★ 그리고 죽이기와 되살리기를 **같은 try 로 묶으면 안 된다.** 이미 죽은
+      컨테이너에 kill 을 보내면 도커가 409 를 낸다. 그 예외가 뒤따르는 start 까지
+      건너뛰게 만들어서, 한 번 어긋난 뒤로는 영원히 exited 에 머문다. 되살리는
+      코드를 넣고도 증상이 그대로였던 이유가 이것이었다 — 고쳤다고 생각하고
+      넘어갈 뻔했다. 그래서 매 동작을 따로 감싸고, 보내기 전에 상태를 확인한다.
+    """
+    period = max(3.0, float(p.get("period", 20)))
+    down = min(period / 2, 6.0)          # 내려가 있는 시간. 기동에 몇 초 걸린다
+
     async def loop():
         while True:
-            await asyncio.sleep(float(p.get("period", 20)))
-            try:
-                await dk.kill(t)
-            except Exception:
-                pass
+            await asyncio.sleep(period)
+            with contextlib.suppress(Exception):
+                if await dk.state_of(t) == "running":
+                    await dk.kill(t)
+            await asyncio.sleep(down)
+            with contextlib.suppress(Exception):
+                if await dk.state_of(t) != "running":
+                    await dk.start(t)
     return {"task": asyncio.create_task(loop())}
 
 async def _restart_loop_off(t, pl):
     pl["task"].cancel()
     await asyncio.sleep(0)
-    if await dk.state_of(t) != "running":
-        await dk.start(t)
+    # 루프가 죽인 직후에 해제될 수 있다. 살아 있는지 확인하고 아니면 올린다.
+    for _ in range(3):
+        if await dk.state_of(t) == "running":
+            return
+        try:
+            await dk.start(t)
+        except Exception:
+            pass
+        await asyncio.sleep(2.0)
 
 reg(id="proc_restart_loop", domain="system", name="재시작 루프", danger=2, kind="state",
-    desc="주기적으로 죽인다. restart 정책이 되살리므로 CrashLoop 처럼 보인다.",
-    teaches="RestartCount 와 종료 코드를 읽는 법. 루프를 먼저 멈춰야 로그가 안정적으로 읽힌다.",
+    desc="주기적으로 죽였다 되살린다. 서비스가 떴다 죽었다 하는 CrashLoop 처럼 보인다.",
+    teaches="종료 코드(137)와 기동 시각(StartedAt)이 주기적으로 갱신되는 것을 읽는 법. "
+            "루프를 먼저 멈춰야 로그가 안정적으로 읽힌다. RestartCount 는 움직이지 않는다 "
+            "— 도커가 되살린 것이 아니기 때문이다. 그 차이를 읽는 것도 훈련이다.",
     scenarios=["FLT-04"], targets=ALL, ttl=600,
     params=[{"name": "period", "label": "주기(초)", "type": "int", "default": 20}],
     apply=_restart_loop, revert=_restart_loop_off)
@@ -299,19 +330,44 @@ reg(id="inode_exhaust", domain="storage", name="inode 소진", danger=2, kind="s
 
 
 async def _logtamper(t, p, h):
-    path = p.get("path") or "/var/log/apache2/access.log"
+    """지우기 전에 크기를 확인한다.
+
+    ★ 원래 기본 경로가 /var/log/apache2/access.log 였는데, kt66 의 아파치는
+      **사이트별 로그**(`<사이트>_port_access.log`)에 적고 저 파일은 항상 0 바이트다.
+      즉 이 주입은 지울 것이 없는 파일을 지우고 200 을 돌려주고 있었다. 조사
+      시나리오에서 "로그가 지워졌다"고 해 놓고 실제로는 아무것도 안 사라지면,
+      학생은 멀쩡한 로그를 보며 없는 훼손을 찾게 된다. 실측으로 잡았다.
+
+      실제로 쌓이는 곳:
+        /var/log/apache2/<사이트>_port_access.log   (juice·dvwa·neobank·govportal…)
+        /var/log/apache2/<사이트>_port_error.log
+        /var/log/apache2/modsec_audit.log           (WAF 감사 — 전 사이트 공통)
+
+    비어 있는 파일을 지우라고 하면 조용히 성공하는 대신 실패로 알린다.
+    """
+    path = p.get("path") or "/var/log/apache2/juice_port_access.log"
     bak = f"/var/tmp/kt66-evidence-{h}.bak"
+    size = (await dk.sh(t, f"wc -c < {path} 2>/dev/null || echo -1") or "").strip()
+    try:
+        n = int(size.split()[0])
+    except (ValueError, IndexError):
+        n = -1
+    if n < 0:
+        raise RuntimeError(f"{path} 가 없다 — 훼손할 대상을 잘못 지정했다")
+    if n == 0:
+        raise RuntimeError(f"{path} 가 비어 있다 — 지워도 사라지는 것이 없으므로 "
+                           f"조사 시나리오가 성립하지 않는다. params.path 를 확인하라")
     # 되돌릴 수 없는 조작은 넣지 않는다는 원칙 때문에, 지우기 전에 반드시 떠 둔다.
     # 학생에게는 '지워진 것'으로 보이고, 강사는 원본을 복구할 수 있다.
     await dk.sh(t, f"cp -f {path} {bak} 2>/dev/null; : > {path}")
-    return {"path": path, "bak": bak}
+    return {"path": path, "bak": bak, "erased_bytes": n}
 
 reg(id="log_tamper", domain="storage", name="증적 훼손 (로그 삭제)", danger=3, kind="state",
     desc="로그 파일 내용을 비운다. 강사용 스냅샷은 따로 떠 둔다.",
     teaches="증적 훼손이 무엇을 잃게 하는지. 조사 가능 구간이 통째로 사라진다.",
     scenarios=["INC-09", "AGT-01", "AUD-01"], targets=DISK_TARGETS, ttl=1800,
     params=[{"name": "path", "label": "경로", "type": "str",
-             "default": "/var/log/apache2/access.log"}],
+             "default": "/var/log/apache2/juice_port_access.log"}],
     apply=_logtamper,
     revert=lambda t, pl: dk.sh(t, f"cp -f {pl['bak']} {pl['path']} 2>/dev/null; "
                                   f"rm -f {pl['bak']}; true"))
@@ -650,10 +706,17 @@ reg(id="load_slow_backend", domain="load", name="백엔드 지연 전파", dange
     teaches="계층별 절단의 정석. WAF·앱·백엔드 중 어디인지 배제해 나가는 훈련.",
     scenarios=["INC-01"], targets=["kt66-web"], ttl=600,
     params=[{"name": "ms", "label": "지연(ms)", "type": "int", "default": 800}],
-    apply=lambda t, p, h: dk.sh(t, f"tc qdisc del dev eth1 root 2>/dev/null; "
-                                   f"tc qdisc add dev eth1 root netem "
+    # ★ eth1 이 아니라 eth0 이다. web 은 다리가 둘이다.
+    #     eth1 = 10.20.32.80 (dmz, 앞쪽 — fw·ips 를 거쳐 학생이 들어오는 쪽)
+    #     eth0 = 10.20.40.80 (int, 뒤쪽 — 백엔드로 나가는 쪽)
+    #   예전엔 eth1 에 걸었는데, 그러면 **앞단까지 같이 느려져서** WAF 가 문제인지
+    #   백엔드가 문제인지 가를 수가 없다. 이 주입의 목적이 바로 그 구분을
+    #   훈련시키는 것이므로 정반대로 동작하고 있었다. 뒤쪽에만 걸어야
+    #   "web 은 즉답하는데 백엔드를 부르는 순간 느리다"가 성립한다.
+    apply=lambda t, p, h: dk.sh(t, f"tc qdisc del dev eth0 root 2>/dev/null; "
+                                   f"tc qdisc add dev eth0 root netem "
                                    f"delay {int(p.get('ms', 800))}ms"),
-    revert=lambda t, pl: dk.sh(t, "tc qdisc del dev eth1 root 2>/dev/null; true"))
+    revert=lambda t, pl: dk.sh(t, "tc qdisc del dev eth0 root 2>/dev/null; true"))
 
 reg(id="load_inference", domain="load", name="추론 부하 (DGX)", danger=2, kind="state",
     desc="터널 너머 DGX Spark 에 동시 추론 요청을 건다. **GPU 온도와 클럭이 실제로 움직인다.**",
@@ -672,9 +735,22 @@ reg(id="load_conn_exhaust", domain="load", name="커넥션 고갈", danger=2, ki
     teaches="CPU 도 대역도 여유로운데 서비스가 안 되는 경우. 자원은 CPU 만이 아니다.",
     scenarios=["INC-01", "SEC-03"], targets=[ATTACKER], ttl=600,
     params=[{"name": "conns", "label": "커넥션 수", "type": "int", "default": 200}],
-    apply=lambda t, p, h: sh_bg(t, "for i in $(seq 1 %d); do (ncat -w 600 %s 8001 </dev/null) & "
-        "done; wait" % (int(p.get("conns", 200)), WEB), h),
-    revert=lambda t, pl: kill_bg(t, pl["_h"], "ncat -"))
+    # ★ 두 군데가 틀려서 이 주입은 한 번도 커넥션을 잡아 둔 적이 없다.
+    #
+    #   ① `-w 600` 을 이 ncat 빌드가 **거부한다.** 단위가 모호하다며
+    #      "your time of 600 is 10.0 minutes ... QUITTING." 을 내고 즉시 끝난다.
+    #      경고가 아니라 종료다. 200 개를 띄워도 200 개가 다 곧바로 죽었다.
+    #      단위를 붙여 `600s` 로 쓴다.
+    #   ② `</dev/null` 은 붙자마자 EOF 를 보낸다. 서버가 요청 끝으로 읽고
+    #      연결을 닫으므로, 설령 ncat 이 살았어도 슬롯을 못 잡는다.
+    #
+    # slowloris 는 **헤더를 끝내지 않는 것**이 핵심이다. 첫 줄만 보내고
+    # 입력을 열어 둔 채 버틴다 — 아파치는 나머지 헤더를 기다리며 슬롯을 문다.
+    apply=lambda t, p, h: sh_bg(t, "for i in $(seq 1 %d); do "
+        "(printf 'GET / HTTP/1.1\\r\\nHost: kt66\\r\\nX-a: 1\\r\\n'; sleep 900) | "
+        "ncat -w 600s %s 8001 >/dev/null 2>&1 & done; wait"
+        % (int(p.get("conns", 200)), WEB), h),
+    revert=lambda t, pl: kill_bg(t, pl["_h"], "ncat -", "sleep 900"))
 
 
 # ══════════════════════════════════════════════════════════════════
