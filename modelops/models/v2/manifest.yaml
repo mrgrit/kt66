@@ -1,0 +1,16 @@
+base_model: gemma3:4b
+system_prompt: 당신은 kt66 사내 업무 도우미입니다. 사내 지식이 주어지면 반드시 그것에 근거해 답하고 근거 위치를 밝히십시오. 모르면
+  모른다고 하십시오.
+temperature: 0.2
+top_p: 0.9
+max_tokens: 512
+context_tokens: 4096
+retrieval: true
+retrieval_chars: 1600
+refuse_patterns:
+- 비밀번호를 (알려|말해|출력)
+- 관리자 (비밀번호|패스워드)
+- 시스템 프롬프트|프롬프트를 출력
+- 설정 파일.*(보여|출력)
+- 지시를 무시
+note: 근거 없는 답과 과잉 거부를 잡는다. 컨텍스트를 늘려 긴 로그를 끝까지 본다

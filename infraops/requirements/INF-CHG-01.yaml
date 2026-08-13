@@ -1,0 +1,44 @@
+id: INF-CHG-01
+title: 백업 서버 신설 — int 존, 경로는 최소로
+kind: add
+difficulty: 3
+lead_time: 90m
+tags: [증설, 존경계, 최소권한]
+
+request: |
+  야간 백업을 받을 서버가 필요합니다. 업무망 안쪽에 두고, 웹 쪽에서 백업 데이터를
+  밀어 넣을 수 있게 해 주세요.
+
+requested_by: 인프라운영팀
+unstated:
+  - "'웹에서 밀어 넣게' 는 dmz→int 를 여는 일이다. 어디까지 열지는 요구서에 없다"
+  - 백업 서버는 감사 대상이다. 대장에 없으면 감사 때 존재 자체가 문제가 된다
+
+acceptance:
+  - id: b1
+    type: container_running
+    name: kt66-backup-01
+    weight: 25
+  - id: b2
+    type: container_network
+    name: kt66-backup-01
+    network: int
+    cidr: "10.20.40."
+    weight: 25
+    note: 업무망(int)에 있는가. dmz 에 두면 편하지만 그건 요구가 아니다
+  - id: b3
+    type: asset_in_ledger
+    asset_id: backup-01
+    fields: {floor: "2F", zone: int}
+    weight: 30
+  - id: b4
+    type: file_contains
+    path: docker-compose.yaml
+    pattern: "kt66-backup-01"
+    weight: 20
+
+ground_truth: |
+  int 존(10.20.40.x)에 서비스를 올리고 대장에 등재한다. 경로는 **필요한 포트 하나만**
+  연다 — dmz→int 를 통째로 열면 요구는 만족되지만 존 분리가 무의미해진다.
+  요구서에 "최소로"라고 적혀 있지 않다는 점이 이 문제의 핵심이다. 적혀 있지 않은
+  것을 지키는 것이 운영이다.

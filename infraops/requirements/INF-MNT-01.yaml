@@ -1,0 +1,39 @@
+id: INF-MNT-01
+title: 노후 자산 폐기 — 대장부터 정리한다
+kind: decommission
+difficulty: 2
+lead_time: 45m
+tags: [폐기, 대장, 의존성]
+
+request: |
+  2층의 mediforum 서버를 이번 달로 폐기합니다. 정리해 주세요.
+
+requested_by: 자산관리팀
+unstated:
+  - 컨테이너를 내리기 전에 이 자산에 걸린 의존(경보·부하차단 그룹·시나리오)을 확인해야 한다
+  - 대장에 남겨 두면 관제 화면에 '죽은 자산'이 계속 빨갛게 뜬다
+
+acceptance:
+  - id: d1
+    type: file_absent
+    path: envsim/assets.yaml
+    pattern: "id: kt66-mediforum"
+    weight: 40
+    note: 대장에서 제거했는가
+  - id: d2
+    type: file_absent
+    path: docker-compose.yaml
+    pattern: "container_name: kt66-mediforum"
+    weight: 40
+    note: compose 에서 제거했는가
+  - id: d3
+    type: power_headroom
+    max_pct: 85
+    weight: 20
+    note: 폐기 후 전력 여유가 개선됐는가
+
+ground_truth: |
+  순서가 있다. ① 의존 확인(shed_group·경보·시나리오 참조) → ② 대장에서 제거 →
+  ③ compose 에서 제거 → ④ 컨테이너 정지. 반대로 하면 관제 화면이 먼저 빨개지고,
+  그 경보가 진짜 장애인지 폐기 때문인지 아무도 모른다. **폐기도 변경이고, 변경은
+  기록이 먼저다.**

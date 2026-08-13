@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kt66 모델 운영</title>
+<link rel="stylesheet" href="/static/modelops.css">
+</head>
+<body>
+<header>
+  <h1>kt66 <span>모델 운영</span></h1>
+  <div class="head-right">
+    <span id="active" class="pill">…</span>
+    <span id="backend" class="pill"></span>
+    <label>API 키 <input id="key" type="password" placeholder="API_KEY" autocomplete="off"></label>
+  </div>
+</header>
+
+<!-- 다섯 단계. 실무의 순서 그대로다: 무슨 일이 오는가 → 무엇이 잘못됐나 →
+     무엇을 고칠까 → 나빠지지 않았나 → 올린다. -->
+<nav class="steps">
+  <button class="step on" data-step="1"><b>1</b><span>들어오는 요청</span><em>누가 무엇을 묻나</em></button>
+  <button class="step" data-step="2"><b>2</b><span>지표</span><em>무엇이 잘못됐나</em></button>
+  <button class="step" data-step="3"><b>3</b><span>요구사항</span><em>무엇을 해달라는가</em></button>
+  <button class="step" data-step="4"><b>4</b><span>모델 수정</span><em>무엇을 바꿀까</em></button>
+  <button class="step" data-step="5"><b>5</b><span>평가·배포</span><em>나빠지지 않았나</em></button>
+</nav>
+
+<div id="errbar" class="errbar" hidden></div>
+
+<!-- ── 1. 들어오는 요청 ─────────────────────────────────── -->
+<section class="panel on" data-panel="1">
+  <div class="lead">
+    <h2>사용자는 계속 들어온다</h2>
+    <p>수요 생성기가 페르소나별로 실제 요청을 만들어 활성 버전에 보냅니다.
+       <b>빨간 줄이 실패</b>입니다 — 잘렸거나, 근거 없이 답했거나, 막지 말아야 할 것을
+       막았거나, 막아야 할 것을 놓쳤습니다.</p>
+  </div>
+  <div class="ask">
+    <input id="ask-in" placeholder="직접 물어보기 — 손으로 친 것도 트래픽입니다" spellcheck="false">
+    <button id="ask-go" class="primary">보내기</button>
+  </div>
+  <pre id="ask-out" class="out" hidden></pre>
+  <div id="reqs" class="reqs"></div>
+</section>
+
+<!-- ── 2. 지표 ──────────────────────────────────────────── -->
+<section class="panel" data-panel="2">
+  <div class="lead">
+    <h2>아무도 말해 주지 않는 요구</h2>
+    <p>여기 있는 숫자가 <b>간접 요구</b>입니다. 티켓이 오기 전에 읽어내면 사용자는
+       겪지 않습니다. 못 읽으면 나중에 티켓으로 옵니다 — 그때는 이미 늦습니다.</p>
+  </div>
+  <div id="gauges" class="gauges"></div>
+  <div class="lead" style="margin-top:22px"><h2>버전별 비교</h2>
+    <p>배포 뒤에 좋아졌는지는 <b>같은 창에서 나란히</b> 봐야 압니다.</p></div>
+  <div id="byver" class="table-wrap"></div>
+</section>
+
+<!-- ── 3. 요구사항 ──────────────────────────────────────── -->
+<section class="panel" data-panel="3">
+  <div class="lead">
+    <h2>직접 들어온 요구</h2>
+    <p>지표가 임계를 넘으면 티켓으로 승격됩니다. 티켓에는 <b>손댈 만한 항목</b>이
+       달려 있습니다 — 실무에선 아무도 안 알려주지만, 여기서는 알려줍니다.</p>
+  </div>
+  <div id="tickets" class="cards"></div>
+</section>
+
+<!-- ── 4. 모델 수정 ─────────────────────────────────────── -->
+<section class="panel" data-panel="4">
+  <div class="lead">
+    <h2>무엇을 바꿀 것인가</h2>
+    <p>기존 버전을 고치지 말고 <b>새 버전을 만드세요</b>. 되돌릴 수 없는 배포는
+       배포가 아닙니다. <code>note</code> 가 비어 있으면 배포가 막힙니다 — 왜 바꿨는지
+       적지 않은 변경은 사고 때 롤백 판단을 늦춥니다.</p>
+  </div>
+  <div class="toolbar">
+    <label>불러올 버전 <select id="src-ver"></select></label>
+    <label>새 버전 이름 <input id="new-ver" placeholder="v2" size="10"></label>
+    <button id="load-ver">불러오기</button>
+    <button id="save-ver" class="primary">저장</button>
+    <span class="msg" data-msg="save"></span>
+  </div>
+  <div class="edit2">
+    <div><h3>manifest.yaml</h3><textarea id="ed-man" spellcheck="false"></textarea></div>
+    <div><h3>knowledge.md — 검색해 붙일 사내 지식</h3><textarea id="ed-know" spellcheck="false"></textarea></div>
+  </div>
+</section>
+
+<!-- ── 5. 평가·배포 ─────────────────────────────────────── -->
+<section class="panel" data-panel="5">
+  <div class="lead">
+    <h2>올리기 전에 돌린다</h2>
+    <p>다섯 항목은 <b>서로 당깁니다.</b> 가드레일을 풀면 유출이 뚫리고, 조이면 정상
+       질문이 막힙니다. 컨텍스트를 늘리면 느려집니다. 전부 만점이 되는 설정은
+       없습니다 — 어디를 포기할지 정하는 것이 운영입니다.</p>
+  </div>
+  <div class="toolbar">
+    <label>대상 버전 <select id="eval-ver"></select></label>
+    <button id="run-eval" class="primary">평가 실행</button>
+    <button id="do-deploy" class="danger">이 버전 배포</button>
+    <span class="msg" data-msg="deploy"></span>
+  </div>
+  <div id="evalout" class="cards"></div>
+</section>
+
+<script src="/static/modelops.js"></script>
+</body>
+</html>

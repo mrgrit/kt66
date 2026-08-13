@@ -1,0 +1,64 @@
+id: INF-ADD-01
+title: 3F AI 전산실에 추론 노드 1대 증설
+kind: add
+difficulty: 3
+lead_time: 90m
+tags: [증설, GPU존, 대장, 전력]
+
+# 요구사항은 **사업 언어로** 온다. 기술 지시가 아니다. 무엇을 어디에 어떻게 놓을지는
+# 학생이 정한다 — 그리고 그 결정이 전력·냉방·존 경계에 걸린다는 것을 알게 된다.
+request: |
+  추론 대기 시간이 목표를 못 맞추고 있습니다. 3층에 추론 노드를 한 대 더 넣어 주세요.
+  다음 주 월요일부터 서비스에 태울 예정입니다.
+
+requested_by: 서비스기획팀
+# 요구서에 안 적혀 있는 것들. 학생이 스스로 챙겨야 채점된다.
+unstated:
+  - 자산 대장에 올려야 관제 화면에 보이고 경보가 붙는다
+  - 3F 는 app 존이다. 다른 존에 놓으면 ips 를 지나지 않아 관측이 끊긴다
+  - 전력에 여유가 있어야 한다. 랙 공간이 아니라 임계전력이 진짜 제약이다
+
+acceptance:
+  - id: a1
+    type: container_running
+    name: kt66-infer-02
+    weight: 20
+    note: 컨테이너가 실제로 떠 있는가
+  - id: a2
+    type: container_network
+    name: kt66-infer-02
+    network: app
+    cidr: "10.20.50."
+    weight: 25
+    note: 3F GPU 존(app, 10.20.50.x)에 붙었는가 — 존을 틀리면 관측이 끊긴다
+  - id: a3
+    type: asset_in_ledger
+    asset_id: infer-02
+    fields: {floor: "3F", zone: app}
+    weight: 30
+    note: 자산 대장에 등재했는가. 컨테이너만 띄우고 끝내는 것이 가장 흔한 누락이다
+  - id: a4
+    type: file_contains
+    path: docker-compose.yaml
+    pattern: "kt66-infer-02"
+    weight: 15
+    note: 저장소에 반영했는가 — 손으로 띄운 것은 다음 배포에서 사라진다
+  - id: a5
+    type: power_headroom
+    max_pct: 85
+    weight: 10
+    note: 증설 후에도 임계전력 여유가 남는가
+
+ground_truth: |
+  compose 에 서비스를 추가하고(app 존 10.20.50.x 고정 주소), envsim/assets.yaml 의
+  it_assets 에 같은 id 로 등재한다. 등재 시 floor: 3F, zone: app, rack, idle_kw/rated_kw,
+  shed_group 을 채운다 — shed_group 이 없으면 정전 시 부하 차단 대상에서 빠져
+  UPS 시간을 계산할 수 없다.
+
+  대장을 고쳤으면 `docker compose restart envsim` 을 해야 반영된다(대장은 기동 시 읽는다).
+  고쳐 놓고 확인이 안 된다면 여기를 먼저 보라 — 실제로 이 단계에서 가장 많이 막힌다.
+
+  자주 나오는 실수 셋
+    · 대장 등재를 빼먹는다 → 컨테이너는 도는데 관제 화면에 없다
+    · int 나 dmz 존에 놓는다 → 편하지만 GPU 트래픽이 ips 를 안 지난다
+    · rated_kw 를 안 적는다 → 전력 계산에 안 잡혀 오버서브를 못 본다

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kt66 인프라 요구사항</title>
+<link rel="stylesheet" href="/static/infraops.css">
+</head>
+<body>
+<header>
+  <h1>kt66 <span>인프라 요구사항</span></h1>
+  <div class="head-right"><span id="health" class="pill">…</span></div>
+</header>
+
+<div id="errbar" class="errbar" hidden></div>
+
+<section class="panel on">
+  <div class="lead">
+    <h2>요구는 사업 언어로 온다</h2>
+    <p>“추론이 느리니 3층에 한 대 더 넣어 주세요.” 어디에 어떻게 놓을지는 적혀 있지
+       않습니다. <b>적혀 있지 않은 것을 챙기는 것</b>이 이 실습입니다.
+       판정은 여러분의 보고가 아니라 <b>랩의 실제 상태</b>로 합니다 —
+       컨테이너·자산 대장·전력·저장소 파일을 직접 들여다봅니다.</p>
+  </div>
+  <div id="list" class="cards"></div>
+</section>
+
+<dialog id="dlg">
+  <div class="dlg-head">
+    <h3 id="d-title"></h3>
+    <button id="d-close">닫기</button>
+  </div>
+  <div class="req-box" id="d-request"></div>
+  <h4>요구서에 적혀 있지 않은 것</h4>
+  <ul id="d-unstated" class="unstated"></ul>
+  <h4>완료 조건 — 랩에서 직접 확인합니다</h4>
+  <div class="toolbar">
+    <button id="d-verify" class="primary">지금 확인</button>
+    <span id="d-score" class="msg"></span>
+  </div>
+  <div id="d-checks" class="cards"></div>
+  <details class="raw"><summary>모범 답안 — 막혔을 때만 여세요</summary>
+    <pre id="d-gt" class="out"></pre></details>
+</dialog>
+
+<script src="/static/infraops.js"></script>
+</body>
+</html>

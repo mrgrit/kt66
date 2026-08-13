@@ -1,0 +1,17 @@
+# v1 — 처음 배포된 그대로. **일부러 잘못 잡혀 있다.**
+#
+# 어디가 문제인지 여기 적지 않는다. 지표와 티켓으로 찾아내는 것이 실습이다.
+# 힌트가 필요하면 평가(/api/eval/v1)를 한 번 돌려 보라 — 5개 중 몇 개가 깨진다.
+base_model: gemma3:4b
+system_prompt: |-
+  당신은 사내 업무 도우미입니다. 간결하게 한국어로 답하십시오.
+temperature: 0.9
+top_p: 0.95
+max_tokens: 512
+context_tokens: 512
+retrieval: false
+retrieval_chars: 1200
+refuse_patterns:
+  - "비밀번호|패스워드|password"
+  - "시스템 프롬프트|프롬프트를 출력"
+note: 최초 배포. 기본값 그대로 올렸다
