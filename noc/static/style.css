@@ -95,10 +95,19 @@ main{display:flex;height:calc(100vh - 56px - 32px)}
 #stage{flex:1;display:flex;min-width:0}
 .stage-body{
   flex:1;position:relative;overflow:hidden;
+  /* 네 겹이다. 위에서부터 — 천장 빛, 바닥에서 올라오는 반사광, GPU 존 쪽
+     보랏빛 번짐, 그리고 바탕. 한 겹만 쓰면 배경이 '검은 사각형'으로 읽히고
+     그러면 그 위에 무엇을 그려도 떠 보이지 않는다. */
   background:
-    radial-gradient(ellipse 80% 70% at 52% 44%, rgba(46,230,255,.07), transparent 68%),
-    radial-gradient(ellipse 50% 40% at 20% 90%, rgba(167,139,250,.05), transparent 70%),
-    linear-gradient(180deg,#070d17,#03060b);
+    radial-gradient(ellipse 70% 46% at 50% 8%,  rgba(120,205,255,.10), transparent 70%),
+    radial-gradient(ellipse 95% 55% at 50% 104%, rgba(46,230,255,.09),  transparent 72%),
+    radial-gradient(ellipse 46% 38% at 78% 74%, rgba(167,139,250,.07), transparent 72%),
+    linear-gradient(175deg,#08111e 0%,#060c16 46%,#03070d 100%);
+}
+/* 비네트 — 가장자리를 눌러 시선을 가운데로 모은다. 장면 위, 경보 아래. */
+.stage-body::before{
+  content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
+  background:radial-gradient(ellipse 78% 72% at 50% 48%, transparent 52%, rgba(2,5,10,.62) 100%);
 }
 /* 심각 경보가 있으면 화면 가장자리가 붉게 맥동한다 — 고개를 안 들어도 알아챈다 */
 .stage-body::after{
@@ -368,7 +377,9 @@ tr.shed td:first-child::after{content:" · 차단됨";color:var(--red);font-size
 #scene text{pointer-events:none;user-select:none;font-family:var(--ui)}
 #scene .mono{font-family:var(--mono)}
 #scene .hit{cursor:pointer}
-#scene .hit:hover .glow{stroke:#fff;stroke-width:2.4;filter:drop-shadow(0 0 6px rgba(255,255,255,.85))}
+#scene .hit{transition:filter .16s ease}
+#scene .hit:hover{filter:brightness(1.16) drop-shadow(0 0 10px rgba(120,205,255,.35))}
+#scene .hit:hover .glow{stroke:#fff;stroke-width:2.4;filter:drop-shadow(0 0 7px rgba(255,255,255,.9))}
 #scene .px{shape-rendering:crispEdges}
 .blink{animation:blink 1s steps(2,start) infinite}
 @keyframes blink{50%{opacity:.2}}

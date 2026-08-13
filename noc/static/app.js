@@ -39,7 +39,10 @@ let tipSeq = 0;
  */
 const GW = 18, GD = 10;
 const XS = 24, YS = 8, ZS = 32;
-const STAGGER = { dx: 152, dy: 150 };
+/* 층을 엇갈려 쌓는 간격. dx≈dy 면 정확히 45도 대각이 되는데, 16:9 화면에서는
+ * 좌하·우상 구석이 통째로 비고 건물이 화면 한쪽으로 흘러내린 것처럼 보인다.
+ * 가로를 늘리고 세로를 줄여 완만한 띠로 눕히면 같은 배율에서 더 크게 보인다. */
+const STAGGER = { dx: 228, dy: 82 };
 const iso = (x, y, z) => [(x - y) * XS, (x + y) * YS - z * ZS];
 
 /* 층 안의 띠 — 뒤에서 앞으로: 설비벽 → 존 영역 → 통로 → 콜드·랙·핫 → 근무자.
@@ -89,23 +92,78 @@ const pts = a => a.map(p => p.join(',')).join(' ');
 const quad = (x, y, z, w, d, a) => el('polygon', {
   points: pts([iso(x, y, z), iso(x + w, y, z), iso(x + w, y + d, z), iso(x, y + d, z)]), ...a });
 
+/* ══ 재질 ══════════════════════════════════════════════════════
+ * 예전에는 면마다 단색 하나였다. 단색 세 개를 붙이면 입체로는 읽히지만
+ * **종이를 오려 붙인 것처럼** 보인다 — 빛이 면 위를 흐르지 않기 때문이다.
+ *
+ * 그래서 세 가지를 얹었다. 색을 늘리지 않고 같은 색 위에 얹는 방식이라
+ * 존 색·온도 색이 그대로 유지된다.
+ *   ① 면마다 위→아래 빛 감쇠 (겹쳐 그리는 투명 그라디언트 두 장)
+ *   ② 접지 그림자 — 물체가 바닥에서 떠 있으면 아무리 칠해도 안 예쁘다.
+ *      필터(blur)를 쓰지 않고 어두운 사각형 두 장을 어긋나게 깔았다.
+ *      장면이 5초마다 다시 그려지므로 필터 수십 개는 부담이다.
+ *   ③ 뒷모서리 림라이트 — 어두운 배경에서 실루엣이 떨어져 나온다
+ */
+function sceneDefs() {
+  const lg = (id, stops, x2 = 0, y2 = 1) => el('linearGradient',
+    { id, x1: 0, y1: 0, x2, y2 },
+    stops.map(([o, c, a]) => el('stop', { offset: o, 'stop-color': c, 'stop-opacity': a })));
+  return el('defs', {}, [
+    // 면 위를 흐르는 빛. 윗면·앞면·옆면이 감쇠 세기가 다르다.
+    lg('fTop', [[0, '#ffffff', .20], [.55, '#ffffff', .05], [1, '#000000', .10]]),
+    lg('fFront', [[0, '#ffffff', .13], [1, '#000000', .26]]),
+    lg('fSide', [[0, '#ffffff', .05], [1, '#000000', .34]]),
+    // 바닥판 — 가운데가 살짝 밝다. 시선이 가운데로 모인다.
+    el('radialGradient', { id: 'plate', cx: .5, cy: .42, r: .72 }, [
+      el('stop', { offset: 0, 'stop-color': '#2ee6ff', 'stop-opacity': .055 }),
+      el('stop', { offset: .55, 'stop-color': '#2ee6ff', 'stop-opacity': .012 }),
+      el('stop', { offset: 1, 'stop-color': '#000000', 'stop-opacity': .34 })]),
+    // 경보용 번짐. 개수가 적어 필터를 써도 된다.
+    el('filter', { id: 'bloom', x: '-60%', y: '-60%', width: '220%', height: '220%' }, [
+      el('feGaussianBlur', { stdDeviation: 3.6, result: 'b' }),
+      el('feMerge', {}, [el('feMergeNode', { in: 'b' }), el('feMergeNode', { in: 'SourceGraphic' })])]),
+    // 층 바닥판이 바닥에서 떠 보이게 하는 넓은 그림자. 층당 1개뿐이다.
+    el('filter', { id: 'plateShadow', x: '-25%', y: '-25%', width: '150%', height: '160%' }, [
+      el('feDropShadow', { dx: 0, dy: 16, stdDeviation: 14,
+        'flood-color': '#000814', 'flood-opacity': .55 })]),
+  ]);
+}
+
+/** 접지 그림자. 높이에 비례해 길어진다 — 키 큰 물체가 더 떠 보이면 안 된다. */
+function contactShadow(x, y, z, w, d, h) {
+  const o = 1.6 + Math.min(h, 2.2) * 2.4;
+  return el('g', { 'pointer-events': 'none' }, [
+    quad(x, y, z, w, d, { fill: '#000308', opacity: .38,
+      transform: `translate(${-o * .45},${o * .95})` }),
+    quad(x, y, z, w, d, { fill: '#000308', opacity: .16,
+      transform: `translate(${-o * .95},${o * 1.9})` }),
+  ]);
+}
+
 /** 아이소메트릭 프리즘.
- *  게임 스프라이트처럼 보이려면 세 가지가 필요하다 — 짙은 외곽선(배경에서 형태가
- *  떨어져 나온다), 면마다 다른 명도(입체가 읽힌다), 윗면 앞모서리 하이라이트(질감). */
+ *  형태가 배경에서 떨어져 나오려면 짙은 외곽선이 필요하고, 입체로 읽히려면
+ *  면마다 명도가 달라야 하며, **바닥에 붙어 보이려면 그림자가 있어야 한다.** */
 function prism(x, y, z, w, d, h, color, o = {}) {
   const T = [iso(x, y, z + h), iso(x + w, y, z + h), iso(x + w, y + d, z + h), iso(x, y + d, z + h)];
   const Bt = [iso(x + w, y, z), iso(x + w, y + d, z), iso(x, y + d, z)];
+  const face = (p, base, grad) => [
+    el('polygon', { points: pts(p), fill: base }),
+    el('polygon', { points: pts(p), fill: `url(#${grad})`, 'pointer-events': 'none' })];
   return el('g', {}, [
+    o.flat ? null : contactShadow(x, y, z, w, d, h),
     el('polygon', {                                   // 외곽선(실루엣)
       points: pts([T[0], T[1], Bt[0], Bt[1], Bt[2], T[3]]),
-      fill: 'none', stroke: '#02050a', 'stroke-width': 3.4, 'stroke-linejoin': 'round',
+      fill: 'none', stroke: '#04080f', 'stroke-width': 2.6, 'stroke-linejoin': 'round',
       class: o.glow ? 'glow' : null }),
-    el('polygon', { points: pts([T[3], T[2], Bt[1], Bt[2]]), fill: shade(color, .44) }),
-    el('polygon', { points: pts([T[1], T[2], Bt[1], Bt[0]]), fill: shade(color, .68) }),
-    el('polygon', { points: pts(T), fill: color }),
-    el('line', {                                      // 윗면 앞모서리 하이라이트
-      x1: T[3][0], y1: T[3][1], x2: T[2][0], y2: T[2][1],
-      stroke: 'rgba(255,255,255,.35)', 'stroke-width': 1.2 }),
+    ...face([T[3], T[2], Bt[1], Bt[2]], shade(color, .54), 'fSide'),
+    ...face([T[1], T[2], Bt[1], Bt[0]], shade(color, .78), 'fFront'),
+    ...face(T, color, 'fTop'),
+    el('polyline', {                                  // 윗면 앞모서리 하이라이트
+      points: pts([T[3], T[2], T[1]]), fill: 'none',
+      stroke: 'rgba(255,255,255,.42)', 'stroke-width': 1.2, 'stroke-linejoin': 'round' }),
+    el('polyline', {                                  // 뒷모서리 림라이트 — 배경과 분리
+      points: pts([T[3], T[0], T[1]]), fill: 'none',
+      stroke: 'rgba(120,205,255,.30)', 'stroke-width': 1, 'stroke-linejoin': 'round' }),
   ]);
 }
 
@@ -271,7 +329,7 @@ const floorAlarms = fid => (ST?.alarms || []).filter(a =>
 /* ══ 스프라이트 ═════════════════════════════════════════════════ */
 
 /** 고장 배지 — 물건 위에 뜨는 경고. 퍼지는 링이 시선을 끌어온다. */
-const warnBadge = (cx, cy) => el('g', {}, [
+const warnBadge = (cx, cy) => el('g', { filter: 'url(#bloom)' }, [
   el('circle', { cx, cy, r: 4, fill: 'none', stroke: '#ff4d6a', 'stroke-width': 1.6, class: 'warnring' }),
   el('circle', { cx, cy, r: 7, fill: '#ff4d6a', stroke: '#02050a', 'stroke-width': 1.6 }),
   el('rect', { x: cx - .9, y: cy - 4, width: 1.8, height: 5, fill: '#fff' }),
@@ -432,11 +490,29 @@ function facIcon(kind, cx, cy, ok) {
   return g;
 }
 
+/** 정상 설비의 색을 눌러 준다.
+ *
+ *  카탈로그의 29종은 전부 만채도다. 그래서 화면이 색종이를 뿌린 것처럼 보였고,
+ *  더 나쁘게는 **멀쩡한 펌프가 경보만큼 시끄러웠다.** 색이 정보를 나르려면
+ *  평상시가 조용해야 한다.
+ *
+ *  계열(전력=따뜻함 · 냉각=차가움)은 교보재라 유지한다. 채도만 장면의 중성색
+ *  쪽으로 당기고 살짝 어둡게 한다 — 고장 나면 원래 채도로 돌아온다.
+ */
+const calm = (hex, k = .28) => {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  const lum = .2126 * r + .7152 * g + .0722 * b;
+  const mix = (c, n) => Math.round((c + (lum - c) * k) * .90 + n);
+  // 중성 쪽으로 당기되 푸른 기를 아주 조금 남긴다 — 장면 바탕이 청색 계열이다
+  return '#' + [mix(r, 6), mix(g, 10), mix(b, 18)]
+    .map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+};
+
 function facilityUnit(item, x, y, z) {
   const s = FAC[item.kind] || FAC.facility;
   const down = facilityDown(item);
   const g = el('g', { class: 'hit', on: { click: e => { e.stopPropagation(); openFacility(item); } } });
-  g.appendChild(prism(x, y, z, s.w, s.d, s.h, down ? '#8c1f33' : s.c, { glow: true }));
+  g.appendChild(prism(x, y, z, s.w, s.d, s.h, down ? '#c92a48' : calm(s.c), { glow: true }));
   const [cx, cy] = iso(x + s.w / 2, y + s.d / 2, z + s.h);
   g.appendChild(facIcon(item.kind, cx, cy, !down));
   if (down) g.appendChild(warnBadge(cx, cy - 24));
@@ -536,12 +612,21 @@ function drawFloorContent(fid, detail) {
   const temp = floorTemp(fid), heat = temp == null ? null : tempColor(temp);
   const zones = zonesOf(fid), assets = assetsOf(fid), zf = .24;
 
-  g.appendChild(prism(0, 0, 0, GW, GD, .24, temp == null ? '#0e1a27' : lerpHex('#0e1a27', heat, .18)));
-  const grid = el('g', { opacity: .12, stroke: '#2ee6ff', 'stroke-width': .5, fill: 'none' });
-  for (let x = 0; x <= GW; x += 2) grid.appendChild(el('line',
-    { x1: iso(x, 0, zf)[0], y1: iso(x, 0, zf)[1], x2: iso(x, GD, zf)[0], y2: iso(x, GD, zf)[1] }));
-  for (let y = 0; y <= GD; y += 2) grid.appendChild(el('line',
-    { x1: iso(0, y, zf)[0], y1: iso(0, y, zf)[1], x2: iso(GW, y, zf)[0], y2: iso(GW, y, zf)[1] }));
+  // 바닥판. 판 자체가 떠 있어 보여야 층이 층으로 읽힌다 — 넓은 그림자를 깔고
+  // 그 위에 빛 감쇠를 얹는다. 격자는 두 겹이다(1칸 잔선 + 2칸 주선) — 한 겹이면
+  // 눈금이 성기고, 촘촘한 한 겹이면 지저분하다.
+  const plate = el('g', { filter: 'url(#plateShadow)' },
+    [prism(0, 0, 0, GW, GD, .24, temp == null ? '#0a1622' : lerpHex('#0a1622', heat, .11),
+           { flat: true })]);
+  g.appendChild(plate);
+  g.appendChild(quad(0, 0, zf + .002, GW, GD, { fill: 'url(#plate)', 'pointer-events': 'none' }));
+  const grid = el('g', { fill: 'none', 'pointer-events': 'none' });
+  const line = (a, b, w, op) => grid.appendChild(el('line',
+    { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: '#2ee6ff', 'stroke-width': w, opacity: op }));
+  for (let x = 0; x <= GW; x++)
+    line(iso(x, 0, zf), iso(x, GD, zf), .4, x % 2 ? .045 : .13);
+  for (let y = 0; y <= GD; y++)
+    line(iso(0, y, zf), iso(GW, y, zf), .4, y % 2 ? .045 : .13);
   g.appendChild(grid);
 
   g.appendChild(prism(0, 0, zf, GW, .14, .62, '#16263a'));   // 뒷벽 두 면
@@ -674,11 +759,23 @@ function drawFloorContent(fid, detail) {
 function drawBuilding() {
   const svg = $('#scene');
   svg.replaceChildren(); LBL = []; TIPS.clear(); tipSeq = 0;
+  svg.appendChild(sceneDefs());
   const root = el('g'); svg.appendChild(root);
 
-  floors().forEach((f, i) => root.appendChild(el('g', {
-    transform: `translate(${i * STAGGER.dx},${-i * STAGGER.dy})`,
-    class: 'hit', on: { click: () => enterFloor(f.id) } }, [drawFloorContent(f.id, false)])));
+  floors().forEach((f, i) => {
+    root.appendChild(el('g', {
+      transform: `translate(${i * STAGGER.dx},${-i * STAGGER.dy})`,
+      class: 'hit', on: { click: () => enterFloor(f.id) } }, [drawFloorContent(f.id, false)]));
+    // 층 이름표. 건물 뷰에는 이름표가 거의 없어서 층이 층으로 안 읽혔다 —
+    // 왼쪽 패널을 봐야 어느 층인지 알 수 있었다. 판의 앞모서리에 붙인다.
+    const t = floorTemp(f.id);
+    // 판의 **뒤쪽 왼쪽 모서리 위**에 붙인다. 층은 오른쪽 위로 쌓이므로 각 판의
+    // 왼쪽 위는 항상 비어 있다 — 앞모서리에 붙였더니 아래층 장비를 덮었다.
+    const [lx, ly] = iso(0, 0, .24);
+    pill(lx + i * STAGGER.dx - 4, ly - i * STAGGER.dy - 6, `${f.id}  ${f.name || ''}`.trim(), {
+      sub: t == null ? '센서 없음' : `${t.toFixed(1)}°C`,
+      color: t == null ? '#5b7185' : tempColor(t), size: 12, gap: 4 });
+  });
 
   // 라이저 — 층 사이를 잇는 배전·통신 통로. 엇갈려 쌓았으니 연결선으로 그린다.
   const riser = el('g', { opacity: .4 });
@@ -742,6 +839,7 @@ function drawBuilding() {
 function drawFloor(fid) {
   const svg = $('#scene');
   svg.replaceChildren(); LBL = []; TIPS.clear(); tipSeq = 0;
+  svg.appendChild(sceneDefs());
   const root = el('g'); svg.appendChild(root);
   root.appendChild(drawFloorContent(fid, true));
   finish(svg, root);
