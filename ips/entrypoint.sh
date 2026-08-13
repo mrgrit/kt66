@@ -134,16 +134,24 @@ if [ -d /var/ossec ]; then
     fi
 
     # kt66-assessor: FIM(suricata 설정/룰 + 실습 디렉터리) + 명령 로깅 localfile (정적·cohort-free, 멱등)
-    if ! grep -q 'kt66-assessor-collection' /var/ossec/etc/ossec.conf; then
+    if ! grep -q 'kt66-assessor-collection-v2' /var/ossec/etc/ossec.conf; then
         __fimblk=$(mktemp)
         cat > "$__fimblk" <<'FIMBLK'
-  <!-- kt66-assessor-collection: FIM + cmdlog localfile (정적·cohort-free) -->
+  <!-- kt66-assessor-collection-v2: FIM + cmdlog localfile (정적·cohort-free) -->
   <syscheck>
     <disabled>no</disabled>
     <frequency>300</frequency>
     <scan_on_start>yes</scan_on_start>
     <directories realtime="yes" report_changes="yes" whodata="yes">/etc/suricata</directories>
     <directories realtime="yes" report_changes="yes">/home/ccc</directories>
+    <!-- 지속성이 실제로 심기는 자리. /etc 전체는 12시간 주기라 한 교시 안에 안 뜬다.
+         여기만 실시간으로 본다 — 흔적을 남겨 놓고 SIEM 이 조용하면 실습이 성립하지 않는다. -->
+    <directories realtime="yes" report_changes="yes" whodata="yes">/etc/cron.d</directories>
+    <directories realtime="yes" report_changes="yes" whodata="yes">/etc/sudoers.d</directories>
+    <directories realtime="yes" report_changes="yes" whodata="yes">/etc/ld.so.preload</directories>
+    <directories realtime="yes" report_changes="yes" whodata="yes">/etc/passwd</directories>
+    <directories realtime="yes" report_changes="yes">/var/tmp</directories>
+    <directories realtime="yes" report_changes="yes">/dev/shm</directories>
   </syscheck>
   <localfile>
     <log_format>syslog</log_format>

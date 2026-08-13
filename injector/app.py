@@ -276,10 +276,17 @@ async def inject(id: str, target: str, ttl: int | None = None,
             p = json.loads(params)
         except Exception:
             raise HTTPException(400, "params 는 JSON 이어야 합니다")
-    # 같은 주입이 같은 대상에 이미 걸려 있으면 겹쳐 걸지 않는다 — 원복이 꼬인다
-    for h, r in ACTIVE.items():
-        if r["id"] == id and r["target"] == target:
-            raise HTTPException(409, f"이미 걸려 있습니다 (handle {h})")
+    # 같은 state 주입이 같은 대상에 이미 걸려 있으면 겹쳐 걸지 않는다 — 원복이 꼬인다.
+    #
+    # **action 은 막지 않는다.** action 은 되돌릴 상태가 없어서 겹쳐도 꼬일 것이
+    # 없는데, 예전엔 여기서 같이 막혔다. action 도 목록에 180초 머무르기 때문에
+    # (ACTION_SHOW_SEC) 그 사이 같은 공격을 쓰는 **다른 시나리오를 쏘면 409 로 실패**했다.
+    # 실제로 SEC-RECON-01 을 쏘고 45초 뒤 TL-INSIDER-01 을 쏘니 첫 단계가 죽었다 —
+    # 강사는 시나리오가 반쪽만 나갔다는 것도 모른 채 수업을 진행하게 된다.
+    if inj.kind == "state":
+        for h, r in ACTIVE.items():
+            if r["id"] == id and r["target"] == target:
+                raise HTTPException(409, f"이미 걸려 있습니다 (handle {h})")
     try:
         h = await _do_inject(inj, target, p, ttl if ttl is not None else inj.ttl)
     except Exception as e:

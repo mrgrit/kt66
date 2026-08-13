@@ -57,8 +57,8 @@ if [ -d /var/ossec ]; then
     fi
 
     # kt66-assessor: FIM(syscheck) + 명령 로깅 localfile 주입 (정적·cohort-free, 멱등).
-    # wazuh-agent.conf.append 의 'kt66-assessor-collection' 블록을 </ossec_config> 앞에 1회 삽입.
-    if [ -f /tmp/wazuh-agent.conf.append ] && ! grep -q 'kt66-assessor-collection' /var/ossec/etc/ossec.conf; then
+    # wazuh-agent.conf.append 의 'kt66-assessor-collection-v2' 블록을 </ossec_config> 앞에 1회 삽입.
+    if [ -f /tmp/wazuh-agent.conf.append ] && ! grep -q 'kt66-assessor-collection-v2' /var/ossec/etc/ossec.conf; then
         __awktmp=$(mktemp)
         awk 'NR==FNR{ins=ins $0 ORS; next} /<\/ossec_config>/ && !d{printf "%s",ins; d=1} {print}' \
             /tmp/wazuh-agent.conf.append /var/ossec/etc/ossec.conf > "$__awktmp" && \

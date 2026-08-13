@@ -1,5 +1,5 @@
 <!--
-  kt66-assessor-collection: 정적 수집(cohort-free) — web Wazuh agent 보강.
+  kt66-assessor-collection-v2: 정적 수집(cohort-free) — web Wazuh agent 보강.
   web/entrypoint.sh 가 이 블록을 ossec.conf 의 </ossec_config> 앞에 1회 삽입(멱등).
   · FIM(syscheck): Apache/ModSecurity 설정 + 실습 디렉터리 변경 감시(realtime+report_changes+whodata)
   · 명령 로깅 localfile: PROMPT_COMMAND 가 적는 /var/log/kt66-cmd.log → manager(cmdlog decoder)
@@ -15,6 +15,16 @@
     <directories realtime="yes" report_changes="yes" whodata="yes">/etc/modsecurity</directories>
     <directories realtime="yes" report_changes="yes">/usr/share/modsecurity-crs</directories>
     <directories realtime="yes" report_changes="yes">/home/ccc</directories>
+    <!-- 지속성이 실제로 심기는 자리. /etc 전체는 12시간 주기 스캔이라 한 교시 안에
+         절대 안 뜬다. 흔적은 남겨 놓고 SIEM 이 조용하면 "SIEM 으로 찾는다"는 실습이
+         성립하지 않는다. 그래서 이 경로들만 실시간으로 본다. -->
+    <directories realtime="yes" report_changes="yes" whodata="yes">/etc/cron.d</directories>
+    <directories realtime="yes" report_changes="yes" whodata="yes">/etc/sudoers.d</directories>
+    <directories realtime="yes" report_changes="yes" whodata="yes">/etc/ld.so.preload</directories>
+    <directories realtime="yes" report_changes="yes" whodata="yes">/etc/passwd</directories>
+    <directories realtime="yes" report_changes="yes">/var/tmp</directories>
+    <directories realtime="yes" report_changes="yes">/dev/shm</directories>
+    <directories realtime="yes" report_changes="yes">/var/www</directories>
   </syscheck>
 
   <localfile>
