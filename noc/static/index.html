@@ -18,6 +18,9 @@
 
   <div class="hud-right">
     <span class="chip ts" id="tsbadge" hidden></span>
+    <!-- 호스트 글루가 끊기면 게시 포트가 조용히 죽는다. 조용한 것이 문제다. -->
+    <span class="chip bad" id="netbadge" hidden
+          title="net.bridge.bridge-nf-call-iptables=1 — fw 입구가 죽어 있다. sudo ./kt66-net.sh 또는 docker compose up -d netglue">망 글루 끊김</span>
     <span class="chip clock" id="clock">--:--:--</span>
     <button class="btn key" id="btn-instructor">강사 패널</button>
     <span class="dot" id="link-status" title="envsim 연결"></span>

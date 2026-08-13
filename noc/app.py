@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import pathlib
@@ -137,11 +138,48 @@ async def container_states() -> dict[str, dict]:
     return out
 
 
+async def _reachable(host: str, port: int, timeout: float = 3.0) -> bool:
+    try:
+        _, w = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
+        w.close()
+        return True
+    except Exception:
+        return False
+
+
+async def netglue_ok() -> bool | None:
+    """웹 입구(fw DNAT)가 살아 있는가.
+
+    호스트의 net.bridge.bridge-nf-call-iptables 가 1 로 되돌아가면 fw 의 DNAT
+    **뒷다리**가 docker 의 per-network MASQUERADE 에 잡혀 게시 포트가 전부
+    타임아웃한다. 그런데 그 값은 docker 데몬이 뜰 때마다 1 로 돌아간다
+    (compose 의 netglue 서비스가 매 기동마다 되돌린다).
+
+    sysctl 값을 직접 읽지 않는 이유: /proc/sys/net 은 **netns 별**이라 이 컨테이너가
+    읽으면 자기 netns 값이 나온다 — 호스트 값이 아니다. 처음에 그렇게 짰다가
+    글루가 멀쩡한데도 계속 '끊김'이 떴다. 그래서 값이 아니라 **성질**을 본다.
+
+      fw DNAT 입구 안 되고  +  dmz 직접은 됨   → 글루 끊김 (False)
+      둘 다 안 됨                              → 웹 자체가 죽은 것. 판단 보류 (None)
+
+    조용히 죽는 것이 문제의 전부다 — 증상이 "WAF 가 로그를 안 남긴다"로 보여서
+    학생은 WAF 를 판다. 그래서 관제 화면이 직접 두드려 본다.
+    """
+    hit = _cache.get("netglue")
+    if hit and time.time() - hit[0] < 30.0:
+        return hit[1]
+    front, back = await asyncio.gather(_reachable("10.20.30.1", 8001),
+                                       _reachable("10.20.32.80", 8001))
+    val = True if front else (False if back else None)
+    _cache["netglue"] = (time.time(), val)
+    return val
+
+
 # ── API ─────────────────────────────────────────────────────────────
 @app.get("/api/health")
 async def health():
     code, _ = await _env("GET", "/health")
-    return {"ok": True, "envsim": code == 200,
+    return {"ok": True, "envsim": code == 200, "netglue": await netglue_ok(),
             "hosts": {"int": INT_HOST, "web": WEB_HOST}}
 
 
@@ -157,6 +195,7 @@ async def state():
     """매 폴링마다 받아 가는 동적 상태. envsim 상태 + 컨테이너 생사."""
     (_, st), ct = await _env("GET", "/state"), await container_states()
     st["containers"] = ct
+    st["netglue"] = await netglue_ok()
     return st
 
 

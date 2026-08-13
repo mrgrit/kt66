@@ -828,6 +828,8 @@ function renderGauges() {
   $('#bld-name').textContent = ST.building || 'kt66';
   const tb = $('#tsbadge'), ts = ST.time_scale ?? 1;
   tb.hidden = ts === 1; tb.textContent = `시간 ×${ts}`;
+  // netglue===false 만 경고한다. null 은 '못 읽었다'는 뜻이라 거짓경보를 만들지 않는다.
+  $('#netbadge').hidden = ST.netglue !== false;
   $('#stage-body').classList.toggle('crit', crit > 0);
   const bn = $('#tab-alarm-n');
   bn.hidden = !alarms.length; bn.textContent = alarms.length;

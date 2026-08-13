@@ -34,6 +34,33 @@ x-tz-localtime: &tz_localtime "/usr/share/zoneinfo/Asia/Seoul:/etc/localtime:ro"
 
 services:
 
+  # ╭─ 호스트 글루 (한 번 돌고 끝난다) ────────────────────────╮
+  # kt66 의 존 체인은 호스트 커널 설정 하나에 매달려 있다:
+  #   net.bridge.bridge-nf-call-iptables=0
+  # 이게 1 이면 docker 의 per-network MASQUERADE 가 fw 의 DNAT 뒷다리를 잡아
+  # **게시 포트 전부가 조용히 타임아웃**한다(사유는 kt66-net.sh 머리말 ★).
+  # 그리고 이 값은 **docker 데몬이 뜰 때마다 1 로 되돌아간다.** sysctl.conf 에
+  # 적어 두어도 소용없다 — docker 가 나중에 덮기 때문이다.
+  #
+  # 예전에는 학생이 sudo ./kt66-net.sh 를 기억해서 돌려야 했다. 기억에 기대는
+  # 설계는 반드시 실패하고, 실패했을 때 증상이 "WAF 가 로그를 안 남긴다"로
+  # 보이기 때문에 학생은 엉뚱한 곳을 반나절 판다. 그래서 기동에 붙였다.
+  #
+  # privileged 인 이유: 호스트 netns 의 /proc/sys 에 써야 한다(컨테이너 기본은 ro).
+  # 한 번 실행하고 즉시 종료한다 — 상시 떠 있는 특권 컨테이너가 아니다.
+  netglue:
+    container_name: kt66-netglue
+    build:
+      context: .
+      dockerfile: fw/Dockerfile
+    image: kt66-fw
+    network_mode: host
+    privileged: true
+    entrypoint: ["/bin/bash", "/kt66-net.sh"]
+    volumes:
+      - ./kt66-net.sh:/kt66-net.sh:ro
+    restart: "no"
+
   # ╭─ ext tier ─────────────────────────────────────────────╮
   bastion:
     container_name: kt66-bastion
@@ -122,16 +149,21 @@ services:
       pipe:
         ipv4_address: 10.20.31.1
         aliases: [secu, kt66-secu]
+    # 게시 포트는 .env 로 바꿀 수 있다. 컨테이너 안쪽(8001~8007)은 고정이고
+    # **호스트 쪽만** 옮긴다 — fw 의 DNAT 규칙과 문서를 건드리지 않기 위해서다.
+    # 이 서버에서는 8003 을 호스트의 bastion-api.service(uvicorn, 0.0.0.0:8003)가
+    # 이미 쓰고 있어 .env 에서 PORT_SITE3=8103 으로 비켰다. 둘 중 먼저 뜬 쪽이
+    # 이기는 조용한 충돌이라, 겹치면 여기를 고치는 것이 정답이다.
     ports:
-      - "${WEB_HOST_IP:-0.0.0.0}:80:80"
-      - "${WEB_HOST_IP:-0.0.0.0}:443:443"
-      - "${WEB_HOST_IP:-0.0.0.0}:8001:8001"
-      - "${WEB_HOST_IP:-0.0.0.0}:8002:8002"
-      - "${WEB_HOST_IP:-0.0.0.0}:8003:8003"
-      - "${WEB_HOST_IP:-0.0.0.0}:8004:8004"
-      - "${WEB_HOST_IP:-0.0.0.0}:8005:8005"
-      - "${WEB_HOST_IP:-0.0.0.0}:8006:8006"
-      - "${WEB_HOST_IP:-0.0.0.0}:8007:8007"
+      - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE_HTTP:-80}:80"
+      - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE_HTTPS:-443}:443"
+      - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE1:-8001}:8001"
+      - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE2:-8002}:8002"
+      - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE3:-8003}:8003"
+      - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE4:-8004}:8004"
+      - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE5:-8005}:8005"
+      - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE6:-8006}:8006"
+      - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE7:-8007}:8007"
       - "${WEB_HOST_IP:-0.0.0.0}:9100:9100"   # bastion API (관리)
       - "${INT_HOST_IP:-192.168.136.145}:8081:8080"      # fw 보안콘솔 GUI — 내부전용(호스트 Firefox)
     cap_add: [NET_ADMIN, NET_RAW]
@@ -422,6 +454,12 @@ services:
       TZ: Asia/Seoul
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # 자산 대장을 마운트한다. 이미지에도 구워져 있지만(Dockerfile 의 COPY) 여기서
+      # 덮어쓴다 — 그래야 학생이 대장을 고치고 **재빌드 없이 restart 만으로** 반영된다.
+      # 인프라 증설 실습에서 대장 등재는 필수 단계인데, 그때마다 이미지를 다시 굽게
+      # 하면 한 번 고치는 데 몇 분이 걸려 아무도 대장을 안 고치게 된다.
+      # 이미지 안의 사본은 그대로 둔다: 저장소 없이 이미지만 돌려도 랩은 떠야 한다.
+      - ./envsim/assets.yaml:/app/assets.yaml:ro
     ports:
       - "${INT_HOST_IP:-192.168.136.145}:8010:8000"   # 강사/UI 접근 (내부 전용)
     networks:
@@ -467,6 +505,72 @@ services:
   #
   # 존은 dmz 다(관리 포털과 같다). 4F 운영층이라는 것은 물리 배치이자 권한 경계이지
   # 별도 세그먼트가 아니다 — 그 어긋남을 화면이 그대로 드러낸다.
+  # ╭─ 모델 운영 실습 (3F AI 전산실) ──────────────────────────╮
+  # 학생이 **살아 있는 서비스의 모델을 고쳐서 유지한다.** 수요는 계속 들어오고,
+  # 일부는 지금 설정 때문에 실패한다. 실패는 두 얼굴로 온다 — 지표(간접)와
+  # 티켓(직접). 지표를 먼저 읽은 학생과 티켓을 기다린 학생의 차이가 점수다.
+  #
+  # 모델 정의는 DB 가 아니라 파일이다(./modelops/models). 웹으로 고친 것과 셸에서
+  # 고친 것이 같은 파일이어야 하고 git diff 로 보여야 한다 — 무엇을 바꿨는지 말할
+  # 수 없는 변경은 사고로 이어진다.
+  #
+  # OLLAMA_URL 이 비어 있으면 모의 백엔드로 떨어진다. 모의라도 manifest 의 효과는
+  # 그대로 재현한다(잘림·근거없음·거부·지연). GPU 없는 교실에서도 수업이 되어야 한다.
+  modelops:
+    container_name: kt66-modelops
+    build:
+      context: .
+      dockerfile: modelops/Dockerfile
+    hostname: modelops
+    networks:
+      app: { ipv4_address: 10.20.50.60 }
+    ports:
+      - "${INT_HOST_IP:-192.168.136.145}:8060:8000"
+    environment:
+      API_KEY: ${API_KEY:-ccc-api-key-2026}
+      MODELS_DIR: /models
+      DB_PATH: /data/modelops.db
+      OLLAMA_URL: ${LLM_BASE_URL:-}
+      DEMAND_SEC: ${MODELOPS_DEMAND_SEC:-6}
+      TZ: *tz
+    user: "${UID:-1000}:${GID:-1000}"     # 학생이 셸에서도 같은 파일을 고칠 수 있어야 한다
+    volumes:
+      - ./modelops/models:/models
+      # 이름있는 볼륨 대신 바인드 마운트다. 볼륨은 root 소유로 만들어져
+      # 비-root 컨테이너가 못 쓴다 — 그리고 학생이 호스트에서 로그 DB 를
+      # 직접 열어 볼 수 있어야 한다(sqlite3 로 지표를 재계산해 보는 것도 실습이다).
+      - ./modelops/data:/data
+      - *tz_localtime
+    restart: unless-stopped
+
+  # ╭─ 인프라 요구사항 실습 ──────────────────────────────────╮
+  # 요구는 사업 언어로 온다. "3층에 한 대 더." 어디에 어떻게 놓을지는 안 적혀 있고,
+  # 그 결정이 존 경계·전력·자산 대장에 걸린다는 것도 안 적혀 있다.
+  #
+  # 판정은 **학생의 보고가 아니라 랩의 실제 상태**로 한다. 그래서 docker.sock(읽기),
+  # envsim(대장·전력), 저장소 파일 세 곳을 직접 본다. 저장소를 읽기 전용으로 붙이는
+  # 이유는 명확하다 — 이 서비스는 채점만 하고 아무것도 고치지 않는다.
+  infraops:
+    container_name: kt66-infraops
+    build:
+      context: .
+      dockerfile: infraops/Dockerfile
+    hostname: infraops
+    networks:
+      dmz: { ipv4_address: 10.20.32.62 }
+    ports:
+      - "${INT_HOST_IP:-192.168.136.145}:8070:8000"
+    environment:
+      ENVSIM_URL: http://10.20.32.60:8000   # envsim 의 dmz 주소. ot 주소(10.20.60.10)는 dmz 에서 못 간다
+      REPO_DIR: /repo
+      TZ: *tz
+    volumes:
+      - ./infraops/requirements:/app/requirements:ro
+      - .:/repo:ro                                   # 저장소 반영 여부 확인용(읽기 전용)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - *tz_localtime
+    restart: unless-stopped
+
   noc:
     container_name: kt66-noc
     build: ./noc

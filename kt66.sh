@@ -292,7 +292,11 @@ cmd_up() {
     docker compose $OVERLAY $ENVF build
     echo "[kt66] === core up ==="
     docker compose $OVERLAY $ENVF up -d
-    ./kt66-net.sh
+    # netglue 는 한 번 돌고 끝나는 서비스라 이미 '종료됨' 상태면 up -d 가 다시 안 돌린다.
+    # 그런데 매번 돌아야 한다 — docker 데몬이 뜰 때마다 sysctl 이 되돌아가기 때문이다.
+    docker compose $OVERLAY $ENVF up -d --force-recreate netglue >/dev/null 2>&1 || true
+    ./kt66-net.sh                       # 호스트에서도 한 번 (netglue 가 실패한 경우의 그물)
+    ./kt66-net.sh --check || echo "[kt66] WARN: 망 글루 미적용 — 웹 입구가 죽어 있다"
     install_systemd
     echo "[kt66] === sigma 적재 ==="
     cmd_sigma || echo "[kt66] WARN: sigma 적재 실패(나중에 ./kt66.sh sigma)"
