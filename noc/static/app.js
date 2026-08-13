@@ -219,6 +219,18 @@ function facilityOf(f) {
   push('generator', F.generator); push('ups', F.ups); push('pdu', F.pdu);
   push('chiller', F.chiller); push('crac', F.crac); push('fire', F.fire);
   push('facility', F.security);
+  // ── 신규 계통. 교재 5장의 전력·냉각 계통을 층에 실제로 세운다 ──
+  // containment · raised_floor · cold_plate · weather 는 상자가 아니라 성질이라
+  // 프리즘으로 세우지 않는다 — 아일 지표(기류·격리)와 우측 레일에서 읽힌다.
+  push('substation', F.substation); push('switchgear', F.switchgear);
+  push('transformer', F.transformer); push('ats', F.ats);
+  push('battery', F.battery); push('fuel_tank', F.fuel_tank);
+  push('microgrid', F.microgrid); push('busway', F.busway);
+  push('cooling_tower', F.cooling_tower); push('pump', F.pump);
+  push('heat_exchanger', F.heat_exchanger); push('economizer', F.economizer);
+  push('fan_coil', F.fan_coil); push('cdu', F.cdu);
+  push('water_tank', F.water_tank); push('immersion', F.immersion);
+  push('automation', F.automation);
   return out;
 }
 function floorTemp(f) {
@@ -237,6 +249,19 @@ function facilityDown(item) {
     case 'door': return hit('door_forced') || hit('door_held');
     case 'cctv': return hit('cctv_offline');
     case 'fire': return (F.smoke || []).includes(item.floor) || (F.smoke || []).includes('*');
+    /* ── 신규 계통 — 고장 표시. 상류일수록 아래층 전체가 함께 붉어진다 ── */
+    case 'substation': return hit('substation_fail');
+    case 'transformer': return hit('transformer_fail');
+    case 'ats': return hit('ats_fail');
+    case 'busway': return hit('busway_trip');
+    case 'fuel_tank': return hit('fuel_leak') || (ST?.fuel?.hours_left ?? 999) < 2;
+    case 'battery': return hit('battery_runaway') || !!ST?.battery?.[item.id]?.runaway;
+    case 'cooling_tower': return hit('cooling_tower_fail');
+    case 'pump': return hit('pump_fail') || ST?.plant?.pumps?.[item.id] === false;
+    case 'heat_exchanger': return hit('hx_fouling');
+    case 'economizer': return hit('economizer_stuck');
+    case 'cdu': return hit('cdu_leak');
+    case 'fan_coil': return hit('fan_coil_fail');
     default: return false;
   }
 }
@@ -359,6 +384,26 @@ const FAC = {
   door:      { c: '#94a3b8', w: .22, d: 1.2, h: 1.3, n: '출입문' },
   cctv:      { c: '#7dd3fc', w: .4,  d: .4,  h: .5,  n: 'CCTV' },
   facility:  { c: '#64748b', w: .5,  d: .5,  h: .6,  n: '설비' },
+  /* ── 상류 전력 (교재 5.2.1) — 붉은 계열로 묶는다 ───────────────── */
+  substation:   { c: '#f87171', w: 1.1, d: .9,  h: 1.0, n: '변전소' },
+  switchgear:   { c: '#fb923c', w: .7,  d: .6,  h: .9,  n: '개폐기' },
+  transformer:  { c: '#f59e0b', w: .9,  d: .8,  h: .9,  n: '변압기' },
+  ats:          { c: '#fbbf24', w: .6,  d: .6,  h: .8,  n: 'ATS' },
+  battery:      { c: '#a3e635', w: .8,  d: .6,  h: .7,  n: '배터리' },
+  fuel_tank:    { c: '#78716c', w: 1.0, d: .7,  h: .6,  n: '연료탱크' },
+  microgrid:    { c: '#34d399', w: .7,  d: .6,  h: .5,  n: '마이크로그리드' },
+  busway:       { c: '#fbbf24', w: 1.4, d: .3,  h: .2,  n: '부스바' },
+  /* ── 냉각 계통 (교재 5.3) — 푸른 계열 ─────────────────────────── */
+  cooling_tower:{ c: '#22d3ee', w: 1.0, d: 1.0, h: 1.3, n: '냉각탑' },
+  pump:         { c: '#38bdf8', w: .5,  d: .5,  h: .5,  n: '펌프' },
+  heat_exchanger:{c: '#60a5fa', w: .8,  d: .5,  h: .8,  n: '열교환기' },
+  economizer:   { c: '#5eead4', w: .8,  d: .6,  h: .7,  n: '이코노마이저' },
+  fan_coil:     { c: '#67e8f9', w: .8,  d: .5,  h: .9,  n: '팬코일' },
+  cdu:          { c: '#818cf8', w: .7,  d: .6,  h: .9,  n: '냉각분배장치' },
+  water_tank:   { c: '#0ea5e9', w: 1.0, d: .8,  h: .7,  n: '축열탱크' },
+  immersion:    { c: '#4c1d95', w: .9,  d: .7,  h: .5,  n: '침지냉각' },
+  /* ── 물리 자동화 (교재 5.4.3) ─────────────────────────────────── */
+  automation:   { c: '#94a3b8', w: .6,  d: .6,  h: .5,  n: '자동화' },
 };
 
 /** 설비 위에 얹는 픽셀 글리프. 이름표 없이 무엇인지 알아보게 하는 유일한 단서다. */
@@ -460,6 +505,28 @@ function facilitySlot(kind, i) {
     case 'pdu':       return [2.6 + i * 3.2, B.pduY];
     case 'fire':      return [GW - 1.2, GD - 1.2];
     case 'door':      return [0.06, GD - 2.6];
+    /* ── 전력 계통은 앞줄(y≈0.7)에 상류→하류 순으로 세운다.
+     *    변전소 ─ 개폐기 ─ 변압기 ─ ATS ─ 배터리 ─ 마이크로그리드
+     *    한 줄로 읽히는 것 자체가 교보재다(교재 그림 5.6). ─────────── */
+    case 'substation':    return [0.5, 0.7];
+    case 'switchgear':    return [2.0, 0.7];
+    case 'transformer':   return [3.4, 0.7];
+    case 'ats':           return [4.8, 0.7];
+    case 'battery':       return [6.0 + i * 1.1, 0.7];
+    case 'microgrid':     return [8.6 + i * 1.1, 0.7];
+    case 'fuel_tank':     return [4.9, 3.5];               // 발전기 옆
+    case 'busway':        return [2.6, 0.8];               // 2F·3F 랙 열 위
+    /* ── 냉각 계통은 뒷줄(y≈5.4)에 안쪽→바깥쪽 순으로.
+     *    펌프 ─ 열교환기 ─ 이코노마이저 ─ 축열탱크 ─ 냉각탑 ────────── */
+    case 'pump':          return [3.0 + i * 1.0, 5.4];
+    case 'heat_exchanger':return [6.4, 5.4];
+    case 'economizer':    return [7.7, 5.4];
+    case 'water_tank':    return [9.0, 5.4];
+    case 'cooling_tower': return [10.3 + i * 1.2, 5.4];
+    case 'fan_coil':      return [GW - 3.7, 1.2];          // 3F 인로우
+    case 'cdu':           return [1.6, 1.2];               // 3F 액체냉각
+    case 'immersion':     return [1.6, 6.0];
+    case 'automation':    return [6.4 + i * 1.4, 6.6];
     default:          return [GW - 0.9, 4.2 + i * .9];
   }
 }
@@ -1093,10 +1160,27 @@ function faultTargets(fault) {
       return (F.security || []).filter(s => s.kind === 'door').map(s => s.id);
     case 'cctv_offline': return (F.security || []).filter(s => s.kind === 'cctv').map(s => s.id);
     case 'humidity_drift': return Object.keys(ST?.aisles || {});
+    /* ── 상류 전력 (교재 5.2.1) ─────────────────────────────────── */
+    case 'substation_fail': return ids(F.substation);
+    case 'transformer_fail': return ids(F.transformer);
+    case 'ats_fail': return ids(F.ats);
+    case 'busway_trip': return ids(F.busway);
+    case 'fuel_leak': return ids(F.fuel_tank);
+    case 'battery_runaway': return ids(F.battery);
+    /* ── 냉각 계통 (교재 5.3) ───────────────────────────────────── */
+    case 'cooling_tower_fail': return ids(F.cooling_tower);
+    case 'pump_fail': return ids(F.pump);
+    case 'hx_fouling': return ids(F.heat_exchanger);
+    case 'economizer_stuck': return ids(F.economizer);
+    case 'cdu_leak': return ids(F.cdu);
+    case 'fan_coil_fail': return ids(F.fan_coil);
+    case 'containment_open': return (F.containment || []).filter(c => c.sealed).map(c => c.id);
+    case 'airflow_block': return ids(F.raised_floor);
+    case 'heatwave': return [F.weather?.id].filter(Boolean);
     default: return ['*'];
   }
 }
-/* 주입 목록은 두 곳에서 온다 — 시설(OT) 10종은 envsim, IT 38종은 injector.
+/* 주입 목록은 두 곳에서 온다 — 시설(OT) 25종은 envsim, IT 38종은 injector.
  * 강사는 그 구분을 알 필요가 없으므로 한 목록으로 합쳐 보여준다. */
 const DOM_ALL = {
   facility: { name: '시설 · 환경(OT)', color: '#4fc3f7' },

@@ -96,6 +96,35 @@ building:
   # ENV-03(UPS 절체)은 "11분 안에 무엇을 끌 것인가"가 실습이므로 실시간이 맞다.
   time_scale: 1.0
 
+  # ── 데이터센터를 규정하는 값들 (교재 5.1) ─────────────────────
+  # 임계 전력(critical power)은 **IT 장비에 연속 공급 가능한 총 전력**이다. 데이터센터의
+  # 크기는 면적이 아니라 전력으로 잰다 — 건설비가 전력에 비례(W당 $5~20)하기 때문이다.
+  critical_power_kw: 45.0
+  build_cost_per_w: 12.0              # 임계전력 × 이 값 = 건설비. W7 용량 실습의 근거
+  # 교재 5.1.3 — 티어는 이중화 수준이다. **가장 낮은 하위 계통이 전체 등급을 정한다.**
+  # kt66 은 UPS 가 1대(N)라 그것이 병목이다. 학생이 직접 찾아내야 하는 지점이라 이렇게 뒀다.
+  tier: II
+  tier_note: >-
+    선언은 II 다. 그러나 냉동기가 1대이고 UPS 도 1대다 — 실제로는 티어 I 에 가깝다.
+    "우리 센터는 몇 티어인가"를 계통도에서 직접 판정하는 것이 1주차 과제다.
+  availability_target: 0.997          # 티어 II 이론값. 티어 III 는 0.9998
+  # 교재 5.4.2 — 다섯 봉투. 어디까지 직접 짓고 어디부터 사는가
+  envelope: 1
+  envelope_note: 부지·유틸리티만 외부. 셸부터 클러스터 피트아웃까지 자체 건설로 가정한다
+  cooling_topology: 3-loop            # 교재 5.3.1 — 공기 · 프로세스수 · 응축수
+  power_topology: radial              # 교재 5.2.1 — 방사형. 중전압 전력 플레인이 아니다
+  redundancy: N                       # N / N+1 / N+2 / 2N. 지금은 이중화가 없다
+
+  # ── 효율 목표 (교재 9장) ───────────────────────────────────────
+  # PUE = 총 시설 전력 / IT 전력. 1.0 이 이론 하한이고 낮을수록 좋다.
+  # WUE = 물 사용량(L) / IT 에너지(kWh). 냉각탑 증발이 대부분을 차지한다.
+  # CUE = 탄소 배출(kgCO2e) / IT 에너지(kWh). 그리드 배출계수에 좌우된다.
+  pue_target: 1.35
+  wue_target: 1.8
+  grid_carbon_kg_per_kwh: 0.443       # 한국 전력 배출계수 근사. CUE 계산의 입력
+  # 교재 9.5 — 초과 청약. 임계전력을 넘겨 IT 를 배치하되 동시 피크는 오지 않는다는 도박이다
+  oversubscription_ratio: 1.15
+
 # 층은 물리 배치다. grid 는 평면도 좌표계(가로 x, 세로 y, 단위칸).
 # 랙·CRAC·출입문의 pos 가 이 좌표를 쓴다 — 시각화 UI 의 배치도가 여기서 나온다.
 floors:
@@ -164,44 +193,279 @@ shed_groups:
     recovery: 재기동 후 체인 재수립 필요
 
 # ── 시설 계통 (1F, 전부 가상) ──────────────────────────────────────
+#
+# 계통의 순서는 교재 5장을 그대로 따른다. 전력은 **상류에서 하류로** 한 줄로 읽힌다:
+#
+#   그리드 ─▶ 변전소 ─▶ 개폐기 ─▶ 단위변전소(변압기) ─▶ ATS ─▶ UPS ─▶ PDU ─▶ 부스바 ─▶ 랙
+#                            ▲                          ▲
+#                        발전기 ────────────────────────┘   (연료탱크가 받친다)
+#                        마이크로그리드(PV·연료전지·BESS)
+#
+# 냉각은 **안쪽에서 바깥쪽으로** 3중 루프다(교재 5.3.1, 그림 5.14):
+#
+#   ① 공기 루프    아일 ↔ 팬코일/CRAC          (컨테인먼트·이중마루가 이 루프의 품질을 정한다)
+#   ② 프로세스수    팬코일 ↔ 냉동기/열교환기     (펌프가 돌린다)
+#   ③ 응축수       냉동기 ↔ 냉각탑              (증발로 외기에 버린다)
+#
+# 바깥 루프가 죽으면 안쪽 루프는 갈 곳을 잃는다. 그래서 냉각탑 한 대가 3F GPU 를 멈춘다.
+# 그 연쇄가 별도 장치 없이 **계통 구조에서** 나오게 하는 것이 이 모델의 목적이다.
 facility:
+  # ── 5.2.1 상류 전력 — 유틸리티에서 건물까지 ────────────────────
   utility:
     id: utility-01
     floor: "1F"
     name: 수전설비
     capacity_kw: 60.0
     pos: [1, 1]
+  substation:                         # 유틸리티 변전소 — 고압을 중압으로
+    - id: sub-01
+      floor: "1F"
+      name: 수전 변전소
+      hv_kv: 154.0                    # 교재는 110kV 이상. 한전 특고압 수전 기준으로 맞췄다
+      mv_kv: 22.9
+      capacity_kw: 60.0
+      pos: [0, 1]
+  switchgear:                         # 1차 개폐 장치 — 계통을 끊고 붙이는 지점
+    - id: swgr-01
+      floor: "1F"
+      name: 특고압 개폐기
+      kv: 22.9
+      feeds: [tr-01]
+      pos: [1, 0]
+  transformer:                        # 단위 변전소 — 중압을 저압으로 (교재 5.2.1)
+    - id: tr-01
+      floor: "1F"
+      name: 주변압기
+      primary_kv: 22.9
+      secondary_v: 380
+      capacity_kw: 60.0
+      efficiency: 0.985               # 손실은 열이 되어 1F 에 남는다
+      pos: [2, 1]
+  ats:                                # 자동 절환 스위치 — 상용↔발전기 (교재 5.2.1 N+1)
+    - id: ats-01
+      floor: "1F"
+      name: 자동절체스위치
+      sources: [tr-01, gen-01]
+      transfer_ms: 200                # 절체 시간. UPS 가 이 구간을 메운다
+      pos: [3, 3]
   generator:                          # 발전기 — UPS 가 버티는 동안 기동해야 한다
     - id: gen-01
       floor: "1F"
       name: 비상 발전기
       capacity_kw: 50.0
-      start_delay_s: 45               # 정상 기동 시 소요
+      start_delay_s: 45               # 정상 기동 시 소요. 교재는 10~15초를 든다
       fuel_hours: 8.0
+      fuel_tank: tank-fuel-01
       pos: [1, 5]
+  fuel_tank:                          # 연료가 떨어지면 발전기는 그냥 쇳덩이다
+    - id: tank-fuel-01
+      floor: "1F"
+      name: 비상발전 연료탱크
+      liters: 4000.0
+      lph_at_full_load: 480.0         # 만부하 시 소비. 8.3시간분
+      pos: [0, 6]
   ups:
     - id: ups-01
       floor: "1F"
       name: 무정전 전원장치
       capacity_kw: 45.0
       battery_kwh: 12.0               # 38kW 부하에서 약 19분 (캡처 설계와 정합)
+      topology: double-conversion     # 교재 5.2.3 — 견고하지만 비효율
+      efficiency: 0.96                # 신형 멀티모드 96~98%. 손실은 1F 발열이 된다
       feeds: [pdu-01, pdu-02, pdu-03, pdu-04]
+      battery_string: [batt-01, batt-02]
+      pos: [4, 3]
+  battery:                            # 교재 5.2.3 — Li-ion 은 열폭주로 불이 난다
+    - id: batt-01
+      floor: "1F"
+      name: 배터리 스트링 A
+      chemistry: LFP                  # 리튬인산철. 납축 대비 방전율·수명 우수
+      kwh: 6.0
+      cells: 240
+      temp_c: 25.0
+      runaway_temp_c: 60.0            # 이 온도를 넘으면 열폭주 — 화재로 간다
+      installed: 2024-03
+      pos: [4, 1]
+    - id: batt-02
+      floor: "1F"
+      name: 배터리 스트링 B
+      chemistry: LFP
+      kwh: 6.0
+      cells: 240
+      temp_c: 25.0
+      runaway_temp_c: 60.0
+      installed: 2024-03
+      pos: [5, 1]
+  microgrid:                          # 교재 5.2.5 — 계량기 뒤(behind the meter) CFE
+    - id: pv-01
+      floor: "1F"
+      kind: solar
+      name: 옥상 태양광
+      capacity_kw: 8.0
+      pos: [10, 0]
+    - id: bess-01
+      floor: "1F"
+      kind: storage
+      name: 에너지저장장치(BESS)
+      capacity_kw: 15.0
+      kwh: 40.0
+      soc_pct: 85.0                   # 피크 회피용. UPS 와 목적이 다르다
+      pos: [6, 1]
+    - id: fc-01
+      floor: "1F"
+      kind: fuel_cell
+      name: 연료전지
+      capacity_kw: 10.0
+      pos: [7, 1]
+  busway:                             # 교재 5.2.4 — 머리 위 부스바 + 탭오프
+    - id: bus-2f-a
+      floor: "2F"
+      name: 2F A열 부스바
+      capacity_kw: 25.0
+      pdu: pdu-01
+      tap_offs: [R-2F-01, R-2F-02]
+      pos: [3, 4]
+    - id: bus-3f-b
+      floor: "3F"
+      name: 3F B열 부스바
+      capacity_kw: 40.0
+      pdu: pdu-03
+      tap_offs: [R-3F-01]
       pos: [4, 3]
   pdu:
     - { id: pdu-01, floor: "2F", rack: R-2F-01, capacity_kw: 10.0, pos: [2, 3] }
     - { id: pdu-02, floor: "2F", rack: R-2F-02, capacity_kw: 12.0, pos: [2, 5] }
     - { id: pdu-03, floor: "3F", rack: R-3F-01, capacity_kw: 32.0, pos: [3, 4] }
     - { id: pdu-04, floor: "4F", rack: R-4F-01, capacity_kw: 6.0,  pos: [7, 2] }
-  chiller:
-    - { id: chiller-01, floor: "1F", name: 냉동기, capacity_kw: 55.0, pos: [8, 3] }
-  crac:
-    - { id: crac-01, floor: "2F", aisle: A, name: 항온항습기 A, capacity_kw: 18.0, pos: [9, 4] }
-    - { id: crac-02, floor: "3F", aisle: B, name: 항온항습기 B, capacity_kw: 30.0, pos: [9, 4] }
-    - { id: crac-03, floor: "4F", aisle: C, name: 항온항습기 C, capacity_kw: 8.0,  pos: [10, 2] }
+  # ── 5.3 냉각 계통 — 루프 ③ 응축수 (가장 바깥, 외기에 버린다) ────
+  cooling_tower:                      # 교재 5.3.5 — 증발로 식힌다. 도달 하한은 습구 온도
+    - id: ct-01
+      floor: "1F"
+      name: 냉각탑 1호기
+      capacity_kw: 40.0
+      approach_c: 1.5                 # 습구 온도 + 1.5°C 가 도달 가능한 물 온도
+      fan_kw: 1.1
+      makeup_lpm: 0.62                # 증발분 보충수. WUE 계산의 입력
+      freeze_risk_c: 2.0              # 이 아래로 외기가 떨어지면 결빙 대책이 필요하다
+      pos: [10, 5]
+    - id: ct-02
+      floor: "1F"
+      name: 냉각탑 2호기
+      capacity_kw: 40.0
+      approach_c: 1.5
+      fan_kw: 1.1
+      makeup_lpm: 0.62
+      freeze_risk_c: 2.0
+      pos: [11, 5]
+  chiller:                            # 교재 5.3.3 — 압축기를 쓴다. 비싸다. 그래서 보조다
+    - id: chiller-01
+      floor: "1F"
+      name: 냉동기
+      capacity_kw: 55.0
+      cop: 5.2                        # 성능계수. 55kW 를 걷어내는 데 10.6kW 를 쓴다
+      condenser: ct-01
+      pos: [8, 3]
+  # ── 루프 ② 프로세스수 (중간) ───────────────────────────────────
+  pump:                               # 물이 안 돌면 냉동기도 냉각탑도 의미가 없다
+    - { id: pump-pcw-01, floor: "1F", name: 프로세스수 펌프 A, loop: process,   kw: 0.9, lpm: 900, pos: [7, 4] }
+    - { id: pump-pcw-02, floor: "1F", name: 프로세스수 펌프 B, loop: process,   kw: 0.9, lpm: 900, standby: true, pos: [7, 5] }
+    - { id: pump-cw-01,  floor: "1F", name: 응축수 펌프,       loop: condenser, kw: 1.0, lpm: 1100, pos: [9, 6] }
+  heat_exchanger:                     # 교재 5.3.1 — 프로세스수와 응축수를 섞지 않는다
+    - id: hx-01
+      floor: "1F"
+      name: 판형 열교환기
+      capacity_kw: 45.0
+      fouling_pct: 0.0                # 스케일이 끼면 전열 성능이 떨어진다 (유지보수 실습)
+      pos: [8, 5]
+  economizer:                         # 교재 5.3.4 — 자연 냉각. 칠러를 꺼 둘 수 있는 시간
+    - id: eco-01
+      floor: "1F"
+      name: 수 이코노마이저
+      kind: water                     # 습구 온도를 쓴다. 공기식(air)보다 가동 시간이 길다
+      capacity_kw: 45.0
+      enable_wetbulb_c: 12.0          # 습구가 이 아래면 냉동기 없이 전량 처리 가능
+      damper_ok: true
+      pos: [9, 3]
+  # ── 루프 ① 공기 (가장 안쪽, 아일에 직접 작용) ──────────────────
+  crac:                               # 교재 5.3.2 — 1990년대 방식. 2F·4F 는 아직 이것이다
+    - { id: crac-01, floor: "2F", aisle: A, name: 항온항습기 A, capacity_kw: 18.0, kind: chilled-water, fan_kw: 0.9, pos: [9, 4] }
+    - { id: crac-02, floor: "3F", aisle: B, name: 항온항습기 B, capacity_kw: 30.0, kind: chilled-water, fan_kw: 1.5, pos: [9, 4] }
+    - { id: crac-03, floor: "4F", aisle: C, name: 항온항습기 C, capacity_kw: 8.0,  kind: dx,            fan_kw: 0.4, pos: [10, 2] }
+  fan_coil:                           # 교재 5.3.7 — 인로우. 3F GPU 랙은 이쪽이 주력이다
+    - id: fcu-3f-01
+      floor: "3F"
+      aisle: B
+      name: 인로우 팬코일
+      capacity_kw: 20.0
+      fan_kw: 1.0
+      pos: [5, 4]
+  containment:                        # 교재 5.3.6 — 격리하면 재순환이 사라진다
+    - { id: cont-a, floor: "2F", aisle: A, kind: hot-aisle,  sealed: true,  efficiency_gain: 0.18, pos: [3, 4] }
+    - { id: cont-b, floor: "3F", aisle: B, kind: hot-aisle,  sealed: true,  efficiency_gain: 0.22, pos: [4, 4] }
+    - { id: cont-c, floor: "4F", aisle: C, kind: none,       sealed: false, efficiency_gain: 0.0,  pos: [8, 2] }
+  raised_floor:                       # 교재 5.3.6 — 타공 타일이 기류를 정한다
+    - id: rf-2f
+      floor: "2F"
+      name: 2F 이중마루
+      height_mm: 600
+      perforated_tiles: 24
+      required_cfm: 4200              # 랙 기류 요구량. 타일이 부족하면 재순환이 생긴다
+      supplied_cfm: 4400
+      pos: [6, 6]
+  # ── 액체 냉각 (교재 5.3.7) — 3F GPU 는 콜드플레이트다 ──────────
+  cdu:                                # 냉각 분배 장치 — 프로세스수를 랙별로 나눈다
+    - id: cdu-01
+      floor: "3F"
+      name: 냉각분배장치
+      capacity_kw: 30.0
+      lpm: 60.0
+      racks: [R-3F-01]
+      leak_detected: false            # 플로어의 물 — 운영자가 가장 싫어하는 것
+      pos: [6, 4]
+  cold_plate:                         # 교재 그림 5.22 — 칩당 200~250W 를 넘으면 필수다
+    - id: cp-dgx-01
+      floor: "3F"
+      rack: R-3F-01
+      name: DGX 콜드플레이트 루프
+      asset: dgx-spark-01
+      capacity_kw: 18.0
+      inlet_c: 18.0
+      quick_connect: no-drip          # 물 안 흘리고 트레이 정비가 된다
+      pos: [4, 5]
+  immersion:                          # 교재 5.3.7 — 아직 주류가 아니다. 비교 교보재로 둔다
+    - id: imm-01
+      floor: "3F"
+      name: 침지냉각 시험 탱크
+      phase: 1P                       # 단상. 광유를 라디에이터 루프로 순환
+      capacity_kw: 12.0
+      commissioned: false             # 도입 검토 단계 — W7 용량 실습의 선택지
+      pos: [8, 6]
+  water_tank:                         # 교재 5.3.1 — 물은 열 완충이다. 공기보다 몇 분을 더 준다
+    - id: tank-water-01
+      floor: "1F"
+      name: 축열·보충수 탱크
+      liters: 20000.0
+      thermal_buffer_kwh: 9.0         # 냉각 상실 시 이만큼을 흡수한다
+      pos: [11, 6]
+  # ── 외기 — 자연 냉각의 가부를 정한다 (교재 5.3.4) ──────────────
+  # 건구는 공기 이코노마이저가, 습구는 냉각탑과 수 이코노마이저가 쓴다.
+  # 습구가 오르면 냉각탑 용량이 떨어지고, 그 순간 냉동기가 켜지며 PUE 가 뛴다.
+  weather:
+    id: wx-01
+    name: 외기
+    drybulb_c: 18.0
+    wetbulb_c: 13.0
+    humidity_pct: 60.0
+    pos: [0, 0]
+  # ── 소방 (교재 5.1.2 내화 구조 · 5.2.3 리튬 화재) ───────────────
   fire:
-    - { id: fm200-01, floor: "1F", agent: FM-200, pos: [10, 6] }
-    - { id: fm200-02, floor: "2F", agent: FM-200, pos: [10, 6] }
-    - { id: fm200-03, floor: "3F", agent: FM-200, pos: [10, 6] }
+    - { id: fm200-01, floor: "1F", agent: FM-200, name: 소화설비 1F, zone_covered: [battery, ups], pos: [10, 6] }
+    - { id: fm200-02, floor: "2F", agent: FM-200, name: 소화설비 2F, zone_covered: [aisle-A],      pos: [10, 6] }
+    - { id: fm200-03, floor: "3F", agent: FM-200, name: 소화설비 3F, zone_covered: [aisle-B],      pos: [10, 6] }
+    - { id: vesda-01, floor: "1F", kind: aspirating, name: 조기연기감지(VESDA), sensitivity: high, pos: [9, 7] }
+    - { id: vesda-02, floor: "3F", kind: aspirating, name: 조기연기감지(VESDA), sensitivity: high, pos: [9, 7] }
+    - { id: fp-01,    floor: "1F", kind: panel,      name: 소방 수신반, pos: [2, 7] }
+  # ── 물리보안 (교재 5.1.2 — 회전문·금속탐지기·경비·카메라망) ────
   security:
     - { id: door-main, floor: "1F", name: 정문 출입구,      kind: door, pos: [0, 4] }
     - { id: door-2f,   floor: "2F", name: 전산실 출입문,    kind: door, pos: [0, 4] }
@@ -209,6 +473,26 @@ facility:
     - { id: cctv-01,   floor: "1F", name: 로비 CCTV,        kind: cctv, pos: [11, 1] }
     - { id: cctv-02,   floor: "2F", name: 전산실 CCTV,      kind: cctv, pos: [11, 1] }
     - { id: cctv-03,   floor: "3F", name: AI 전산실 CCTV,   kind: cctv, pos: [11, 1] }
+    - { id: mantrap-01,  floor: "1F", name: 원형 회전문(맨트랩), kind: mantrap,        pos: [0, 3] }
+    - { id: mdet-01,     floor: "1F", name: 금속탐지기,          kind: metal_detector, pos: [0, 2] }
+    - { id: guard-01,    floor: "1F", name: 경비 초소,            kind: guard_post,     pos: [1, 3] }
+    - { id: badge-3f,    floor: "3F", name: AI 전산실 카드리더,   kind: badge_reader,   pos: [0, 5] }
+  # ── 물리 자동화 (교재 5.4.3) — 추적성이 곧 감사 증거다 ──────────
+  automation:
+    - id: robot-01
+      floor: "2F"
+      kind: rack_mover
+      name: 랙 무버 로봇
+      capacity_kg: 1200
+      status: idle
+      pos: [6, 7]
+    - id: shred-01
+      floor: "1F"
+      kind: disk_shredder
+      name: 디스크 파쇄기
+      verification_hood: true         # 부품번호를 읽고 파괴 대상이 맞는지 검증한다
+      cod_log: true                   # 파괴증명서(COD) 근거 데이터
+      pos: [3, 7]
 
 # ── IT 자산 ───────────────────────────────────────────────────────
 # container 가 있으면 실재한다 — docker 로 실제 CPU 를 읽는다.
@@ -279,3 +563,28 @@ alarms:
   - { id: DOOR_FORCED,    metric: door_forced,     op: "==", value: 1,    level: 12, msg: "출입문 강제 개방 감지" }
   - { id: DOOR_HELD,      metric: door_held,       op: "==", value: 1,    level: 7,  msg: "출입문 장시간 열림" }
   - { id: CCTV_LOST,      metric: cctv_offline,    op: "==", value: 1,    level: 8,  msg: "CCTV 신호 상실" }
+
+  # ── 신규 계통 경보 (교재 5.2 · 5.3 · 9장) ─────────────────────
+  # 상류 전력 — 여기서 끊기면 UPS 이하 전부가 배터리로 간다
+  - { id: SUBSTATION_DOWN, metric: substation_down, op: "==", value: 1,    level: 13, msg: "수전 변전소 정지 — 계통 전원 상실" }
+  - { id: TRANSFORMER_HOT, metric: transformer_hot, op: "==", value: 1,    level: 11, msg: "주변압기 과열" }
+  - { id: ATS_FAIL,        metric: ats_failed,      op: "==", value: 1,    level: 13, msg: "자동절체스위치 절체 실패 — 발전기 전원 인수 불가" }
+  - { id: BUSWAY_TRIP,     metric: busway_load_pct, op: ">",  value: 95.0, level: 11, msg: "부스바 탭오프 과부하 — 차단 임박" }
+  - { id: FUEL_LOW,        metric: fuel_hours_left, op: "<",  value: 2.0,  level: 12, msg: "비상발전 연료 2시간 미만" }
+  # 배터리 — 교재 5.2.3. 카카오 데이터센터 화재의 원인이 이것이다
+  - { id: BATT_HOT,        metric: battery_temp_c,  op: ">",  value: 45.0, level: 11, msg: "배터리 온도 상승 — 열폭주 감시" }
+  - { id: BATT_RUNAWAY,    metric: battery_runaway, op: "==", value: 1,    level: 15, msg: "배터리 열폭주 — 화재 위험, 즉시 격리" }
+  # 냉각 계통 — 바깥 루프부터 안쪽으로
+  - { id: CT_DOWN,         metric: cooling_tower_down, op: "==", value: 1, level: 12, msg: "냉각탑 정지 — 응축수 루프 방열 중단" }
+  - { id: CT_FREEZE,       metric: cooling_tower_freeze, op: "==", value: 1, level: 10, msg: "냉각탑 결빙 위험 — 외기 저온" }
+  - { id: PUMP_DOWN,       metric: pump_down,       op: "==", value: 1,    level: 12, msg: "냉각수 펌프 정지 — 순환 중단" }
+  - { id: HX_FOULING,      metric: hx_fouling_pct,  op: ">",  value: 30.0, level: 7,  msg: "열교환기 오염 — 전열 성능 저하" }
+  - { id: ECO_DAMPER,      metric: economizer_stuck, op: "==", value: 1,   level: 8,  msg: "이코노마이저 댐퍼 고착 — 자연냉각 불가" }
+  - { id: CDU_LEAK,        metric: cdu_leak,        op: "==", value: 1,    level: 14, msg: "냉각분배장치 누수 — 랙 하부 침수 위험" }
+  - { id: COLDPLATE_HOT,   metric: coldplate_inlet_c, op: ">", value: 30.0, level: 11, msg: "콜드플레이트 입수 온도 초과 — GPU 스로틀링" }
+  - { id: AIRFLOW_SHORT,   metric: airflow_deficit_pct, op: ">", value: 10.0, level: 8, msg: "기류 부족 — 랙 상단 재순환 발생" }
+  - { id: CONTAIN_OPEN,    metric: containment_open, op: "==", value: 1,   level: 6,  msg: "핫아일 격리 개방 — 열기 혼합" }
+  - { id: WETBULB_HIGH,    metric: wetbulb_c,       op: ">",  value: 24.0, level: 6,  msg: "외기 습구온도 상승 — 냉각탑 능력 저하, 냉동기 의존" }
+  # 효율 — 경보라기보다 운영 품질 신호다 (교재 9장)
+  - { id: PUE_HIGH,        metric: pue,             op: ">",  value: 1.9,  level: 5,  msg: "PUE 악화 — 냉동기 상시 가동·격리 개방 등 회피 가능한 낭비 점검" }
+  - { id: OVERSUB_BREACH,  metric: critical_power_pct, op: ">", value: 100.0, level: 12, msg: "임계 전력 초과 — 초과 청약 한도 돌파" }
