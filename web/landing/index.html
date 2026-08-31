@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>kt66 실습 환경</title>
+<!-- 인라인 favicon. 없으면 브라우저가 /favicon.ico 를 찾아 404 를 남기고,
+     그 404 가 실습 중 Apache access 로그에 섞여 학생을 헷갈리게 한다. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%232563eb%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%2222%22%20font-family%3D%22system-ui%2Csans-serif%22%20font-size%3D%2215%22%20font-weight%3D%22700%22%20fill%3D%22%23fff%22%20text-anchor%3D%22middle%22%3Ekt%3C%2Ftext%3E%3C%2Fsvg%3E">
 <style>
 :root { --accent: #2563eb; --bg: #f8fafc; --card: #fff; --muted: #64748b; --border: #e2e8f0; }
 * { box-sizing: border-box; }
@@ -24,6 +27,7 @@ a.card .meta { color: var(--muted); font-size: 0.86em; display: block; margin-to
 .tag.mgmt { background: #dbeafe; color: #1d4ed8; }
 .tag.ai { background: #f3e8ff; color: #7c3aed; }
 .tag.edu { background: #cffafe; color: #0e7490; }
+.tag.dc { background: #ffedd5; color: #c2410c; }
 pre { background: #1e293b; color: #e2e8f0; padding: 14px 18px; border-radius: 8px; overflow-x: auto; font-size: 0.88em; }
 code { background: #e2e8f0; padding: 1px 6px; border-radius: 4px; font-size: 0.92em; }
 /* pre 내부의 code 는 배경/색 상속으로 가독성 확보 (외부 inline code 와 분리) */
@@ -44,6 +48,36 @@ th { background: #f1f5f9; }
 <strong>모든 취약 사이트 트래픽은 web 의 ModSecurity 검사를 통과한 후</strong> 백엔드 컨테이너로 전달됩니다.
 </div>
 
+<h2>미니 AI데이터센터 — 관제와 운영</h2>
+<p class="muted">4개 층(1F 시설 · 2F 네트워크/보안 · 3F AI 전산실 · 4F 운영)을 가진 데이터센터를 컨테이너로 세운 것. 전력·발열·존 경계는 가상이지만 <strong>부하와 고장은 실제로 랩에 적용된다</strong> — 3F 에 부하를 걸면 온도가 진짜로 오르고, 주입한 고장은 진짜로 컨테이너를 멈춘다.</p>
+<div class="grid">
+  <a class="card" data-port="8020" href="http://kt66.lab:8020/">
+    <span class="tag dc">관제</span>관제 화면 (NOC)
+    <span class="meta">:8020 — 층별 아이소메트릭 뷰 · 전력/존/근무자/경보/로그 · <strong>강사 고장 주입 패널</strong></span>
+  </a>
+  <a class="card" data-port="8050" href="http://kt66.lab:8050/">
+    <span class="tag dc">운영</span>에이전트 운영 콘솔
+    <span class="meta">:8050 — 회사·부서·근무자 편성. <code>agents/</code> 파일을 직접 고친다(웹 = 셸 = git diff)</span>
+  </a>
+  <a class="card" data-port="8060" href="http://kt66.lab:8060/">
+    <span class="tag edu">실습</span>모델 운영 (3F)
+    <span class="meta">:8060 — 살아 있는 서비스의 모델 manifest 를 고쳐 유지. 실패는 지표와 티켓 두 얼굴로 온다</span>
+  </a>
+  <a class="card" data-port="8070" href="http://kt66.lab:8070/">
+    <span class="tag edu">실습</span>인프라 요구사항
+    <span class="meta">:8070 — "3층에 한 대 더" 같은 사업 언어의 요구를 받아 증설. 판정은 <strong>랩의 실제 상태</strong>로</span>
+  </a>
+  <a class="card" data-port="8010" data-path="/docs" href="http://kt66.lab:8010/docs">
+    <span class="tag mgmt">API</span>환경 시뮬레이터 (envsim)
+    <span class="meta">:8010/docs — 1F 시설 계통(전력·냉방·소방·물리보안) 물리 모델 + 시설 고장 25종. UI 는 관제 화면</span>
+  </a>
+  <a class="card" data-port="8030" data-path="/docs" href="http://kt66.lab:8030/docs">
+    <span class="tag mgmt">API</span>고장 주입기 (injector)
+    <span class="meta">:8030/docs — IT 계통 고장 47종(시스템·스토리지·네트워크·보안·부하). UI 는 관제 화면의 강사 패널</span>
+  </a>
+</div>
+<p class="muted">⚠️ 위 여섯은 <strong>WAF 뒤가 아니라 호스트 포트에 직접 publish</strong> 된다(<code>.env</code> 의 <code>INT_HOST_IP</code>). 운영·강사 도구라서 취약 사이트와 같은 입구에 두지 않았다. <code>INT_HOST_IP</code> 가 <code>WEB_HOST_IP</code> 와 다르게 설정돼 있으면(기본값은 각각 호스트 전용 더미 NIC 과 LAN NIC) 이 링크들은 <strong>VM 호스트의 브라우저에서만</strong> 열린다.</p>
+
 <h2>취약 웹 7개 (학습용)</h2>
 <p class="muted">학생 PC hosts 파일(<code>/etc/hosts</code> · 윈도우 <code>C:\Windows\System32\drivers\etc\hosts</code>)에 아래 <strong>두 줄</strong> 추가 — <strong>각 줄이 IP 로 시작</strong>해야 합니다:</p>
 <pre><code>&lt;VM_IP&gt;  kt66.lab juice.kt66.lab dvwa.kt66.lab neobank.kt66.lab govportal.kt66.lab mediforum.kt66.lab admin.kt66.lab ai.kt66.lab portal.kt66.lab
@@ -58,30 +92,31 @@ th { background: #f1f5f9; }
   <a class="card" href="http://admin.kt66.lab/"><span class="tag attack">취약</span>AdminConsole<span class="meta">admin.kt66.lab — RCE/XXE/SSRF 종합</span></a>
   <a class="card" href="http://ai.kt66.lab/"><span class="tag ai">AI</span>AICompanion<span class="meta">ai.kt66.lab — OWASP LLM Top 10 (mock LLM)</span></a>
 </div>
+<p class="muted">hosts 파일을 못 고치는 PC 는 포트로도 같은 사이트에 닿는다 — <code>&lt;VM_IP&gt;:8001</code> juice · <code>:8002</code> dvwa · <code>:8003</code> neobank · <code>:8004</code> govportal · <code>:8005</code> mediforum · <code>:8006</code> admin · <code>:8007</code> ai. (모두 web 의 ModSecurity 를 그대로 지난다.)</p>
 
 <h2>관리/모니터링</h2>
 <div class="grid">
   <a class="card" href="http://portal.kt66.lab/">
     <span class="tag mgmt">관리</span>관리 포털
-    <span class="meta">portal.kt66.lab — 컨테이너 / 네트워크 / 로그 / WAF / IDS / Audit / Wazuh</span>
+    <span class="meta">portal.kt66.lab (직접 <code>:8000</code>) — 컨테이너 / 네트워크 / 로그 / WAF / IDS / Audit / Wazuh</span>
   </a>
   <a class="card" href="http://siem.kt66.lab/">
     <span class="tag defense">방어</span>SIEM (Wazuh Dashboard)
-    <span class="meta">siem.kt66.lab — 실제 Wazuh 4.10 dashboard. 로그인: admin / SecretPassword</span>
+    <span class="meta">siem.kt66.lab (직접 <code>https://&lt;VM_IP&gt;:5601</code>) — Wazuh 4.10. 로그인: admin / SecretPassword</span>
   </a>
   <a class="card" href="http://bastion.kt66.lab/health">
     <span class="tag mgmt">관리</span>Bastion API
-    <span class="meta">bastion.kt66.lab/health — 점프 호스트 헬스</span>
+    <span class="meta">bastion.kt66.lab/health (직접 <code>&lt;VM_IP&gt;:9100/health</code>) — 점프 호스트 헬스</span>
   </a>
 </div>
 <p class="muted">위 도메인 모두 web 컨테이너의 Apache + ModSecurity 를 통과하여 백엔드로 reverse proxy. 직접 IP:port 접근도 그대로 살아있음 (관리/디버그용).</p>
 
 <h2>보안장비 교육 콘솔 (secuops-easy 특강)</h2>
-<p class="muted">방화벽·IPS·WAF 를 장비형 웹 콘솔로 직접 다루는 입문 특강. 폼 조작이 만드는 실제 명령(<code>nft</code> / Suricata rule / SecRule)을 미리보기로 보여준 뒤 적용한다. (각 콘솔은 fw/ips/web 컨테이너의 :8080 에서 동작 — 내부 GUI IP 로 접속)</p>
+<p class="muted">방화벽·IPS·WAF 를 장비형 웹 콘솔로 직접 다루는 입문 특강. 폼 조작이 만드는 실제 명령(<code>nft</code> / Suricata rule / SecRule)을 미리보기로 보여준 뒤 적용한다. (각 콘솔은 fw/ips/web 컨테이너의 :8080 에서 동작 — 아래 vhost 또는 호스트 포트로 접속)</p>
 <div class="grid">
-  <a class="card" href="http://fw-gui.kt66.lab/"><span class="tag edu">교육</span>방화벽 콘솔 (nftables)<span class="meta">fw-gui.kt66.lab — 룰 / NAT / conntrack / 로그 / SIEM + 침해대응 시나리오 10</span></a>
-  <a class="card" href="http://ips-gui.kt66.lab/"><span class="tag edu">교육</span>IPS 콘솔 (Suricata)<span class="meta">ips-gui.kt66.lab — 탐지룰 구조·작성 / eve.json / SIEM + 침해대응 시나리오 30</span></a>
-  <a class="card" href="http://waf-gui.kt66.lab/"><span class="tag edu">교육</span>WAF 콘솔 (ModSecurity)<span class="meta">waf-gui.kt66.lab — SecRule 작성 / CRS / audit 분석 / SIEM + 침해대응 시나리오 30</span></a>
+  <a class="card" href="http://fw-gui.kt66.lab/"><span class="tag edu">교육</span>방화벽 콘솔 (nftables)<span class="meta">fw-gui.kt66.lab (직접 <code>:8081</code>) — 룰 / NAT / conntrack / 로그 / SIEM + 침해대응 시나리오 10</span></a>
+  <a class="card" href="http://ips-gui.kt66.lab/"><span class="tag edu">교육</span>IPS 콘솔 (Suricata)<span class="meta">ips-gui.kt66.lab (직접 <code>:8082</code>) — 탐지룰 구조·작성 / eve.json / SIEM + 침해대응 시나리오 30</span></a>
+  <a class="card" href="http://waf-gui.kt66.lab/"><span class="tag edu">교육</span>WAF 콘솔 (ModSecurity)<span class="meta">waf-gui.kt66.lab (직접 <code>:8083</code>) — SecRule 작성 / CRS / audit 분석 / SIEM + 침해대응 시나리오 30</span></a>
 </div>
 <p class="muted">교안·실습(6주)은 CCC kt66 Training 메뉴의 <strong>secuops-easy</strong> 과목. 콘솔의 모든 동작은 적용 전 미리보기/문법검사를 거쳐 안전하게 연습할 수 있다.</p>
 
@@ -93,10 +128,13 @@ th { background: #f1f5f9; }
 <tr><td>web</td><td>Wazuh agent</td><td>Apache access/error/modsec_audit.log</td><td>web:agent → siem:1514/tcp</td></tr>
 <tr><td>bastion</td><td>rsyslog forward</td><td>sshd auth.log + system</td><td>bastion → siem:514/udp</td></tr>
 <tr><td>attacker</td><td>rsyslog forward</td><td>shell history + system</td><td>attacker → siem:514/udp</td></tr>
+<tr><td>envsim</td><td>syslog</td><td>시설 경보(전력·냉방·소방)</td><td>envsim → siem:514/udp</td></tr>
+<tr><td>injector</td><td>syslog</td><td>강사의 고장 주입·원복</td><td>injector → siem:514/udp</td></tr>
 </table>
 <p class="muted"><strong>학습 포인트</strong>: Wazuh agent 는 자체 binary 가 로그 수집 + 디코딩 + 알림 관리자에게 보낸다 (TCP/1514, 암호화).
 syslog forward 는 rsyslog 가 모든 로그를 그대로 UDP/514 로 전달하고, manager 가 직접 디코딩한다.
-agent = 정밀 + 보안적으로 우수, syslog = 단순 + 표준 호환.</p>
+agent = 정밀 + 보안적으로 우수, syslog = 단순 + 표준 호환.
+강사의 주입도 사건으로 같은 SIEM 에 남는다 — 학생 타임라인에서 원인과 결과가 한 줄에 놓인다.</p>
 
 <h2>학생 PC SSH 접속 (Bastion ProxyJump)</h2>
 <pre><code>Host kt66-bastion
@@ -118,21 +156,28 @@ Host kt66-fw kt66-ips kt66-web kt66-siem kt66-portal
 
 <p class="muted">기본 SSH 비밀번호: <code>ccc</code> · Bastion API 키: <code>ccc-api-key-2026</code></p>
 
-<h2>네트워크 구성 (4-tier: ext → pipe → dmz → int, + user/wan)</h2>
-<p class="muted">외부 요청은 <code>fw</code>(80/443) 한 곳으로만 들어와 <strong>fw(방화벽) → ips(Suricata) → web(WAF) → int 백엔드</strong> 체인을 강제로 거친다. int 의 취약 사이트는 직접 노출되지 않는다.</p>
+<h2>네트워크 구성 (ext → pipe → dmz → int, + app(3F GPU) / ot(1F 시설))</h2>
+<p class="muted">외부 요청은 <code>fw</code>(80/443) 한 곳으로만 들어와 <strong>fw(방화벽) → ips(Suricata) → web(WAF) → int 백엔드</strong> 체인을 강제로 거친다. int 의 취약 사이트는 직접 노출되지 않는다.
+데이터센터를 얹으면서 두 망이 더 생겼다 — <strong>app</strong>(3F GPU 존, 터널 너머 DGX Spark 가 이 존의 구성원이 된다)과 <strong>ot</strong>(1F 시설망). 시설망을 IT 망과 분리한 것은 실제 DC 구조이자 그 자체로 교보재다. 둘 다 게이트웨이가 <code>ips</code> 라서, 존을 넘는 트래픽은 반드시 IPS 를 지난다.</p>
 <table>
-<tr><th>컨테이너</th><th>Zone / IP</th><th>역할</th><th>외부 포트</th></tr>
-<tr><td>kt66-bastion</td><td>ext 10.20.30.201</td><td>SSH 점프 + Bastion API + rsyslog forward</td><td>2204</td></tr>
+<tr><th>컨테이너</th><th>Zone / IP</th><th>역할</th><th>호스트 포트</th></tr>
+<tr><td>kt66-bastion</td><td>ext 10.20.30.201</td><td>SSH 점프 + Bastion API + rsyslog forward</td><td>2204, 9100</td></tr>
 <tr><td>kt66-attacker</td><td>ext 10.20.30.202</td><td>공격자(insider) nmap/hydra/sqlmap/nikto</td><td>2202</td></tr>
-<tr><td>kt66-attacker-ext</td><td>wan 10.20.20.202</td><td>공격자(outsider — 공개 포트로만, 옵션)</td><td>2203</td></tr>
-<tr><td><strong>kt66-fw</strong></td><td>ext .1 ↔ pipe .1</td><td><strong>방화벽</strong> nftables L3 forward + DNAT (L7 종료 없음)</td><td>80, 443, 9100</td></tr>
-<tr><td><strong>kt66-ips</strong></td><td>pipe .2 ↔ dmz .1 ↔ user .1</td><td><strong>IPS</strong> Suricata 인라인 sniff + Wazuh agent</td><td>—</td></tr>
-<tr><td>kt66-web</td><td>dmz .80 ↔ int .80</td><td>Apache + ModSecurity(WAF) + 7 vhost + Wazuh agent</td><td>—</td></tr>
+<tr><td><strong>kt66-fw</strong></td><td>ext .1 ↔ pipe .1</td><td><strong>방화벽</strong> nftables L3 forward + DNAT (L7 종료 없음)</td><td>80, 443, 8001-8007, 8081, 9100</td></tr>
+<tr><td><strong>kt66-ips</strong></td><td>pipe .2 ↔ dmz .1 ↔ app .1 ↔ ot .1</td><td><strong>IPS</strong> Suricata 인라인 sniff + 존 게이트웨이 + Wazuh agent</td><td>8082</td></tr>
+<tr><td>kt66-web</td><td>dmz .80 ↔ int .80</td><td>Apache + ModSecurity(WAF) + 7 vhost + 랜딩 + Wazuh agent</td><td>8083</td></tr>
 <tr><td>kt66-siem</td><td>dmz 10.20.32.100</td><td>Wazuh manager (official 4.10)</td><td>—</td></tr>
 <tr><td>kt66-wazuh-indexer</td><td>dmz 10.20.32.110</td><td>Wazuh indexer (OpenSearch)</td><td>—</td></tr>
-<tr><td>kt66-wazuh-dashboard</td><td>dmz 10.20.32.120</td><td>Wazuh dashboard (siem.kt66.lab)</td><td>—</td></tr>
-<tr><td>kt66-portal</td><td>dmz 10.20.32.50</td><td>관리 대시보드 (FastAPI + HTMX)</td><td>—</td></tr>
-<tr><td>kt66-assessor</td><td>dmz 10.20.32.55</td><td>읽기 전용 평가 수집 (채점용, 옵션)</td><td>—</td></tr>
+<tr><td>kt66-wazuh-dashboard</td><td>dmz 10.20.32.120</td><td>Wazuh dashboard (siem.kt66.lab)</td><td>5601 (https)</td></tr>
+<tr><td>kt66-portal</td><td>dmz 10.20.32.50</td><td>관리 대시보드 (FastAPI + HTMX)</td><td>8000</td></tr>
+<tr><td><strong>kt66-noc</strong></td><td>dmz 10.20.32.51</td><td><strong>관제 화면</strong> — 4F 운영층의 창 (상태를 만들지 않고 모으기만 한다)</td><td>8020</td></tr>
+<tr><td><strong>kt66-injector</strong></td><td>dmz 10.20.32.52</td><td><strong>고장 주입기</strong> IT 계통 47종 — docker.sock 을 쓰기로 잡는 유일한 상시 서비스</td><td>8030</td></tr>
+<tr><td><strong>kt66-envsim</strong></td><td>ot 10.20.60.10 ↔ dmz .60</td><td><strong>환경 시뮬레이터</strong> 1F 전력·냉방·소방·물리보안 + 시설 고장 25종</td><td>8010</td></tr>
+<tr><td>kt66-agentops</td><td>dmz 10.20.32.61</td><td>에이전트 운영 콘솔 (<code>agents/</code> 파일 직접 편집)</td><td>8050</td></tr>
+<tr><td>kt66-infraops</td><td>dmz 10.20.32.62</td><td>인프라 요구사항 실습 (읽기 전용 채점)</td><td>8070</td></tr>
+<tr><td>kt66-modelops</td><td>app 10.20.50.60</td><td>모델 운영 실습 (3F AI 전산실)</td><td>8060</td></tr>
+<tr><td>kt66-gpu-gw</td><td>app 10.20.50.2</td><td>GPU 존 게이트웨이 (WireGuard 터널 → DGX Spark)</td><td>—</td></tr>
+<tr><td>kt66-assessor</td><td>dmz 10.20.32.55</td><td>읽기 전용 평가 수집 — <code>--profile assessor</code> 로만 기동</td><td>9201</td></tr>
 <tr><td>kt66-juiceshop</td><td>int 10.20.40.81</td><td>OWASP Juice Shop</td><td>—</td></tr>
 <tr><td>kt66-dvwa</td><td>int 10.20.40.82</td><td>DVWA</td><td>—</td></tr>
 <tr><td>kt66-neobank</td><td>int 10.20.40.83</td><td>NeoBank (Flask)</td><td>—</td></tr>
@@ -141,12 +186,26 @@ Host kt66-fw kt66-ips kt66-web kt66-siem kt66-portal
 <tr><td>kt66-adminconsole</td><td>int 10.20.40.86</td><td>AdminConsole (Flask)</td><td>—</td></tr>
 <tr><td>kt66-aicompanion</td><td>int 10.20.40.87</td><td>AICompanion (Flask + LLM)</td><td>—</td></tr>
 </table>
-<p class="muted">방화벽/IPS/WAF 교육 콘솔(fw-gui/ips-gui/waf-gui)은 각각 fw/ips/web 컨테이너의 :8080 에서 동작한다(이미지에 내장되어 컨테이너 기동 시 자동 실행).</p>
+<p class="muted">호스트 포트 중 80·443·8001-8007·9100 은 <code>WEB_HOST_IP</code> 에, 나머지 관리/운영 포트는 <code>INT_HOST_IP</code> 에 publish 된다(<code>.env</code>). 두 값을 같게 두면 강의실에서 전부 열리고, 다르게 두면 운영 콘솔은 VM 호스트 브라우저에서만 열린다 — <strong>노출 범위를 고르는 스위치</strong>다.</p>
 
 <p class="muted" style="margin-top:3em;border-top:1px solid var(--border);padding-top:1em">
 kt66 — CCC 단일 VM Docker 버전 · <a href="https://github.com/mrgrit/kt66">github.com/mrgrit/kt66</a>
 </p>
 
 </div>
+
+<script>
+/* 운영 콘솔(관제·주입기·envsim·agentops·modelops·infraops)은 vhost 뒤가 아니라 호스트
+ * 포트에 직접 publish 된다. 그래서 링크에 주소를 하나로 박아 둘 수 없다 — 지금 이
+ * 페이지를 연 주소를 그대로 쓴다. IP 로 들어온 학생은 IP 로, kt66.lab 으로 들어온
+ * 학생은 kt66.lab 으로 이어진다.
+ *
+ * 기본 href 는 kt66.lab:포트 로 남겨 뒀다. 스크립트가 막혀도 hosts 파일만 있으면 열린다.
+ * 프로토콜은 http 고정 — 이 콘솔들에는 TLS 를 붙이지 않았다. 랜딩을 https 로 열었다고
+ * location.protocol 을 따라가면 전부 죽는다. */
+for (const a of document.querySelectorAll('a[data-port]')) {
+  a.href = 'http://' + location.hostname + ':' + a.dataset.port + (a.dataset.path || '/');
+}
+</script>
 </body>
 </html>

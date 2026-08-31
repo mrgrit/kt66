@@ -243,6 +243,16 @@ services:
     volumes:
       - web-apache-logs:/var/log/apache2
       - ./keys:/keys:ro
+      # 랜딩 페이지와 vhost 는 이미지에도 구워져 있지만(Dockerfile 의 COPY) 여기서 덮어쓴다.
+      # web 이미지는 apt 로 Apache·ModSecurity·CRS·osquery·Wazuh agent 를 다 받는다 —
+      # 링크 한 줄 고치려고 그걸 다시 굽게 하면 아무도 안 고친다.
+      # 랜딩은 새로고침만으로, vhost 는 `docker exec kt66-web apache2ctl graceful` 로 반영된다.
+      # 이미지 안의 사본은 그대로 두었다: 이 저장소 없이 이미지만 돌려도 랜딩은 떠야 한다.
+      # ⚠ sites-available 통째로 덮으므로 저장소의 vhost 집합이 곧 활성 집합이다
+      #   (a2ensite 심볼릭 링크는 sites-enabled 에 있고 빌드 때 걸린다 — 파일을 새로
+      #   추가하면 이미지를 다시 구워야 활성화된다).
+      - ./web/landing:/var/www/landing:ro
+      - ./web/vhosts:/etc/apache2/sites-available:ro
     depends_on:
       - ips
       - juiceshop

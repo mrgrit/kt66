@@ -50,6 +50,13 @@ for p in 8001 8002 8003 8004 8005 8006 8007; do
 done
 # bastion API (관리) — ext 망 bastion 으로
 nft add rule ip six_nat prerouting tcp dport 9100 dnat to ${BASTION_API_IP}:9100 2>/dev/null || true
+# 이 규칙만 masquerade 한다. 위의 web 행 DNAT 은 출처를 보존해야 WAF 가 진짜 공격자를
+# 보지만, bastion 은 요청이 들어온 ext 인터페이스와 **같은 망**에 있다. 출처를 그대로
+# 두면 bastion 의 응답이 fw 를 거치지 않고 호스트로 곧장 간다 → 호스트는 모르는
+# SYN-ACK 로 보고 RST 를 쏜다. 증상은 "포트는 열려 있는데 즉시 연결 거부"였다
+# (curl http://<VM_IP>:9100/health → 000, connect 시간 0). 관리 경로 한 줄이라
+# 출처 보존이 걸린 실습(WAF 로그의 공격자 IP)에는 영향이 없다.
+nft add rule ip six_nat postrouting ip daddr ${BASTION_API_IP} tcp dport 9100 masquerade 2>/dev/null || true
 
 # ─── Wazuh agent ────────────────────────────────────────
 if [ -d /var/ossec ]; then
