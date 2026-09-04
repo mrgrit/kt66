@@ -58,6 +58,21 @@ if [ -n "$DMZ_IFACE" ]; then
     nft "add rule ip kt66mgr postrouting oifname \"$DMZ_IFACE\" ip daddr $WAZUH_MANAGER ip saddr 10.20.50.0/24 masquerade" 2>/dev/null || true
     nft "add rule ip kt66mgr postrouting oifname \"$DMZ_IFACE\" ip daddr $WAZUH_MANAGER ip saddr 10.20.60.0/24 masquerade" 2>/dev/null || true
 
+    # ─── 3F 모델 운영(app) 행 관리 접근 — 같은 비대칭 문제의 반대 방향 ──────────
+    # web 이 modelops.kt66.lab 을 프록시하려면 dmz(10.20.32.80) → app(10.20.50.60) 로
+    # 나가야 한다. 가는 길은 ips 가 라우팅한다. 그런데 modelops 의 기본 GW 는 도커
+    # 브리지(10.20.50.254 = 호스트)라 **회신이 호스트로 샌다** — 도커의 브리지 간
+    # 격리 규칙이 그걸 버리므로 연결이 아예 안 선다(web→10.20.50.60:8000 = 000).
+    # envsim 처럼 dmz 다리를 하나 더 붙이는 방법도 있지만, 그러면 3F GPU 존이 dmz 에
+    # 걸쳐 있게 되어 "존 경계" 라는 이 랩의 문장이 흐려진다. 목적지 하나만 masquerade
+    # 해서 경로를 대칭으로 만든다 — modelops 는 회신을 직접 붙어 있는 ips(10.20.50.1)
+    # 로 보내고, 존 구조는 그대로 남는다.
+    APP_IFACE=$(ip -o -4 addr show | awk '$4 ~ /^10\.20\.50\./ {print $2; exit}')
+    if [ -n "$APP_IFACE" ]; then
+        nft "add rule ip kt66mgr postrouting oifname \"$APP_IFACE\" ip daddr 10.20.50.60 tcp dport 8000 masquerade" 2>/dev/null || true
+        echo "[ips] modelops(10.20.50.60:8000) 행 masquerade 활성 — app 존 회신 경로 대칭화"
+    fi
+
 # ─── 1F 시설망(OT) 접근통제 ────────────────────────────────────────────
 # 실제 DC 에서 BMS/시설 계통은 업무망과 분리한다. 여기서도 같다 —
 # 외부망(ext)은 시설망에 아예 닿지 못하고, 나머지 존은 시뮬레이터 API(8000)만 열린다.

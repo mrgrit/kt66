@@ -177,14 +177,48 @@ sudo ./kt66-net.sh                                      # 인터-브리지 체�
 
 ## 접속
 
+데이터센터로 들어가는 길은 **두 갈래**다. 하나가 막혀도 다른 하나로 들어갈 수 있다.
+
+### 길 1 — 포트 (`INT_HOST_IP`)
+
 내부 GUI 를 어느 인터페이스에 열지는 `.env` 의 **`INT_HOST_IP`** 한 줄이 정한다.
 
 | 값 | 뜻 |
 |---|---|
-| `192.168.136.145` (기본) | el34 에서 물려받은 **dummy NIC**(`NOARP`, 어떤 케이블에도 안 붙어 있다). 이 호스트의 브라우저에서만 열린다 — 강의실 LAN 에서 SIEM·보안 콘솔이 안 보인다 |
-| 서버의 실제 LAN IP | 원격·강의실에서 열린다. 대신 **SIEM·보안 콘솔까지 전부 노출**된다 |
+| 비워 둠 **(권장)** | `kt66.sh up` 이 **웹 진입 IP** 를 적어 준다 — 학생이 이미 쓰는 주소라 배포하면 그냥 열린다 |
+| 서버의 실제 LAN IP | 위와 같다. 원격·강의실에서 열린다 |
+| `192.168.136.145` | el34 에서 물려받은 **dummy NIC**(`NOARP`, 어떤 케이블에도 안 붙어 있다). 이 호스트의 브라우저에서만 열린다 — 격리를 원할 때만 |
 
-`INT_HOST_IP` 를 바꾼 뒤 `fw ips web wazuh-dashboard portal envsim noc` 을 재기동한다.
+> **⚠️ 새 서버에 배포했더니 데이터센터만 안 열린다면 여기다.**
+> `192.168.136.145` 는 오래된 기본값이었다. 이 값이면 컨테이너도 포트도 정상인데
+> **아무도 닿을 수 없는 주소에 묶인다** — 취약 웹앱과 SIEM 은 :80 vhost 를 타고 들어오므로
+> 멀쩡히 열리고, 포트로만 들어가는 데이터센터 콘솔만 통째로 안 열린다.
+> 확인: `grep INT_HOST_IP .env` · `docker port kt66-noc`.
+> 고치기: `.env` 의 `INT_HOST_IP` 를 서버 LAN IP 로 바꾸고 아래를 재기동.
+
+`INT_HOST_IP` 를 바꾼 뒤 `fw ips web wazuh-dashboard portal envsim noc injector agentops modelops infraops` 를 재기동한다.
+
+### 길 2 — 이름 (hosts + :80)
+
+포트를 아예 안 쓰는 길이다. 취약 사이트가 쓰는 그 입구(`:80`/`:443`)를 그대로 탄다 —
+학생 PC `hosts` 에 이름만 있으면 `INT_HOST_IP` 가 어떻게 잡혀 있든 열린다.
+
+```
+<VM_IP>  noc.kt66.lab injector.kt66.lab envsim.kt66.lab agentops.kt66.lab modelops.kt66.lab infraops.kt66.lab
+```
+
+| 이름 | 대상 |
+|---|---|
+| `http://noc.kt66.lab/` | 관제 화면 (NOC) — 강사 고장 주입 패널 |
+| `http://injector.kt66.lab/docs` | 고장 주입기 (IT 계통) |
+| `http://envsim.kt66.lab/docs` | 환경 시뮬레이터 (1F 시설) |
+| `http://agentops.kt66.lab/` | 에이전트 운영 콘솔 |
+| `http://modelops.kt66.lab/` | 모델 운영 (3F AI 전산실) |
+| `http://infraops.kt66.lab/` | 인프라 요구사항 실습 |
+
+web 의 Apache vhost(`web/vhosts/120-datacenter.conf`)가 각 콘솔로 프록시한다.
+이 경로는 **ModSecurity 를 끄고** 지나간다 — 관리 도구는 WAF 실습 대상이 아니다
+(고장 카탈로그·자산 대장을 JSON POST 로 제출하므로 CRS 가 인젝션으로 읽고 차단한다).
 
 | 위치 | 주소 | 내용 |
 |---|---|---|

@@ -36,8 +36,13 @@ INJECTOR_URL = os.getenv("INJECTOR_URL", "http://10.20.32.52:8000")
 ROSTER_PATH = pathlib.Path(os.getenv("ROSTER_PATH", "/agents/roster.yaml"))
 LOOPS_DIR = pathlib.Path(os.getenv("LOOPS_DIR", "/agents/loops"))
 DOCKER_SOCK = os.getenv("DOCKER_SOCK", "/var/run/docker.sock")
-INT_HOST = os.getenv("INT_HOST", "192.168.136.145")
 WEB_HOST = os.getenv("WEB_HOST", "192.168.12.100")
+# 자산 대장 링크에 그대로 찍히는 "주소"다 — 바인딩 값이지 주소가 아닌 0.0.0.0 이 새어
+# 들어오면 대장이 http://0.0.0.0:8020 을 가리킨다. 그때는 웹 진입 IP 로 대신한다.
+# 옛 기본값(192.168.136.145)도 두지 않는다: el34 dummy NIC 이라 새 서버에서는 죽은 주소다.
+INT_HOST = os.getenv("INT_HOST", "") or WEB_HOST
+if INT_HOST in ("0.0.0.0", "::"):
+    INT_HOST = WEB_HOST
 API_KEY = os.getenv("API_KEY", "")
 STATIC = pathlib.Path(__file__).parent / "static"
 

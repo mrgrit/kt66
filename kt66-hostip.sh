@@ -1,14 +1,15 @@
 #!/bin/bash
 # kt66-hostip.sh — compose 가 바인딩하는 호스트 IP 를 보장 (멱등).
 #   웹 외부 진입  WEB_HOST_IP  (compose: kt66-fw/web/portal publish) — kt66.sh 가 .env 에 기록
-#   내부 GUI 전용 INT_HOST_IP=192.168.136.145 (SIEM/콘솔/MISP/OpenCTI publish, dummy)
+#   내부 GUI     INT_HOST_IP  (SIEM/관제/주입기/콘솔 publish) — kt66.sh 가 .env 에 기록
+#     · 미설정/웹 진입 IP 와 동일 → alias 불필요(웹 쪽에서 이미 처리됨). dummy 를 만들지 않는다.
+#     · 192.168.136.145 같은 격리용 값 → dummy 인터페이스 kt66int0 에 부여.
 #
 # WEB_HOST_IP 처리(우선순위: env > .env):
 #   · 빈값/0.0.0.0        → 모든 인터페이스 바인딩. 웹 IP alias 불필요(skip).
 #   · 이미 존재(실 NIC/DHCP) → skip (멱등).
 #   · LAN 서브넷과 동일    → DHCP 가 관리하는 VM 실제 IP → 정적 add 시 충돌하므로 skip.
 #   · 외부 서브넷(레거시 .161 등) → LAN(default route) 인터페이스에 alias 부여.
-#   .145 → dummy 인터페이스 kt66int0 (호스트 Firefox 전용, LAN 격리).
 # 호출 시점: kt66.sh up (build 전) + 부팅 시 kt66-hostip.service(After=network-online, Before=docker).
 set -e
 SELFDIR="$(dirname "$(readlink -f "$0")")"
@@ -16,8 +17,14 @@ SELFDIR="$(dirname "$(readlink -f "$0")")"
 if [ -z "${WEB_HOST_IP:-}" ] && [ -f "$SELFDIR/.env" ]; then
     WEB_HOST_IP="$(grep -E '^WEB_HOST_IP=' "$SELFDIR/.env" | tail -1 | cut -d= -f2-)"
 fi
+if [ -z "${INT_HOST_IP:-}" ] && [ -f "$SELFDIR/.env" ]; then
+    INT_HOST_IP="$(grep -E '^INT_HOST_IP=' "$SELFDIR/.env" | tail -1 | cut -d= -f2-)"
+fi
 WEB_IP="${WEB_HOST_IP:-}"
-INT_IP="${INT_HOST_IP:-192.168.136.145}"
+# 기본값을 192.168.136.145 로 두지 않는다. 그 dummy 는 el34 유산이고, 여기서 조용히
+# 되살아나면 데이터센터 콘솔이 **아무도 못 닿는 IP** 에 묶인다(새 서버 배포 시 실제로 그랬다).
+# 미설정이면 웹 진입 IP 를 따른다 — kt66.sh 가 .env 에 적어 주지만 부팅 경로의 그물도 필요하다.
+INT_IP="${INT_HOST_IP:-$WEB_IP}"
 SUDO() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi; }
 
 # ── 웹 외부 진입 IP ──
@@ -42,8 +49,14 @@ else
     fi
 fi
 
-# ── 내부 GUI 전용 IP (호스트 Firefox 전용, dummy) ──
-if ip -4 addr show | grep -qw "$INT_IP"; then
+# ── 내부 GUI 바인딩 IP ──
+if [ -z "$INT_IP" ] || [ "$INT_IP" = "0.0.0.0" ]; then
+    echo "[kt66-hostip] INT_HOST_IP=${INT_IP:-(미설정)} — 모든 인터페이스 바인딩, alias 불필요"
+elif [ "$INT_IP" = "$WEB_IP" ]; then
+    # 웹 진입 IP 와 같은 주소다 — 위에서 이미 처리했다. 여기서 dummy 를 만들면
+    # LAN 주소가 케이블 없는 인터페이스에 중복으로 붙어 라우팅이 뒤엉킨다.
+    echo "[kt66-hostip] INT_HOST_IP = WEB_HOST_IP ($INT_IP) — 웹 쪽에서 처리됨, skip"
+elif ip -4 addr show | grep -qw "$INT_IP"; then
     echo "[kt66-hostip] $INT_IP 이미 존재 — skip"
 else
     ip link show kt66int0 >/dev/null 2>&1 || SUDO ip link add kt66int0 type dummy

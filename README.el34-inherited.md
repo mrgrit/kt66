@@ -204,11 +204,12 @@ netplan static 으로 VM 에 고정된 값). 확인: `grep WEB_HOST_IP .env` 또
 ```
 <VM_IP>  kt66.lab juice.kt66.lab dvwa.kt66.lab neobank.kt66.lab govportal.kt66.lab mediforum.kt66.lab admin.kt66.lab ai.kt66.lab portal.kt66.lab
 <VM_IP>  siem.kt66.lab bastion.kt66.lab assessor.kt66.lab fw-gui.kt66.lab ips-gui.kt66.lab waf-gui.kt66.lab
+<VM_IP>  noc.kt66.lab injector.kt66.lab envsim.kt66.lab agentops.kt66.lab modelops.kt66.lab infraops.kt66.lab
 ```
 
-> ⚠️ **두 줄로 나눠 각 줄을 IP 로 시작**하세요. 한 줄로 길게 넣다가 에디터에서 줄바꿈되면
-> 둘째 줄(siem·콘솔)에 IP 가 빠져 그 항목만 "안 열림"이 됩니다 — `juice`~`portal` 은 되는데
-> `siem`/`*-gui` 만 안 열리면 99% 이 문제입니다. (이름은 파일에 다 있어 보여도 IP 가 안 붙은 것.)
+> ⚠️ **세 줄로 나눠 각 줄을 IP 로 시작**하세요. 한 줄로 길게 넣다가 에디터에서 줄바꿈되면
+> 둘째·셋째 줄에 IP 가 빠져 그 항목만 "안 열림"이 됩니다 — `juice`~`portal` 은 되는데
+> `siem`/`*-gui`/`noc` 만 안 열리면 99% 이 문제입니다. (이름은 파일에 다 있어 보여도 IP 가 안 붙은 것.)
 > 확인: 클라이언트에서 `ping siem.kt66.lab` → VM IP 가 나와야 정상.
 
 그 후 브라우저 — **모두 동일 패턴 `<service>.kt66.lab` 으로 접근** (web 의 Apache vhost 가 reverse proxy):
@@ -229,6 +230,12 @@ netplan static 으로 VM 에 고정된 값). 확인: `grep WEB_HOST_IP .env` 또
 | `http://fw-gui.kt66.lab/` | **방화벽 콘솔** (nftables 교육 GUI) | secuops-easy 특강. fw HAProxy 경유 |
 | `http://ips-gui.kt66.lab/` | **IPS 콘솔** (Suricata 교육 GUI) | secuops-easy 특강 |
 | `http://waf-gui.kt66.lab/` | **WAF 콘솔** (ModSecurity 교육 GUI) | secuops-easy 특강 |
+| `http://noc.kt66.lab/` | **관제 화면 (NOC)** | 미니 AI데이터센터 — 층·전력·근무자·경보 + 강사 고장 주입 패널 |
+| `http://injector.kt66.lab/docs` | 고장 주입기 | IT 계통 고장 카탈로그 (API) |
+| `http://envsim.kt66.lab/docs` | 환경 시뮬레이터 | 1F 시설 계통 물리 모델 (API) |
+| `http://agentops.kt66.lab/` | 에이전트 운영 콘솔 | 회사·부서·근무자 편성 |
+| `http://modelops.kt66.lab/` | 모델 운영 | 3F AI 전산실 — 모델 manifest 유지 |
+| `http://infraops.kt66.lab/` | 인프라 요구사항 실습 | 증설 요구 → 랩 실제 상태로 판정 |
 
 > **secuops-easy GUI 3종**(fw-gui/ips-gui/waf-gui)은 fw/ips/web **이미지에 내장**되어
 > 각 컨테이너 entrypoint 가 :8080 으로 **자동 기동**하고, HAProxy 라우트도 base 설정에 포함된다.
@@ -237,8 +244,15 @@ netplan static 으로 VM 에 고정된 값). 확인: `grep WEB_HOST_IP .env` 또
 > 오프라인 치유: `bash secuops-easy-deploy/deploy_all.sh`. (`SKIP_SECUOPS_EASY=1` 로 생략 가능.)
 
 > **직접 포트 접근도 살아있음** (관리/디버그용): `http://<VM_IP>:8000/` (portal),
-> `http://<VM_IP>:5601/` (siem), `http://<VM_IP>:9100/health` (bastion).
+> `http://<VM_IP>:5601/` (siem), `http://<VM_IP>:9100/health` (bastion),
+> 데이터센터 `:8010`(envsim) `:8020`(noc) `:8030`(injector) `:8050`(agentops)
+> `:8060`(modelops) `:8070`(infraops).
 > 이 경로는 ModSecurity 검사를 거치지 않음 — 학습 비교용.
+>
+> 데이터센터 포트는 `.env` 의 **`INT_HOST_IP`** 에 묶인다. **새 서버에 배포했는데
+> 취약 사이트·SIEM 만 열리고 데이터센터가 안 열리면** 그 값이 옛 기본값
+> (`192.168.136.145`, el34 dummy NIC)으로 남아 있는 것이다 — 위 `*.kt66.lab` 이름 경로는
+> `:80` 으로 들어오므로 그 경우에도 열린다. 자세히는 `README.md` 의 "접속".
 
 #### AICompanion — 실제 LLM 연결 & 모델 공격 시연
 

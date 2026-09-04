@@ -76,13 +76,28 @@ th { background: #f1f5f9; }
     <span class="meta">:8030/docs — IT 계통 고장 47종(시스템·스토리지·네트워크·보안·부하). UI 는 관제 화면의 강사 패널</span>
   </a>
 </div>
-<p class="muted">⚠️ 위 여섯은 <strong>WAF 뒤가 아니라 호스트 포트에 직접 publish</strong> 된다(<code>.env</code> 의 <code>INT_HOST_IP</code>). 운영·강사 도구라서 취약 사이트와 같은 입구에 두지 않았다. <code>INT_HOST_IP</code> 가 <code>WEB_HOST_IP</code> 와 다르게 설정돼 있으면(기본값은 각각 호스트 전용 더미 NIC 과 LAN NIC) 이 링크들은 <strong>VM 호스트의 브라우저에서만</strong> 열린다.</p>
+<p class="muted">⚠️ 위 여섯은 <strong>WAF 뒤가 아니라 호스트 포트에 직접 publish</strong> 된다(<code>.env</code> 의 <code>INT_HOST_IP</code>). 운영·강사 도구라서 취약 사이트와 같은 입구에 두지 않았다.</p>
+
+<div class="banner">
+<strong>포트로 안 열리면 이름으로 들어온다.</strong> 위 링크가 안 열리는 서버가 있다 —
+<code>INT_HOST_IP</code> 가 그 서버에서 닿을 수 없는 주소로 잡힌 경우다(예전 기본값이 호스트 전용 더미 NIC 이었다).
+그때는 <strong>취약 사이트와 똑같은 입구(:80)</strong> 로 들어오면 된다. 학생 PC <code>hosts</code> 파일에 아래 한 줄을 더 넣는다:
+<pre><code>&lt;VM_IP&gt;  noc.kt66.lab injector.kt66.lab envsim.kt66.lab agentops.kt66.lab modelops.kt66.lab infraops.kt66.lab</code></pre>
+그러면 포트 없이 <a href="http://noc.kt66.lab/">http://noc.kt66.lab/</a> ·
+<a href="http://injector.kt66.lab/">injector</a> ·
+<a href="http://envsim.kt66.lab/">envsim</a> ·
+<a href="http://agentops.kt66.lab/">agentops</a> ·
+<a href="http://modelops.kt66.lab/">modelops</a> ·
+<a href="http://infraops.kt66.lab/">infraops</a> 로 열린다.
+이 경로는 web 의 Apache 를 거치지만 <strong>ModSecurity 는 끄고</strong> 지나간다 — 관리 도구는 WAF 실습 대상이 아니다.
+</div>
 
 <h2>취약 웹 7개 (학습용)</h2>
-<p class="muted">학생 PC hosts 파일(<code>/etc/hosts</code> · 윈도우 <code>C:\Windows\System32\drivers\etc\hosts</code>)에 아래 <strong>두 줄</strong> 추가 — <strong>각 줄이 IP 로 시작</strong>해야 합니다:</p>
+<p class="muted">학생 PC hosts 파일(<code>/etc/hosts</code> · 윈도우 <code>C:\Windows\System32\drivers\etc\hosts</code>)에 아래 <strong>세 줄</strong> 추가 — <strong>각 줄이 IP 로 시작</strong>해야 합니다:</p>
 <pre><code>&lt;VM_IP&gt;  kt66.lab juice.kt66.lab dvwa.kt66.lab neobank.kt66.lab govportal.kt66.lab mediforum.kt66.lab admin.kt66.lab ai.kt66.lab portal.kt66.lab
-&lt;VM_IP&gt;  siem.kt66.lab bastion.kt66.lab assessor.kt66.lab fw-gui.kt66.lab ips-gui.kt66.lab waf-gui.kt66.lab</code></pre>
-<p class="muted">⚠️ 한 줄로 길게 넣다가 에디터에서 줄바꿈되면 둘째 줄(siem·콘솔)에 IP 가 빠져 <strong>그 항목만 “안 열림”</strong>이 됩니다. <code>juice</code>~<code>portal</code> 은 되는데 <code>siem</code>/<code>*-gui</code> 만 안 열리면 거의 이 경우 — 위처럼 두 줄로 나눠 각각 IP 로 시작하세요. (확인: <code>ping siem.kt66.lab</code> → VM IP)</p>
+&lt;VM_IP&gt;  siem.kt66.lab bastion.kt66.lab assessor.kt66.lab fw-gui.kt66.lab ips-gui.kt66.lab waf-gui.kt66.lab
+&lt;VM_IP&gt;  noc.kt66.lab injector.kt66.lab envsim.kt66.lab agentops.kt66.lab modelops.kt66.lab infraops.kt66.lab</code></pre>
+<p class="muted">⚠️ 한 줄로 길게 넣다가 에디터에서 줄바꿈되면 둘째·셋째 줄에 IP 가 빠져 <strong>그 항목만 “안 열림”</strong>이 됩니다. <code>juice</code>~<code>portal</code> 은 되는데 <code>siem</code>/<code>*-gui</code>/<code>noc</code> 만 안 열리면 거의 이 경우 — 위처럼 세 줄로 나눠 각각 IP 로 시작하세요. (확인: <code>ping noc.kt66.lab</code> → VM IP)</p>
 <div class="grid">
   <a class="card" href="http://juice.kt66.lab/"><span class="tag attack">취약</span>OWASP Juice Shop<span class="meta">juice.kt66.lab — 종합 OWASP Top 10</span></a>
   <a class="card" href="http://dvwa.kt66.lab/"><span class="tag attack">취약</span>DVWA<span class="meta">dvwa.kt66.lab — Damn Vulnerable Web App</span></a>
@@ -201,8 +216,9 @@ kt66 — CCC 단일 VM Docker 버전 · <a href="https://github.com/mrgrit/kt66"
  * 학생은 kt66.lab 으로 이어진다.
  *
  * 기본 href 는 kt66.lab:포트 로 남겨 뒀다. 스크립트가 막혀도 hosts 파일만 있으면 열린다.
- * 프로토콜은 http 고정 — 이 콘솔들에는 TLS 를 붙이지 않았다. 랜딩을 https 로 열었다고
- * location.protocol 을 따라가면 전부 죽는다. */
+ * 프로토콜은 http 고정 — **직접 포트**에는 TLS 가 없다. 랜딩을 https 로 열었다고
+ * location.protocol 을 따라가면 전부 죽는다.
+ * (이름 경로 https://noc.kt66.lab/ 는 web 의 Apache 가 TLS 를 붙여 주므로 그쪽은 https 도 된다.) */
 for (const a of document.querySelectorAll('a[data-port]')) {
   a.href = 'http://' + location.hostname + ':' + a.dataset.port + (a.dataset.path || '/');
 }

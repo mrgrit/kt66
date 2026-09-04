@@ -104,6 +104,16 @@ case ";${PROMPT_COMMAND};" in
 esac
 CMDLOG
 
+# ── vhost 활성화 — 빌드 때가 아니라 기동 때 건다 ───────────────────────────
+# sites-available 은 저장소에서 바인드 마운트된다(compose). 그런데 a2ensite 는
+# Dockerfile 에서 **한 번만** 돌았다 — 그래서 vhost 파일을 새로 추가해도 이미지를
+# 다시 굽기 전까지는 열리지 않았다. 데이터센터 콘솔 6종(120-datacenter.conf)이
+# 그 함정에 걸릴 뻔했다: 파일은 저장소에 있는데 링크가 없어 이름이 랜딩으로 폴백된다.
+# 여기서 매 기동마다 다시 건다. 링크가 놓이는 sites-enabled 는 마운트가 아니라 쓸 수 있다.
+cd /etc/apache2/sites-available && for f in *.conf; do a2ensite "$f" >/dev/null; done; cd /
+# 저장소에서 vhost 를 지웠는데 링크가 남으면 Apache 는 기동 자체를 거부한다 — 끊어진 링크 청소.
+for l in /etc/apache2/sites-enabled/*.conf; do [ -e "$l" ] || rm -f "$l"; done
+
 echo "[web] starting apache2"
 apache2ctl configtest 2>&1 | sed 's/^/  /' || true
 apache2ctl -D FOREGROUND &

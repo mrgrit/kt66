@@ -14,7 +14,16 @@ cd "$(dirname "$(readlink -f "$0")")"
 #   · 명시 지정(예: WEB_HOST_IP=192.168.0.161 ./kt66.sh up): 그대로 존중 (2-NIC .151 레거시).
 WEB_HOST_IP_EXPLICIT=""; [ -n "${WEB_HOST_IP:-}" ] && WEB_HOST_IP_EXPLICIT=1
 WEB_HOST_IP="${WEB_HOST_IP:-}"
-INT_HOST_IP="${INT_HOST_IP:-192.168.136.145}"   # ens38 — 내부전용 GUI/SIEM 바인딩(dummy, VM 자체 Firefox)
+# 내부 GUI publish 바인딩 IP — 관제(8020)·주입기(8030)·envsim(8010)·agentops(8050)·
+# modelops(8060)·infraops(8070)·SIEM(5601)·포털(8000)·콘솔(8081~8083) 이 전부 여기 붙는다.
+#   · 예전 기본값은 192.168.136.145 (el34 에서 물려받은 dummy NIC) 였다. 그 서버의
+#     브라우저에서만 열리는 주소다 — **새 서버에 배포하면 취약 웹앱·SIEM 은 열리는데
+#     데이터센터 콘솔만 통째로 안 열리는** 증상이 여기서 나왔다. 컨테이너는 정상이고
+#     포트도 떠 있는데 아무도 닿을 수 없는 IP 에 묶여 있었다.
+#   · 이제 기본은 웹 진입 IP 와 같다(= 학생이 이미 쓰는 주소). 배포하면 그냥 열린다.
+#   · el34 식 격리(그 호스트 브라우저 전용)를 원하면 .env 에 INT_HOST_IP=192.168.136.145.
+INT_HOST_IP_EXPLICIT=""; [ -n "${INT_HOST_IP:-}" ] && INT_HOST_IP_EXPLICIT=1
+INT_HOST_IP="${INT_HOST_IP:-}"
 SUDO=""; [ "$(id -u)" = 0 ] || SUDO="sudo"
 REAL_USER="${SUDO_USER:-$(id -un)}"             # sudo 로 재실행돼도 원래 사용자 (파일 소유 복원용)
 
@@ -90,6 +99,56 @@ resolve_web_host_ip() {
     WEB_HOST_IP="$ip"
     _persist_web_host_ip "$WEB_HOST_IP"
     echo "[kt66] ✅ 웹 진입 IP 고정: ${WEB_HOST_IP} (.env 기록 — 이후 up/재부팅 모두 이 값)"
+}
+
+# 내부 GUI 바인딩 IP 를 확정한다. resolve_web_host_ip 뒤에 부른다(웹 진입 IP 를 물려받으므로).
+#   우선순위: 명시 env > .env 기록값 > 웹 진입 IP.
+#   묻지 않는다 — 이건 선택지가 아니라 "열리느냐 마느냐"이고, 격리를 원하는 쪽이 .env 에 적는다.
+resolve_int_host_ip() {
+    local existing; existing="$(grep -E '^INT_HOST_IP=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+    if [ -n "$INT_HOST_IP_EXPLICIT" ]; then
+        echo "[kt66] 내부 GUI 바인딩 IP(명시 지정): ${INT_HOST_IP}"
+    elif [ -n "$existing" ]; then
+        INT_HOST_IP="$existing"
+        echo "[kt66] 내부 GUI 바인딩 IP(.env): ${INT_HOST_IP}"
+        return 0
+    else
+        INT_HOST_IP="${WEB_HOST_IP:-0.0.0.0}"
+        echo "[kt66] 내부 GUI 바인딩 IP 미설정 → 웹 진입 IP 를 따른다: ${INT_HOST_IP}"
+        echo "[kt66]   (호스트 브라우저 전용 격리를 원하면 .env 에 INT_HOST_IP=192.168.136.145)"
+    fi
+    if grep -qE '^INT_HOST_IP=' .env 2>/dev/null; then
+        sed -i "s|^INT_HOST_IP=.*|INT_HOST_IP=$INT_HOST_IP|" .env
+    else
+        printf 'INT_HOST_IP=%s\n' "$INT_HOST_IP" >> .env
+    fi
+}
+
+# 데이터센터 콘솔이 **바깥에서** 실제로 응답하는지 본다.
+# 이 랩에서 가장 조용한 실패가 여기였다: 컨테이너는 Up, 포트도 publish, 그런데
+# 바인딩 IP 에 아무도 닿을 수 없어 화면만 안 열린다. up 이 끝날 때 한 번 짚고 넘어간다.
+check_datacenter_consoles() {
+    local probe="${INT_HOST_IP}"
+    [ "$probe" = "0.0.0.0" ] && probe="${WEB_HOST_IP:-127.0.0.1}"
+    [ -n "$probe" ] || return 0
+    command -v curl >/dev/null || return 0
+    local bad="" p
+    for p in 8010 8020 8030 8050 8060 8070; do
+        local ok=""
+        for _ in 1 2 3 4 5 6; do
+            # set -e 아래에서는 `cmd && {...}` 가 실패하면 스크립트가 죽는다 — if 로 감싼다.
+            if curl -s -o /dev/null --max-time 3 "http://${probe}:${p}/"; then ok=1; break; fi
+            sleep 3
+        done
+        [ -n "$ok" ] || bad="$bad $p"
+    done
+    if [ -n "$bad" ]; then
+        echo "[kt66] ⚠ 데이터센터 콘솔 무응답:${bad} (http://${probe}:PORT/)"
+        echo "[kt66]   INT_HOST_IP(=${INT_HOST_IP}) 가 이 서버에서 닿을 수 있는 주소인지 확인하세요."
+        echo "[kt66]   이름 경로(http://noc.kt66.lab/ 등)는 :80 으로 들어오므로 그쪽은 열릴 수 있습니다."
+    else
+        echo "[kt66] 데이터센터 콘솔 6종 응답 확인 (http://${probe}:{8010,8020,8030,8050,8060,8070})"
+    fi
 }
 
 is_wireless_if() {   # $1=iface — 무선이면 return 0
@@ -293,7 +352,8 @@ cmd_up() {
     command -v docker >/dev/null || { echo "[kt66] Docker 없음 — 먼저 'sudo ./kt66.sh install'"; exit 1; }
     ensure_env; ensure_ssh_keys; ensure_certs
     resolve_web_host_ip  # install 에서 고정한 웹 진입 IP 사용(.env). 미설정이면 여기서 1회 질의.
-    # compose 가 바인딩하는 호스트 IP(웹외부 WEB_HOST_IP / 내부GUI .145) 보장 — 없으면 core up 이
+    resolve_int_host_ip  # 내부 GUI(관제·주입기·SIEM…) 바인딩 IP. 미설정이면 웹 진입 IP 를 따른다.
+    # compose 가 바인딩하는 호스트 IP(웹외부 WEB_HOST_IP / 내부GUI INT_HOST_IP) 보장 — 없으면 core up 이
     # "cannot assign requested address" 로 실패. 실 NIC/DHCP IP 면 멱등 skip.
     WEB_HOST_IP="$WEB_HOST_IP" INT_HOST_IP="$INT_HOST_IP" ./kt66-hostip.sh
     echo "[kt66] === build (최초 ~수GB pull) ==="
@@ -313,7 +373,10 @@ cmd_up() {
     cmd_sigma || echo "[kt66] WARN: sigma 적재 실패(나중에 ./kt66.sh sigma)"
     # root 로 생성된 사용자-facing 파일을 원 사용자 소유로 환원 (이후 비-root 운영/down 가능하게)
     chown -R "$REAL_USER:$REAL_USER" .env keys 2>/dev/null || true
+    check_datacenter_consoles
     echo "[kt66] ✅ up 완료. 웹 진입 http://${WEB_HOST_IP}:8001.. / 내부 GUI http://${INT_HOST_IP}:{5601,8000,8081-8083}"
+    echo "[kt66]    데이터센터 http://${INT_HOST_IP}:{8010,8020,8030,8050,8060,8070} — 관제는 :8020"
+    echo "[kt66]    이름으로도 열린다(학생 hosts 3번째 줄): http://noc.kt66.lab/ 등 — README 참고"
 }
 
 cmd_down() { docker compose $OVERLAY $ENVF down "${1:-}" 2>/dev/null || docker compose down "${1:-}"; }

@@ -171,7 +171,13 @@ services:
       - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE6:-8006}:8006"
       - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE7:-8007}:8007"
       - "${WEB_HOST_IP:-0.0.0.0}:9100:9100"   # bastion API (관리)
-      - "${INT_HOST_IP:-192.168.136.145}:8081:8080"      # fw 보안콘솔 GUI — 내부전용(호스트 Firefox)
+      # ── INT_HOST_IP 기본값 주의 ────────────────────────────────────────────
+      # 예전 기본값은 192.168.136.145(el34 에서 물려받은 dummy NIC)였다. .env 에 값을
+      # 안 적고 배포하면 관제·주입기·SIEM 이 **아무도 못 닿는 IP** 에 묶여, 컨테이너는
+      # 멀쩡한데 화면만 안 열린다. 새 서버 배포에서 실제로 그렇게 됐다.
+      # 이제 기본은 0.0.0.0 — 안 적으면 열린다. 격리를 원하면 .env 에 적는다(그게 의도다).
+      # kt66.sh up 은 .env 에 웹 진입 IP 를 자동으로 적어 준다.
+      - "${INT_HOST_IP:-0.0.0.0}:8081:8080"      # fw 보안콘솔 GUI — INT_HOST_IP 바인딩
     cap_add: [NET_ADMIN, NET_RAW]
     sysctls:
       net.ipv4.ip_forward: "1"
@@ -212,7 +218,7 @@ services:
       FW_PIPE_IP: 10.20.31.1
       PRESERVE_SRC_IP: "1"           # 데이터경로 masquerade 비활성 (출처 보존)
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:8082:8080"  # ips 보안콘솔 GUI — 내부전용(호스트 Firefox)
+      - "${INT_HOST_IP:-0.0.0.0}:8082:8080"  # ips 보안콘솔 GUI — INT_HOST_IP 바인딩
     volumes:
       - ips-suricata-logs:/var/log/suricata
       - ./keys:/keys:ro
@@ -239,7 +245,7 @@ services:
       WAZUH_MANAGER: 10.20.32.100
       DEFAULT_GW: 10.20.32.1   # via ips — 출처(.202)로의 응답 경로
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:8083:8080"  # WAF(ModSec) 보안콘솔 GUI — 내부전용(호스트 Firefox)
+      - "${INT_HOST_IP:-0.0.0.0}:8083:8080"  # WAF(ModSec) 보안콘솔 GUI — INT_HOST_IP 바인딩
     volumes:
       - web-apache-logs:/var/log/apache2
       - ./keys:/keys:ro
@@ -350,9 +356,9 @@ services:
       - ./wazuh-config/certs/root-ca.pem:/usr/share/wazuh-dashboard/certs/root-ca.pem
       - ./wazuh-config/opensearch_dashboards.yml:/usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
       - ./wazuh-config/wazuh.yml:/usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
-    # 내부 전용: SIEM 대시보드는 호스트(.151) Firefox 에서만 — ens38(.136.145):5601 바인딩
+    # SIEM 대시보드 — INT_HOST_IP 에 바인딩(기본 0.0.0.0). 격리하려면 .env 에서 지정.
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:5601:5601"
+      - "${INT_HOST_IP:-0.0.0.0}:5601:5601"
     networks:
       dmz:
         ipv4_address: 10.20.32.120
@@ -369,7 +375,7 @@ services:
       dmz:
         ipv4_address: 10.20.32.50
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:8000:8000"  # 관리 포털 — 내부전용(호스트 Firefox)
+      - "${INT_HOST_IP:-0.0.0.0}:8000:8000"  # 관리 포털 — INT_HOST_IP 바인딩
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ips-suricata-logs:/data/suricata-logs:ro
@@ -390,7 +396,7 @@ services:
       dockerfile: assessor/Dockerfile
     hostname: assessor
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:9201:8000"   # 채점 접근 (내부 전용)
+      - "${INT_HOST_IP:-0.0.0.0}:9201:8000"   # 채점 접근 (내부 전용)
     networks:
       dmz:
         ipv4_address: 10.20.32.55
@@ -477,7 +483,7 @@ services:
       # 이미지 안의 사본은 그대로 둔다: 저장소 없이 이미지만 돌려도 랩은 떠야 한다.
       - ./envsim/assets.yaml:/app/assets.yaml:ro
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:8010:8000"   # 강사/UI 접근 (내부 전용)
+      - "${INT_HOST_IP:-0.0.0.0}:8010:8000"   # 강사/UI 접근 (내부 전용)
     networks:
       ot:
         ipv4_address: 10.20.60.10
@@ -508,7 +514,7 @@ services:
     volumes:
       - ./agents:/agents
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:8050:8000"   # 내부 전용
+      - "${INT_HOST_IP:-0.0.0.0}:8050:8000"   # 내부 전용
     networks:
       dmz:
         ipv4_address: 10.20.32.61
@@ -541,7 +547,7 @@ services:
     networks:
       app: { ipv4_address: 10.20.50.60 }
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:8060:8000"
+      - "${INT_HOST_IP:-0.0.0.0}:8060:8000"
     environment:
       API_KEY: ${API_KEY:-ccc-api-key-2026}
       MODELS_DIR: /models
@@ -575,7 +581,7 @@ services:
     networks:
       dmz: { ipv4_address: 10.20.32.62 }
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:8070:8000"
+      - "${INT_HOST_IP:-0.0.0.0}:8070:8000"
     environment:
       ENVSIM_URL: http://10.20.32.60:8000   # envsim 의 dmz 주소. ot 주소(10.20.60.10)는 dmz 에서 못 간다
       REPO_DIR: /repo
@@ -595,7 +601,9 @@ services:
     environment:
       ENVSIM_URL: http://10.20.32.60:8000   # envsim 의 dmz 다리
       INJECTOR_URL: http://10.20.32.52:8000
-      INT_HOST: ${INT_HOST_IP:-192.168.136.145}
+      # 화면에 그대로 찍히는 "주소"다 — 바인딩 값(0.0.0.0)이 새어 나오면 자산 대장 링크가
+      # http://0.0.0.0:8020 이 된다. 미설정이면 웹 진입 IP 를 쓴다.
+      INT_HOST: ${INT_HOST_IP:-${WEB_HOST_IP:-192.168.12.100}}
       WEB_HOST: ${WEB_HOST_IP:-192.168.12.100}
       API_KEY: ${API_KEY:-ccc-api-key-2026}
       TZ: Asia/Seoul
@@ -607,7 +615,7 @@ services:
       - ./noc/static:/app/static:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:8020:8000"
+      - "${INT_HOST_IP:-0.0.0.0}:8020:8000"
     networks:
       dmz:
         ipv4_address: 10.20.32.51
@@ -639,7 +647,7 @@ services:
       - ./injector/state:/state
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "${INT_HOST_IP:-192.168.136.145}:8030:8000"
+      - "${INT_HOST_IP:-0.0.0.0}:8030:8000"
     networks:
       dmz:
         ipv4_address: 10.20.32.52
