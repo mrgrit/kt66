@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>kt66 실습 환경</title>
+<!-- 링크는 전부 새 창(탭)으로 연다. 랜딩은 실습 내내 열어 두는 목차다 — 사이트 하나
+     열자고 목차를 덮으면 학생은 매번 뒤로가기로 돌아와야 하고, 취약 사이트 쪽에서
+     리다이렉트를 물면 돌아올 길까지 잃는다.
+     카드마다 target 을 박지 않고 여기 한 줄로 둔 이유: 이 페이지는 카드가 계속
+     늘어난다(데이터센터 6종이 방금 그랬다). 새 카드를 넣는 사람이 잊을 수 있는 규칙은
+     결국 깨진다. 페이지 안 앵커(#)처럼 제자리에서 움직여야 하는 링크가 생기면 그
+     링크에만 target="_self" 를 준다.
+     rel="noopener" 는 따로 달지 않는다 — 요즘 브라우저는 target="_blank" 에 이미
+     암묵 적용한다(열린 취약 사이트가 window.opener 로 이 탭을 조작하지 못한다). -->
+<base target="_blank">
 <!-- 인라인 favicon. 없으면 브라우저가 /favicon.ico 를 찾아 404 를 남기고,
      그 404 가 실습 중 Apache access 로그에 섞여 학생을 헷갈리게 한다. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%232563eb%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%2222%22%20font-family%3D%22system-ui%2Csans-serif%22%20font-size%3D%2215%22%20font-weight%3D%22700%22%20fill%3D%22%23fff%22%20text-anchor%3D%22middle%22%3Ekt%3C%2Ftext%3E%3C%2Fsvg%3E">
