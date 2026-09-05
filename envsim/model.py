@@ -409,7 +409,11 @@ class Simulator:
                 kw = idle + (rated - idle) * u
             self.asset_kw[a["id"]] = kw
             rack_kw[a["rack"]] = rack_kw.get(a["rack"], 0.0) + kw
-            # 실측 원값 — 환산 전. 명시된 자산만 집계한다(나머지는 컨테이너라 미미).
+            # 실측 원값 — 환산 전. measured_* 를 선언한 자산만 집계한다. 지금은
+            # dgx-spark-01 **하나뿐**이다(90~240W). 나머지는 컨테이너라 잴 것이 없다.
+            # 그래서 이 값은 "데이터센터 전체 실측"이 아니라 **실물 한 대의 실측**이고,
+            # total_kw(모델값 9kW대)와 두 자릿수 배로 벌어지는 것이 정상이다. 그 간극이
+            # 바로 이 랩의 환산비다 — 숨기지 않는 것이 목적이라 지우지 않는다.
             if "measured_idle_w" in a:
                 mi, mm = float(a["measured_idle_w"]), float(a["measured_max_w"])
                 measured_w += mi + (mm - mi) * u
@@ -457,16 +461,35 @@ class Simulator:
             # 멀쩡한데 전기가 안 온다 — 실무에서 가장 흔한 오진 지점이라 따로 뒀다.
             ats_blocked = any(self._faulted("ats_fail", a["id"]) for a in fac.get("ats", []))
             if elapsed_s >= float(gen["start_delay_s"]):
-                if self._faulted("generator_fail", gen["id"]) or ats_blocked or self.fuel_liters <= 0:
+                why = ("ATS 절체 실패" if ats_blocked else
+                       "연료 고갈" if self.fuel_liters <= 0 else
+                       "기동 실패" if self._faulted("generator_fail", gen["id"]) else "")
+                if why:
+                    # **이미 돌고 있었더라도 여기서 부하를 놓는다.** 예전에는 기동에
+                    # 실패하는 경우만 봤다: generator_running 이 이미 True 면
+                    # generator_failed 만 세우고 부하는 그대로 뒀다. 그래서 수전이 끊겨
+                    # 발전기가 받은 뒤에 발전기를 고장내면, 고장난 발전기가 부하를 계속
+                    # 먹고 UPS 는 충전까지 하는 상태가 됐다 — 화면에는 generator_running
+                    # 과 generator_failed 가 **동시에 참**으로 찍혔고, 배터리는 줄지
+                    # 않았다. ENV-03(수전 상실 + 발전기 실패)이 전개되지 않던 원인이다.
+                    if p.generator_running:
+                        p.generator_running = False
+                        self._event("alarm",
+                                    f"비상 발전기 부하 상실 ({why}) — 배터리로 되돌아간다 ({gen['id']})")
                     if not p.generator_failed:
                         p.generator_failed = True
-                        why = ("ATS 절체 실패" if ats_blocked else
-                               "연료 고갈" if self.fuel_liters <= 0 else "기동 실패")
                         self._event("alarm",
                                     f"비상 발전기 부하 인수 불가 ({why}) — 배터리만 남았다 ({gen['id']})")
-                elif not p.generator_running:
-                    p.generator_running = True
-                    self._event("info", f"비상 발전기 기동 — 부하 인수 ({gen['id']})")
+                else:
+                    # 고장을 해제하면 정전 중이라도 다시 받는다. 예전에는 generator_failed
+                    # 가 수전 복구 때까지 안 풀려서, 강사가 고장을 걷어도 GEN_FAIL 경보가
+                    # 남았다 — 복구 절차를 가르칠 수가 없었다.
+                    if p.generator_failed:
+                        p.generator_failed = False
+                        self._event("info", f"비상 발전기 고장 해제 ({gen['id']})")
+                    if not p.generator_running:
+                        p.generator_running = True
+                        self._event("info", f"비상 발전기 기동 — 부하 인수 ({gen['id']})")
 
             if p.generator_running:
                 p.on_battery = False
@@ -492,6 +515,11 @@ class Simulator:
             p.drain_pct_per_min = p.total_kw / p.ups_capacity_kwh * 100.0 / 60.0
         else:
             p.drain_pct_per_min = 0.0
+
+    @property
+    def measured_scope(self) -> list[str]:
+        """measured_kw 가 실제로 덮는 자산. 화면이 '전체 실측'으로 읽지 않게 한다."""
+        return [a["id"] for a in self.assets["it_assets"] if "measured_idle_w" in a]
 
     @property
     def ups_runtime_min(self) -> float:
@@ -829,7 +857,8 @@ class Simulator:
                 "ups_runtime_min": round(self.ups_runtime_min, 1),
                 "drain_pct_per_min": round(p.drain_pct_per_min, 2),
                 "total_kw": round(p.total_kw, 2),
-                "measured_kw": round(p.measured_kw, 3),   # 환산 전 실측 — 숨기지 않는다
+                "measured_kw": round(p.measured_kw, 3),   # 실물(dgx-spark-01) 실측. 전체 아님
+                "measured_scope": self.measured_scope,
                 "rated_kw": float(self.assets["facility"]["ups"][0]["capacity_kw"]),
                 "pdu": {k: round(v, 2) for k, v in p.pdu_load.items()},
             },

@@ -909,7 +909,7 @@ function renderGauges() {
     ${fill != null ? `<i class="g-bar" style="width:${Math.min(fill * 100, 100)}%"></i>` : ''}</div>`;
   const loadR = p.total_kw / p.rated_kw;
   $('#gauges').innerHTML =
-    G('전력', `${p.total_kw.toFixed(1)}kW`, `정격 ${p.rated_kw}kW · 실측 ${p.measured_kw}kW`,
+    G('전력', `${p.total_kw.toFixed(1)}kW`, `정격 ${p.rated_kw}kW · 실물 ${p.measured_kw}kW`,
       loadR > .9 ? 'crit' : loadR > .75 ? 'warn' : '', loadR)
   + G('UPS', p.on_battery ? `${p.ups_runtime_min}분` : `${p.ups_charge_pct}%`,
       p.on_battery ? `배터리 · -${p.drain_pct_per_min}%/분`
@@ -960,7 +960,8 @@ function renderPower() {
       p.ups_charge_pct < 25 ? 'var(--red)' : p.on_battery ? 'var(--amber)' : 'var(--green)'}"></i></div>
     ${p.on_battery ? `<div class="row"><span class="k">잔여 시간</span><span class="v" style="color:var(--red)">${p.ups_runtime_min} 분</span></div>` : ''}
     <div class="row" title="랩의 진짜 소비. 화면의 kW 는 대표 DC 규모로 환산한 값이고 사용률만 실측이다.">
-      <span class="k">실측 소비(환산 전)</span><span class="v">${p.measured_kw} kW</span></div>
+      <span class="k">실물 실측 — ${(p.measured_scope || ['—']).join(', ')} (환산 전)</span>
+      <span class="v">${p.measured_kw} kW</span></div>
   </div></div>
   <div class="card"><h4>PDU 부하</h4><div class="body">${pdus.map(d => {
     const kw = p.pdu?.[d.id] ?? 0, pct = kw / d.capacity_kw * 100;
