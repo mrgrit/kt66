@@ -4,6 +4,10 @@
 kt66 의 프런티어 모델 자리는 API 가 아니라 이미 구독 중인 CC 세션이다. 자리마다
 세션을 하나씩 띄우면 되고, 새로 청구되는 것은 없다.
 
+모델은 자리마다 고른다 — roster.yaml 의 cc-opus / cc-sonnet / cc-haiku 가 그대로
+`claude --model opus|sonnet|haiku` 로 넘어간다. 셋 다 같은 구독이라 과금은 달라지지
+않지만, 승인 판정과 초벌 분류에 같은 모델을 쓸 이유는 없다.
+
     ./agents/cc-session                 근무자 목록 + 상태
     ./agents/cc-session ops-lead        그 자리를 렌더하고 세션을 띄운다
     ./agents/cc-session --all           자리를 전부 렌더하고 실행 명령을 찍는다
@@ -46,6 +50,29 @@ def scrub(env):
     return dropped
 
 
+def model_alias(w):
+    """근무자에게 배정된 모델 → claude --model 로 넘길 별칭.
+
+    자리마다 모델을 고를 수 있어야 한다. 셋 다 같은 구독이라 과금은 달라지지 않지만,
+    "무엇을 맡기는 자리인가"는 다르다 — 승인 판정과 초벌 분류에 같은 모델을 쓸 이유가
+    없다. roster.yaml 이 진실원천이고 여기서는 읽기만 한다.
+
+    반환: (별칭 또는 None, 안내 문구). None 이면 --model 을 붙이지 않는다 —
+    무엇을 넘길지 모를 때 아무거나 넘기느니 세션 기본값에 맡긴다.
+    """
+    key = agentctl.get(w, "model")
+    entry = agentctl.load_models().get(key)
+    if not entry:
+        return None, f"모델 {key!r} 가 카탈로그에 없다"
+    if entry.get("endpoint") != "claude-code":
+        return None, (f"모델 {key} 는 구독 세션이 아니다(endpoint: {entry.get('endpoint') or '없음'}) "
+                      f"— roster 에서 cc-opus / cc-sonnet / cc-haiku 중 하나를 고른다")
+    alias = entry.get("name")
+    if not alias:
+        return None, f"모델 {key} 에 별칭(name)이 없다"
+    return alias, ""
+
+
 def workers_on_claude():
     return [w for w in agentctl.load_roster()
             if agentctl.get(w, "runtime") == "claude"]
@@ -64,8 +91,12 @@ def show():
     if not seats:
         print("  없다. ./agentctl runtime <근무자> claude 로 자리를 만든다.")
     for w in seats:
+        alias, _ = model_alias(w)
+        # 표에는 결과만 적는다. 왜 그렇게 됐는지는 실제로 띄울 때 한 줄로 말해 준다 —
+        # 사유를 표에 넣으면 줄이 넘쳐 표가 표가 아니게 된다.
         print(f"  {w['id']:<24}{agentctl.get(w,'name'):<20}"
-              f"{agentctl.get(w,'floor')} {agentctl.get(w,'autonomy')}")
+              f"{agentctl.get(w,'floor')} {agentctl.get(w,'autonomy'):<9}"
+              f"{'--model ' + alias if alias else '세션 기본 (roster 확인)'}")
     print("-" * 66)
     others = [w["id"] for w in ws if agentctl.get(w, "runtime") != "claude"]
     print(f"  다른 런타임 {len(others)}명: {', '.join(others)}")
@@ -119,13 +150,20 @@ def main(argv):
     dropped = scrub(env)
     if dropped:
         print(f"[cc-session] 과금 경로 차단 — 환경에서 걷어냄: {', '.join(dropped)}")
+    alias, why = model_alias(w)
+    if alias:
+        argv_claude = ["--model", alias, *passthru]
+        print(f"[cc-session] 모델 {agentctl.get(w,'model')} → --model {alias} (구독 세션. 토큰당 과금 없음)")
+    else:
+        argv_claude = list(passthru)
+        print(f"[cc-session] ⚠ {why} — 세션 기본 모델로 띄운다")
     print(f"[cc-session] {wid} ({agentctl.get(w,'name')}) 자리에서 구독 세션을 띄운다")
     print(f"[cc-session] {dest}")
     # execve 는 이 프로세스를 통째로 갈아치운다 — 버퍼에 남은 위 세 줄은 그대로 사라진다.
     # 터미널에서는 줄바꿈마다 흘러나가 눈치채지 못하지만, 파이프로 받으면 통째로 없다.
     sys.stdout.flush()
     os.chdir(dest)
-    os.execve(claude, [claude, *passthru], env)
+    os.execve(claude, [claude, *argv_claude], env)
 
 
 if __name__ == "__main__":

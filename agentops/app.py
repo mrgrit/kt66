@@ -371,9 +371,13 @@ def add_worker(key: str = "", w: dict = Body(...)):
                 t.setdefault("members", []).append(wid)
 
     persona = AGENTS / "personas" / f"{wid}.md"
+    # 페르소나 프런트매터의 model 은 **티어**다(reasoning|small) — roster 의 모델 키와
+    # 다른 어휘다. 예전에는 키 문자열에 "reasoning" 이 들어 있는지로 골랐는데, 그러면
+    # cc-opus 를 고른 자리에도 small 이 박힌다. 카탈로그에 tier 가 있으니 그것을 쓴다.
+    tier = (_read_yaml("roster").get("models", {}).get(entry["model"], {}) or {}).get("tier", "")
     persona_text = PERSONA_TEMPLATE.format(
         name=entry["name"],
-        model="reasoning" if "reasoning" in entry["model"] else "small")
+        model="reasoning" if tier in ("reasoning", "frontier") else "small")
     errs = validate_all({"roster": roster, "teams": teams})
     # 페르소나 파일은 아직 없으므로 그 오류만 예외로 둔다
     errs = [e for e in errs if f"personas/{wid}.md" not in e]

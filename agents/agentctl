@@ -58,6 +58,33 @@ def get(worker, key, default=""):
     return worker.get(key, default)
 
 
+def load_models():
+    """models: 카탈로그. load_roster 와 같은 이유로 PyYAML 을 쓰지 않는다."""
+    out, cur, inside = {}, None, False
+    for raw in ROSTER.read_text(encoding="utf-8").splitlines():
+        if raw.strip().startswith("#"):
+            continue
+        line = raw.split("#")[0].rstrip()
+        if not line.strip():
+            continue
+        if line.startswith("models:"):
+            inside = True
+            continue
+        if not inside:
+            continue
+        if not line.startswith(" "):        # 다음 최상위 키 — 블록이 끝났다
+            break
+        m = re.match(r"^  (\S[^:]*):\s*$", line)
+        if m:
+            cur = m.group(1)
+            out[cur] = {}
+            continue
+        m = re.match(r"^    (\w+):\s*(.*)$", line)
+        if m and cur is not None:
+            out[cur][m.group(1)] = m.group(2).strip()
+    return out
+
+
 # ── persona 파싱 ────────────────────────────────────────────────────
 def split_front_matter(text):
     if not text.startswith("---"):

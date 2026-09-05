@@ -36,7 +36,8 @@ endpoints:
     model: ${LLM_MODEL}
   claude-code:
     # 엔드포인트가 아니라 **호스트에 로그인된 claude CLI** 다 — 그래서 base_url 이 없다.
-    # 구독 한도 안에서 돌고 토큰당 청구가 없다. 모델은 세션 안에서 /model 로 고른다.
+    # 구독 한도 안에서 돌고 토큰당 청구가 없다. 모델(cc-opus/sonnet/haiku)은 세션을
+    # 띄울 때 --model 로 넘어가고, 세션 안에서 /model 로 다시 바꿀 수도 있다.
     # 예전에 여기 있던 anthropic(api.anthropic.com) 은 지웠다.
     via: cli
     launcher: ./agents/cc-session <근무자>
@@ -61,11 +62,25 @@ models:
     name: qwen3:32b-thinking
     tier: reasoning
     note: 로컬 추론 모델. 복합 장애 진단에 쓴다. 느리다
-  claude-code:
+  # 런타임이 claude 인 자리의 모델. 셋 다 **같은 구독**이고 토큰당 과금은 없다 —
+  # 세션을 띄울 때 claude --model 로 넘어가는 값이 다를 뿐이다(cc-session 이 넘긴다).
+  # 그래도 자리마다 골라 둔다. 기준은 위와 같다: 틀렸을 때 무엇이 망가지는가.
+  # 별칭은 설치된 claude 가 받는 것이어야 하고, 플랜에 따라 거부될 수 있다.
+  cc-opus:
     endpoint: claude-code
-    name: 구독 세션 (claude CLI)
+    name: opus
     tier: frontier
-    note: 구독 중인 Claude Code 세션을 자리마다 하나 띄운다. 토큰당 과금 0
+    note: 승인 판정·설계·사후분석. 한 번의 판단이 비싼 자리에
+  cc-sonnet:
+    endpoint: claude-code
+    name: sonnet
+    tier: reasoning
+    note: 조사·감사처럼 읽을 것이 많은 자리에. 기본으로 삼기 좋다
+  cc-haiku:
+    endpoint: claude-code
+    name: haiku
+    tier: small
+    note: 분류·요약·초벌 정리. 빠르다
   mock:
     endpoint:
     name: mock
@@ -198,7 +213,7 @@ workers:
     runtime: claude           # 판정은 읽고 따지는 일이다 — CC 세션이 맞다
     autonomy: approver        # 스스로 실행하지 않는다. L2 요청을 판정만 한다
     team: ops-lead-team
-    model: claude-code        # 판정이 일이다. 여기서 아끼면 승인이 형식이 된다
+    model: cc-opus            # 판정이 일이다. 여기서 아끼면 승인이 형식이 된다
     loops: []
     assets: []
     curriculum: [W6, W8, W9, W15]
@@ -210,7 +225,7 @@ workers:
     runtime: claude
     autonomy: L1              # 감사인은 관찰자다. 상태를 바꾸지 않는다
     team: audit-team
-    model: claude-code
+    model: cc-sonnet          # 통제 항목 × 로그. 판단보다 읽는 양이 많다
     loops: [evidence-collection]
     assets: [audit-log, cmdb]
     curriculum: [W14]

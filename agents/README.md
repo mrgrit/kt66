@@ -64,8 +64,22 @@ kt66 이 쓰는 모델은 두 가지뿐이다. **랩 안의 GPU**(DGX Spark 의 
 | 모델 키 | 실체 | 비용 |
 |---|---|---|
 | `local-small` · `local-reasoning` | 랩 GPU 의 Ollama | 0 |
-| `claude-code` | 호스트에 로그인된 `claude` 세션 | 구독 한도 안. 토큰당 0 |
+| `cc-opus` · `cc-sonnet` · `cc-haiku` | 호스트에 로그인된 `claude` 세션 | 구독 한도 안. 토큰당 0 |
 | `mock` | 호출하지 않는다 | 0 |
+
+`cc-*` 셋은 **같은 구독**이다 — 과금이 달라지지 않는다. 다른 것은 세션을 띄울 때
+넘어가는 `--model` 값뿐이다. 그래도 자리마다 고른다: 승인 판정과 초벌 분류에 같은
+모델을 쓸 이유가 없고, 어느 자리에 무엇이 맞는지 학생이 직접 비교해 보는 것이 W15
+실습이다.
+
+| 모델 | `--model` | 맞는 자리 |
+|---|---|---|
+| `cc-opus` | `opus` | 승인 판정·설계·사후분석 — 한 번의 판단이 비싼 자리 |
+| `cc-sonnet` | `sonnet` | 조사·감사처럼 읽을 것이 많은 자리. 기본으로 삼기 좋다 |
+| `cc-haiku` | `haiku` | 분류·요약·초벌 정리 |
+
+별칭은 설치된 `claude` 가 받는 것이어야 하고, **구독 플랜에 따라 거부될 수 있다**.
+세션 안에서 `/model` 로 다시 바꿔도 된다 — roster 값은 그 자리의 기본값이다.
 
 규칙은 주석이 아니라 **검사**다. `roster.yaml` 에 `api.anthropic.com` 같은 과금 호스트를
 되돌려 놓으면 저장이 거부된다(`agentops/app.py` 의 `validate_all`) — 웹 화면이든 셸
@@ -83,7 +97,16 @@ kt66 이 쓰는 모델은 두 가지뿐이다. **랩 안의 GPU**(DGX Spark 의 
 
 세션은 자리마다 따로 돈다 — 렌더된 디렉터리(`runtimes/claude/rendered/<근무자>/`)가
 그대로 작업 디렉터리이고, 거기 `CLAUDE.md` 와 `.claude/agents/<근무자>.md` 가 놓인다.
-동시에 여러 자리를 돌리려면 터미널을 그만큼 연다.
+동시에 여러 자리를 돌리려면 터미널을 그만큼 연다. `roster.yaml` 에 적힌 모델은
+`--model` 로 넘어가고, 목록 화면이 자리마다 무엇이 넘어가는지 보여 준다:
+
+```
+ops-lead              운영 리드          4F approver --model opus
+compliance-auditor    컴플라이언스 감사인   4F L1       --model sonnet
+```
+
+`runtime: claude` 인데 `cc-*` 가 아닌 모델(예: `local-small`)이 배정돼 있으면 `--model`
+없이 띄우고 이유를 한 줄로 말한다 — 무엇을 넘길지 모를 때 아무거나 넘기지 않는다.
 
 **`cd` 해서 직접 `claude` 를 치지 말 것.** Claude Code 는 환경에 `ANTHROPIC_API_KEY`
 같은 변수가 있으면 구독보다 그것을 **먼저** 쓴다. 경고도 없다. `cc-session` 은 실행
