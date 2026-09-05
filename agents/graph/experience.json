@@ -11,15 +11,21 @@
     "  ② grounded checker — 그래프에 근거가 없으면 에이전트는 '모른다'고 답해야 한다.",
     "     edge 가 없다는 것이 답이다. 지어내는 것보다 낫다.",
     "",
-    "node kind : asset | symptom | cause | action | rule | metric",
+    "node kind : asset | symptom | cause | action | rule | metric | worker",
     "edge type : causes(원인→증상) · indicates(증상→원인추정) · mitigates(조치→증상)",
     "            precedes(선후) · contradicts(반례) · measures(지표→대상)",
+            "            handled(근무자→증상) — 누가 그 증상을 실제로 다뤄 봤는가",
+    "",
+    "worker node 와 handled edge 는 cc-runner 가 사건을 닫을 때 남긴다. source 는 티켓",
+    "파일이라 그 사람이 무엇을 적었는지 열어 볼 수 있다. 자산·증상만 있고 사람이 없으면",
+    "같은 증상이 다시 떴을 때 \"이거 전에 누가 봤지\"에 답할 수 없다 — 배정을 좋게 만드는",
+    "것은 결국 그 기록이다. 여기서도 겪은 것만 적는다: 경보 34종을 미리 심지 않는다.",
     "",
     "seeded_from 이 붙은 것은 실제 envsim 주입으로 확인한 사실이다.",
     "학생이 대응하며 새 node/edge 를 추가하고, 감사팀이 provenance 를 검사한다."
   ],
   "version": 1,
-  "updated": "2026-08-13",
+  "updated": "2026-09-05",
 
   "nodes": [
     {"id": "a.cooling_tower", "kind": "asset", "label": "냉각탑", "floor": "1F", "loop": "응축수"},
@@ -73,7 +79,9 @@
 
     {"id": "m.cooling_margin", "kind": "metric", "label": "냉각 여유 kW", "kpi": "K-COOL-2"},
     {"id": "m.ups_runtime", "kind": "metric", "label": "UPS 잔여 분", "kpi": "K-PWR-1"},
-    {"id": "m.pue", "kind": "metric", "label": "PUE", "kpi": "K-SHARED-PUE"}
+    {"id": "m.pue", "kind": "metric", "label": "PUE", "kpi": "K-SHARED-PUE"},
+    {"id": "w.physical-security", "kind": "worker", "label": "물리보안(출입/CCTV)", "floor": "1F", "zone": "ot", "team": "physical-team"},
+    {"id": "s.door_held", "kind": "symptom", "label": "출입문 장시간 열림", "from_alarm": "DOOR_HELD"}
   ],
 
   "edges": [
@@ -136,7 +144,8 @@
      "source": "K-COOL-2", "confidence": 1.0,
      "note": "사고 전에 보이는 유일한 신호. 이 지표를 지우면 예방이 사라진다"},
     {"from": "m.ups_runtime", "to": "c.ats_fail", "type": "measures",
-     "source": "K-PWR-1", "confidence": 1.0}
+     "source": "K-PWR-1", "confidence": 1.0},
+    {"from": "w.physical-security", "to": "s.door_held", "type": "handled", "source": "20260905-143724.md", "seeded_from": "cc-runner 2026-09-05 14:38:20 · 소견", "role": "소견", "confidence": 1.0}
   ],
 
   "open_questions": [

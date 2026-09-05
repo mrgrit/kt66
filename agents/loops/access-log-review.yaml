@@ -2,6 +2,12 @@ id: access-log-review
 owner: physical-security
 autonomy: L1
 cadence: "0 8 * * *"
+
+# 출입 이상은 하루 한 번 훑어서 알 수 있는 게 아니다. 뜨면 그때 본다.
+# 예전에는 이 목록이 없어서 문이 열려도 접수자를 거쳐야 담당이 정해졌다 —
+# 뻔한 사건에 한 단계를 더 태우는 셈이었다.
+triggers:
+  alarms: [DOOR_FORCED, DOOR_HELD, CCTV_LOST]
 budget: { max_tokens: 30000, max_tool_calls: 20 }
 state: [normal_patterns, flagged_events]
 steps:

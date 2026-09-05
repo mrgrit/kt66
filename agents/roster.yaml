@@ -139,10 +139,12 @@ workers:
     name: 물리보안(출입/CCTV)
     floor: 1F
     zone: ot
-    runtime: hermes
+    # 접수자가 보안 사건에서 가장 먼저 부르는 자리다. hermes 는 설치돼 있지 않아
+    # 배정을 받고도 세션이 뜨지 않았다 — 배정만 되고 아무도 안 오는 것이 제일 나쁘다.
+    runtime: claude
     autonomy: L1
     team: physical-team
-    model: local-small
+    model: cc-haiku           # 출입·CCTV 로그 대조. 양이 많고 판단은 단순하다
     loops: [access-log-review]
     assets: [access-control, cctv]
     curriculum: [W5, W13, W14]
@@ -205,10 +207,10 @@ workers:
     name: SOC 분석가
     floor: 4F
     zone: mgmt
-    runtime: bastion
+    runtime: claude
     autonomy: L1
     team: soc-team
-    model: local-reasoning
+    model: cc-sonnet          # 흩어진 로그에서 인과를 잇는 일이다
     loops: [siem-alert-triage]
     assets: [kt66-siem, kt66-wazuh-indexer, kt66-wazuh-dashboard]
     curriculum: [W11, W12, W14]

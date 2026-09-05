@@ -56,6 +56,7 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parent
 TICKETS = ROOT / "tickets"
 STATE = TICKETS / ".state.json"
+GRAPH = ROOT / "graph" / "experience.json"
 
 ENVSIM = os.getenv("ENVSIM_URL", "http://127.0.0.1:8010")
 POLL_SEC = int(os.getenv("CC_RUNNER_POLL", "30"))
@@ -403,6 +404,124 @@ def close(path, why):
                  encoding="utf-8")
 
 
+# ── 경험그래프 ──────────────────────────────────────────────────────
+# roster.yaml 은 team 을 두고 "KPI 귀속과 경험그래프가 여기서 온다"고 적어 뒀는데,
+# 정작 그래프에는 **사람이 없었다**. 자산·증상·원인·조치만 있고 누가 그 일을 겪었는지가
+# 없으면, 같은 증상이 다시 떴을 때 "이거 전에 누가 봤지"에 답할 수 없다. 배정을 좋게
+# 만드는 것은 결국 그 기록이다.
+#
+# 그래프의 규율 두 가지를 그대로 지킨다:
+#   ① 모든 edge 는 source 를 갖는다 — 여기서는 티켓 파일이 출처다. 티켓을 열면 그
+#      사람이 실제로 무엇을 적었는지 볼 수 있다. 근거 없는 edge 는 추측이고, 추측을
+#      저장하면 다음 판단이 오염된다.
+#   ② 겪은 것만 적는다 — 경보 34종을 미리 심지 않는다. 실제로 뜬 증상만 node 가 된다.
+#      그게 "경험"그래프인 이유다.
+def _symptom_id(alarm_id):
+    """경보 id → 증상 node id. 기존 규약을 따른다(UPS_ONBATT → s.ups_onbatt)."""
+    return "s." + alarm_id.lower()
+
+
+def _one_line(obj):
+    """node·edge 를 한 줄로. 원본이 그 형식이다 — 표처럼 읽으라고 그렇게 쓴 파일이다."""
+    return json.dumps(obj, ensure_ascii=False, separators=(", ", ": "))
+
+
+def _insert_into_array(lines, key, new_lines):
+    """`"key": [` 배열의 닫는 괄호 앞에 줄을 끼워 넣는다.
+
+    json.dumps 로 통째로 다시 쓰면 안 된다. 이 파일은 사람이 손으로 묶어 둔 빈 줄로
+    자산·증상·원인을 구분하고, node 하나를 한 줄에 적는다. 다시 직렬화하면 그 편집이
+    전부 사라진다 — 실제로 한 번 그렇게 뭉갰다. 읽기는 json 으로 하고 쓰기는 줄 단위다.
+    """
+    head = next(i for i, l in enumerate(lines)
+                if l.strip().startswith(f'"{key}"') and l.rstrip().endswith("["))
+    indent = len(lines[head]) - len(lines[head].lstrip())
+    end = next(i for i in range(head + 1, len(lines))
+               if lines[i].strip() in ("],", "]")
+               and len(lines[i]) - len(lines[i].lstrip()) == indent)
+    prev = end - 1
+    while prev > head and not lines[prev].strip():
+        prev -= 1
+    if not lines[prev].rstrip().endswith(","):        # 마지막 항목에 쉼표를 붙인다
+        lines[prev] = lines[prev].rstrip() + ","
+    lines[end:end] = new_lines
+    return lines
+
+
+def record_experience(inc, workers):
+    """사건이 닫힐 때 '누가 무엇을 다뤘는가'를 남긴다. 같은 사실을 두 번 적지 않는다."""
+    roles = inc.get("roles") or {}
+    seen = inc.get("seen_alarms") or {}
+    if not roles or not seen or not GRAPH.exists():
+        return 0
+    raw = GRAPH.read_text(encoding="utf-8")
+    try:
+        g = json.loads(raw)
+    except ValueError as e:
+        log(f"⚠ 경험그래프를 읽지 못했다: {e}")
+        return 0
+
+    have = {n["id"] for n in g.get("nodes", [])}
+    edges = g.get("edges", [])
+    src = pathlib.Path(inc["ticket"]).name
+    new_nodes, new_edges = [], []
+
+    for wid, info in sorted(roles.items()):
+        w = worker(workers, wid)
+        nid = f"w.{wid}"
+        if nid not in have:
+            have.add(nid)
+            new_nodes.append(_one_line({
+                "id": nid, "kind": "worker",
+                "label": agentctl.get(w, "name", wid) if w else wid,
+                "floor": agentctl.get(w, "floor") if w else "",
+                "zone": agentctl.get(w, "zone") if w else "",
+                "team": agentctl.get(w, "team") if w else "",
+            }))
+        for aid in info.get("alarms") or []:
+            sid = _symptom_id(aid)
+            if sid not in have:
+                have.add(sid)
+                new_nodes.append(_one_line({"id": sid, "kind": "symptom",
+                                            "label": seen.get(aid, aid), "from_alarm": aid}))
+            dup = any(e.get("from") == nid and e.get("to") == sid
+                      and e.get("type") == "handled" and e.get("source") == src
+                      for e in edges)
+            if dup:
+                continue
+            e = {"from": nid, "to": sid, "type": "handled", "source": src,
+                 "seeded_from": f"cc-runner {info.get('at','')} · {info.get('role','')}",
+                 "role": info.get("role", ""), "confidence": 1.0}
+            edges.append(e)
+            new_edges.append(_one_line(e))
+
+    if not new_nodes and not new_edges:
+        return 0
+
+    lines = raw.split("\n")
+    if new_nodes:
+        _insert_into_array(lines, "nodes", [f"    {x}," for x in new_nodes[:-1]]
+                           + [f"    {new_nodes[-1]}"])
+    if new_edges:
+        _insert_into_array(lines, "edges", [f"    {x}," for x in new_edges[:-1]]
+                           + [f"    {new_edges[-1]}"])
+    stamp = time.strftime("%Y-%m-%d")
+    for i, l in enumerate(lines):
+        if l.strip().startswith('"updated"'):
+            lines[i] = f'  "updated": "{stamp}",'
+            break
+    out = "\n".join(lines)
+    try:
+        json.loads(out)                   # 망가뜨렸으면 쓰지 않는다
+    except ValueError as e:
+        log(f"⚠ 경험그래프 갱신을 취소했다 — 결과가 유효한 JSON 이 아니다: {e}")
+        return 0
+    tmp = GRAPH.with_suffix(".json.tmp")
+    tmp.write_text(out, encoding="utf-8")
+    tmp.replace(GRAPH)        # 원자적 교체 — 콘솔이 같은 파일을 읽는 중일 수 있다
+    return len(new_nodes) + len(new_edges)
+
+
 # ── 한 바퀴 ─────────────────────────────────────────────────────────
 def sweep(dry=False):
     alarms = envsim("/alarms").get("active", [])
@@ -412,6 +531,10 @@ def sweep(dry=False):
     if not alarms:
         if inc:
             close(inc["ticket"], "경보가 모두 해제됐다")
+            n = record_experience(inc, agentctl.load_roster())
+            if n:
+                note(inc["ticket"], f"경험그래프에 {n}건 기록 — graph/experience.json")
+                log(f"경험그래프 갱신 {n}건 — 누가 무엇을 다뤘는가")
             log(f"사건 종료 — {pathlib.Path(inc['ticket']).name}")
             st.pop("incident")
             save_state(st)
@@ -425,9 +548,19 @@ def sweep(dry=False):
 
     if inc is None:
         p = open_ticket(alarms)
-        inc = {"ticket": str(p), "engaged": [], "verdicts": 0}
+        inc = {"ticket": str(p), "engaged": [], "verdicts": 0,
+               "seen_alarms": {}, "roles": {}}
         st["incident"] = inc
         log(f"사건 접수 — 티켓 {p.name}")
+
+    # 사건이 진행되며 경보는 늘거나 준다. 그래프에는 **겪은 것 전부**를 남겨야 하므로
+    # 지금 떠 있는 것이 아니라 이제까지 본 것을 모은다(닫힐 때는 이미 다 걷혀 있다).
+    inc.setdefault("seen_alarms", {}).update({a["id"]: a["msg"] for a in alarms})
+    inc.setdefault("roles", {})
+
+    def took(wid, role, alarm_ids):
+        inc["roles"][wid] = {"role": role, "alarms": sorted(set(alarm_ids)),
+                             "at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
     def left():
         return MAX_SESSIONS - len(inc["engaged"])
@@ -462,6 +595,7 @@ def sweep(dry=False):
             if body is None:
                 return 0
             inc["engaged"].append(DISPATCHER)
+            took(DISPATCHER, "접수", inc["seen_alarms"])   # 접수자는 사건 전체를 본다
             append(inc["ticket"], "접수", d, alias, body)
             route = parse_routing(body)
             for a in sorted(route.get("assign") or [],
@@ -501,6 +635,7 @@ def sweep(dry=False):
             break
         inc["engaged"].append(wid)
         inc["verdicts"] += 1
+        took(wid, "소견", s["alarms"])
         append(inc["ticket"], "소견", s["w"], alias, body)
 
     # ── 승인 판정 ─────────────────────────────────────────────────
@@ -512,6 +647,7 @@ def sweep(dry=False):
             dry, "판정")
         if body is not None:
             inc["engaged"].append(approver["id"])
+            took(approver["id"], "판정", inc["seen_alarms"])
             append(inc["ticket"], "판정", approver, alias, body)
 
     if dry:

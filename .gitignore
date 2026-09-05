@@ -48,4 +48,8 @@ injector/state/
 
 # 에이전트 운영 콘솔이 저장 전에 남기는 백업. 되돌리기용이지 이력이 아니다 — git 이 이력을 맡는다.
 agents/.bak/
-agents/tickets/
+# 사건 티켓은 **증적**이다. 경험그래프의 handled edge 가 source 로 티켓 파일명을 적는데,
+# 티켓이 저장소에 없으면 그 provenance 를 아무도 검증할 수 없다 — 그래프의 규율 ① 이
+# 무너진다. 감사인의 루프 이름도 evidence-collection 이다. 그래서 티켓은 git 에 남긴다.
+# 러너의 내부 상태만 뺀다(진행 중 사건 추적용이지 기록이 아니다).
+agents/tickets/.state.json
