@@ -5,6 +5,14 @@ id: env-health-sweep
 owner: facility-engineer
 autonomy: L2
 cadence: "*/15 * * * *"
+
+# cadence 를 기다리지 않고 깨우는 경보. cc-runner 가 이 목록을 본다 —
+# 정기 점검만으로는 수전 상실 같은 사건을 15분 뒤에야 본다. 코드가 아니라 여기 적는
+# 이유는 "무엇에 반응할 것인가"가 운영 판단이기 때문이다. 학생이 고치는 값이다.
+triggers:
+  alarms: [TEMP_WARN, TEMP_CRIT, TEMP_SHUTDOWN, HUMID_LOW, HUMID_HIGH,
+           CHILLER_DOWN, CRAC_DOWN, CT_DOWN, CT_FREEZE, PUMP_DOWN, HX_FOULING,
+           ECO_DAMPER, CDU_LEAK, COLDPLATE_HOT, AIRFLOW_SHORT, SMOKE]
 budget: { max_tokens: 40000, max_tool_calls: 30 }
 
 state:                        # 회차 간 이어지는 것 (loop-engineering 의 durable spine)

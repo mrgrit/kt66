@@ -2,6 +2,12 @@ id: power-capacity-check
 owner: facility-engineer
 autonomy: L2
 cadence: "0 9 * * *"
+
+# 용량 계획은 하루 한 번이면 되지만, 전원 계통이 끊기면 그때 봐야 한다.
+# cc-runner 가 이 경보를 보면 cadence 를 기다리지 않고 깨운다.
+triggers:
+  alarms: [UPS_ONBATT, UPS_LOW, GEN_FAIL, PDU_OVERLOAD, SUBSTATION_DOWN,
+           TRANSFORMER_HOT, ATS_FAIL, BUSWAY_TRIP, FUEL_LOW, BATT_HOT, BATT_RUNAWAY]
 budget: { max_tokens: 30000, max_tool_calls: 20 }
 state: [capacity_history, growth_rate]
 steps:

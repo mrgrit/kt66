@@ -1,0 +1,566 @@
+#!/usr/bin/env python3
+"""cc-runner — 사건이 나면 담당 근무자의 구독 CC 세션을 돌린다.
+
+지금까지 kt66 의 근무자는 **설계 산출물**이었다. roster 에 이름이 있고 페르소나가 있고
+루프에 cadence 가 적혀 있었지만, 그 cadence 를 읽어 깨우는 것이 없었다. 수전이 끊겨도
+화면에 경보만 뜨고 시설 담당은 아무것도 하지 않았다. 이 스크립트가 그 빈 칸이다.
+
+    ./agents/cc-runner              지금 경보를 한 번 훑고 해당하면 돌린다
+    ./agents/cc-runner --watch      주기 폴링 (기본 30초)
+    ./agents/cc-runner --dry-run    프롬프트만 찍고 세션은 띄우지 않는다
+    ./agents/cc-runner --tickets    티켓 목록
+
+── 누가 자기 일인지 어떻게 아는가 ──────────────────────────────────
+이게 이 스크립트의 전부다. 세 가지 답이 있고, 여기서는 앞의 둘을 겹쳐 쓴다.
+
+  ① 정적 매핑   루프의 triggers.alarms 에 적힌 경보가 뜨면 그 루프의 owner 를 부른다.
+                빠르고 싸고 재현된다. 대신 **적어 둔 것만** 처리된다.
+  ② 접수→라우팅  아무 루프에도 안 걸린 경보가 있거나, 여러 담당에 걸치면 서비스데스크가
+                먼저 불린다. 접수자가 사건을 읽고 누구를 부를지 정한다.
+  ③ 방송→자기선언 (쓰지 않는다) 모두에게 보여 주고 각자 판단하게 하면 미정의 사건에
+                가장 강하지만, 근무자 수만큼 세션이 돌고 아무도 안 잡거나 다 잡는다.
+                사람 조직이 이렇게 하지 않는 데는 이유가 있다.
+
+①이 먼저다. 알려진 사건은 접수를 거치지 않는다 — 수전이 끊겼는데 서비스데스크에게
+"누구를 부를까요"를 묻는 건 시간 낭비다. ②는 **모르는 사건과 협업 사건**의 답이다.
+
+협업은 이렇게 둔다: 배정이 여럿이면 각자 세션을 돌리되 **티켓은 하나**를 공유하고,
+소견이 둘 이상 모이면 ops-lead(approver)가 종합해 판정한다. 루프의 게이트에 이미
+"부하 제한은 gpu-platform-engineer 와 합의 후 승인 요청"이 적혀 있다 — 그 문장이
+그림이 아니라 실제 절차가 되는 지점이다.
+
+── 규칙 ────────────────────────────────────────────────────────────
+· 한 사건에 세션은 **최대 5개**(CC_RUNNER_MAX_SESSIONS). 접수·전문가·승인을 합쳐서다.
+  구독 한도와 수업 진행 속도가 여기 걸린다. 예산이 모자라면 티켓에 "미배정"으로 남긴다.
+· 세션에 **도구를 거의 주지 않는다**. 필요한 수치는 미리 프롬프트에 담는다. 에이전트가
+  랩을 직접 뒤지게 하면 승인 게이트를 우회할 길이 생기고 재현도 안 된다.
+· 자율성 L1·L2 는 상태를 바꾸지 않는다. 프롬프트로도 말하고 도구로도 막는다 —
+  말만으로 지켜지는 게이트는 게이트가 아니다.
+· **지금 활성인 경보 전부를 하나의 사건으로 본다.** 이 랩의 고장은 대개 하나에서
+  연쇄하므로(수전 상실 → UPS 전환 → 냉각수 펌프 정지) 그 편이 사람의 인식과 맞다.
+  서로 무관한 두 고장을 동시에 주입하면 한 티켓에 섞인다 — 알고 쓰는 단순화다.
+"""
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+ROOT = pathlib.Path(__file__).resolve().parent
+TICKETS = ROOT / "tickets"
+STATE = TICKETS / ".state.json"
+
+ENVSIM = os.getenv("ENVSIM_URL", "http://127.0.0.1:8010")
+POLL_SEC = int(os.getenv("CC_RUNNER_POLL", "30"))
+MAX_SESSIONS = int(os.getenv("CC_RUNNER_MAX_SESSIONS", "5"))
+DISPATCHER = "service-desk"          # 접수자. roster 에 있는 id 여야 한다
+SESSION_TIMEOUT = int(os.getenv("CC_RUNNER_TIMEOUT", "600"))
+
+# 세션에 주는 도구. 자기 자리(CLAUDE.md·페르소나)를 읽는 것까지만.
+# 상태를 바꾸는 도구(Bash·Write·Edit)는 주지 않는다 — L2 의 "상태를 바꾸지 않는다"를
+# 프롬프트가 아니라 실행 환경으로 지킨다.
+ALLOWED_TOOLS = "Read Glob Grep"
+
+# cc-session 의 헬퍼를 재사용한다(환경 청소·모델 별칭·렌더). 두 벌 두면 한쪽만 고쳐진다.
+_loader = importlib.machinery.SourceFileLoader("cc_session", str(ROOT / "cc-session"))
+ccs = importlib.util.module_from_spec(importlib.util.spec_from_loader("cc_session", _loader))
+_loader.exec_module(ccs)
+agentctl = ccs.agentctl
+
+try:
+    import yaml
+except ImportError:                                   # 호스트에서만 도는 스크립트다
+    sys.exit("[cc-runner] PyYAML 이 필요하다: pip install --user pyyaml")
+
+
+def log(msg):
+    print(f"[cc-runner] {msg}", flush=True)
+
+
+# ── 랩 상태 ─────────────────────────────────────────────────────────
+def envsim(path):
+    try:
+        with urllib.request.urlopen(f"{ENVSIM}{path}", timeout=5) as r:
+            return json.load(r)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        sys.exit(f"[cc-runner] envsim({ENVSIM}) 에 닿지 못했다: {e}\n"
+                 f"            ENVSIM_URL 로 주소를 지정할 수 있다.")
+
+
+def load_loops():
+    out = {}
+    for p in sorted((ROOT / "loops").glob("*.yaml")):
+        try:
+            d = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as e:
+            log(f"⚠ {p.name} 를 읽지 못했다: {e}")
+            continue
+        out[d.get("id", p.stem)] = d
+    return out
+
+
+def worker(workers, wid):
+    return next((x for x in workers if x["id"] == wid), None)
+
+
+# ── ① 정적 매핑 ─────────────────────────────────────────────────────
+def fast_path(alarms, loops, workers):
+    """경보 → 루프 triggers → owner. 반환 {wid: {"w","loops","alarms"}} 와 미매칭 경보."""
+    active = {a["id"] for a in alarms}
+    covered, by_worker = set(), {}
+    for lp in loops.values():
+        hit = sorted(active & set((lp.get("triggers") or {}).get("alarms") or []))
+        if not hit:
+            continue
+        covered.update(hit)
+        w = worker(workers, lp.get("owner"))
+        if not w:
+            log(f"⚠ 루프 {lp.get('id')} 의 담당 {lp.get('owner')} 가 명단에 없다 — 건너뛴다")
+            continue
+        slot = by_worker.setdefault(w["id"], {"w": w, "loops": [], "alarms": set(), "why": "정적 트리거"})
+        slot["loops"].append(lp)
+        slot["alarms"].update(hit)
+    for s in by_worker.values():
+        s["alarms"] = sorted(s["alarms"])
+    return by_worker, sorted(active - covered)
+
+
+# ── 프롬프트 ────────────────────────────────────────────────────────
+def persona_of(wid):
+    p = ROOT / "personas" / f"{wid}.md"
+    return p.read_text(encoding="utf-8").strip() if p.exists() else "(페르소나 파일이 없다)"
+
+
+def snapshot(state):
+    """판단에 쓰는 수치만. 컨테이너 목록 같은 건 뺀다."""
+    keep = ("power", "plant", "weather", "fuel", "battery", "efficiency", "shed_analysis")
+    return {k: state[k] for k in keep if k in state}
+
+
+def alarm_lines(alarms, ids=None):
+    out = []
+    for a in alarms:
+        if ids is not None and a["id"] not in ids:
+            continue
+        out.append(f"- [{a['level']}] {a['id']} {a['scope']} — {a['msg']} "
+                   f"({a.get('metric')}={a.get('value')})")
+    return out or ["- (없음)"]
+
+
+def context_block(alarms, state, events):
+    return [
+        "## 지금 떠 있는 경보",
+        *alarm_lines(alarms),
+        "",
+        "## 계통 실측값 (envsim)",
+        "```json",
+        json.dumps(snapshot(state), ensure_ascii=False, indent=1),
+        "```",
+        "",
+        "## 최근 이벤트",
+        # 별표 뒤에 or 를 그냥 쓰면 문법 오류다 — 괄호로 묶어야 리스트가 먼저 정해진다.
+        *([f"- {e.get('kind')}: {e.get('msg')}" for e in events[-12:]] or ["- (없음)"]),
+    ]
+
+
+def triage_prompt(w, alarms, unmatched, matched, state, events, workers):
+    """접수자용. 사람이 읽을 소견 + 기계가 읽을 배정표를 함께 내게 한다."""
+    roster_rows = []
+    for x in workers:
+        if x["id"] == w["id"]:
+            continue
+        roster_rows.append(
+            f"- `{x['id']}` {agentctl.get(x,'name')} · {agentctl.get(x,'floor')} "
+            f"{agentctl.get(x,'zone')} · 자율성 {agentctl.get(x,'autonomy')} · "
+            f"담당자산 {', '.join(agentctl.get(x,'assets') or []) or '—'} · "
+            f"런타임 {agentctl.get(x,'runtime')}")
+    return "\n".join([
+        f"너는 kt66 미니 AI데이터센터의 {agentctl.get(w,'name')}"
+        f"({agentctl.get(w,'floor')} · {agentctl.get(w,'zone')} 존)다. 지금 사건을 **접수**한다.",
+        "기술적 해결은 네 일이 아니다. 무슨 일이 났는지 한 번에 알아볼 수 있게 적고,",
+        "**누가 봐야 하는지**를 정하는 것이 네 일이다.",
+        "",
+        "## 네 역할 (페르소나 원문)",
+        persona_of(w["id"]),
+        "",
+        *context_block(alarms, state, events),
+        "",
+        "## 이미 자동 배정된 담당 (정적 트리거로 잡혔다 — 다시 부르지 마라)",
+        *([f"- `{k}` ← {', '.join(v['alarms'])}" for k, v in matched.items()] or ["- (없음)"]),
+        "",
+        "## 아직 담당이 없는 경보 — 네가 정해야 한다",
+        *([f"- {i}" for i in unmatched] or ["- (없음)"]),
+        "",
+        "## 부를 수 있는 사람",
+        *roster_rows,
+        "",
+        "## 내야 하는 것",
+        "먼저 사람이 읽을 접수 소견을 적는다:",
+        "### 접수 소견",
+        "무슨 일이 났나 · 영향도 × 긴급도 · 왜 그 사람을 부르는가. 숫자로 적는다.",
+        "",
+        "그리고 **마지막에** 아래 형식의 코드블록을 정확히 하나 붙인다. 기계가 읽는다.",
+        "```json",
+        json.dumps({
+            "assign": [{"worker": "<위 목록의 id>", "why": "한 줄", "priority": 1}],
+            "unassigned": [{"alarm": "<경보 id>", "why": "부를 사람이 없는 이유"}],
+        }, ensure_ascii=False, indent=1),
+        "```",
+        "규칙: worker 는 위 '부를 수 있는 사람'에 있는 id 만 쓴다. 지어내지 않는다.",
+        "부를 사람이 정말 없으면 assign 을 비우고 unassigned 에 이유를 적는다 —",
+        "아무나 찍어서 부르는 것이 미배정보다 나쁘다.",
+        f"이번 사건에 남은 세션은 최대 {MAX_SESSIONS}개이고 접수(너)가 이미 하나를 썼다.",
+    ])
+
+
+def worker_prompt(w, loops_hit, my_alarms, alarms, state, events, ticket_so_far):
+    autonomy = agentctl.get(w, "autonomy", "L1")
+    parts = [
+        f"너는 kt66 미니 AI데이터센터의 {agentctl.get(w,'name')}"
+        f"({agentctl.get(w,'floor')} · {agentctl.get(w,'zone')} 존)다.",
+        "이번 회차에 주어진 것은 아래가 전부다. 랩을 직접 뒤질 수 없다 — 필요한 수치는 다 여기 있다.",
+        "",
+        "## 네 역할 (페르소나 원문)",
+        persona_of(w["id"]),
+        "",
+        "## 네가 불려 온 이유 — 네 담당 경보",
+        *alarm_lines(alarms, set(my_alarms)),
+        "",
+        *context_block(alarms, state, events),
+    ]
+    if loops_hit:
+        parts += ["", "## 네가 도는 루프 (원문)"]
+        for lp in loops_hit:
+            parts += ["```yaml",
+                      yaml.safe_dump(lp, allow_unicode=True, sort_keys=False).strip(), "```"]
+    if ticket_so_far:
+        parts += ["", "## 이 사건의 티켓 — 지금까지 적힌 것",
+                  "다른 사람이 이미 쓴 내용이다. **되풀이하지 말고**, 네 관점에서 더할 것과",
+                  "동의하지 않는 지점을 적는다.", "", "```markdown", ticket_so_far.strip(), "```"]
+
+    parts += ["", f"## 자율성 {autonomy} — 지켜야 한다"]
+    if autonomy in ("L1", "L2"):
+        parts += [
+            "- **상태를 바꾸지 않는다.** 부하 차단·냉방 조정·전원 절체를 직접 하지 않는다.",
+            "- 조치는 **제안**하고, 승인은 ops-lead(운영 리드)에게 요청한다.",
+            "- 도구도 읽기만 주어져 있다. 못 하는 게 아니라 **하면 안 되는** 것이다.",
+        ]
+    else:
+        parts.append("- 등록된 런북 범위 안에서만 실행한다.")
+
+    parts += [
+        "",
+        "## 내야 하는 것 (이 순서, 이 제목으로)",
+        "### 1. 무슨 일이 났나", "한 문단. 시간 순서로.",
+        "### 2. 원인 추정", "근거가 되는 수치를 함께 적는다. 단일 측정값으로 단정하지 않는다.",
+        "### 3. 영향 범위", "어느 층·존·자산이, 언제까지.",
+        "### 4. 조치안", "우선순위 순. 각각에 **되돌리기 경로**를 함께 적는다.",
+        "### 5. 승인 요청", "ops-lead 에게. 무엇을 승인받아야 하는지 한 줄로.",
+        "",
+        "규칙: '여유 있음'·'전반적으로 정상' 같은 문장은 쓰지 않는다. 숫자로 적는다.",
+        "시간이 걸린 판단에는 **몇 분 남았는지**를 반드시 넣는다.",
+    ]
+    return "\n".join(parts)
+
+
+def approval_prompt(w, alarms, state, events, ticket_so_far):
+    return "\n".join([
+        f"너는 kt66 미니 AI데이터센터의 {agentctl.get(w,'name')}다. 승인 전담이다 —",
+        "스스로 조사하지도, 실행하지도 않는다. 아래 소견들을 **판정**하는 것이 네 일이다.",
+        "",
+        "## 네 역할 (페르소나 원문)",
+        persona_of(w["id"]),
+        "",
+        *context_block(alarms, state, events),
+        "",
+        "## 이 사건의 티켓 — 담당자들이 낸 소견",
+        "```markdown", ticket_so_far.strip(), "```",
+        "",
+        "## 내야 하는 것 (이 순서, 이 제목으로)",
+        "### 1. 소견 종합", "무엇이 일치하고 무엇이 갈리는가. 갈리면 어느 쪽이 왜 더 나은가.",
+        "### 2. 판정", "조치안마다 승인 / 조건부 승인 / 반려 중 하나. 조건부면 조건을 적는다.",
+        "### 3. 근거", "왜 그렇게 판정했는가. 되돌리기 경로가 없는 조치는 반려한다.",
+        "### 4. 실행 지시", "누가 무엇을 어떤 순서로. 없으면 '지금은 실행하지 않는다'고 적는다.",
+        "",
+        "규칙: 소견을 요약만 하고 끝내지 않는다. **결정을 내리는 것**이 네 일이다.",
+    ])
+
+
+# ── 세션 ────────────────────────────────────────────────────────────
+def run_session(w, prompt, dry, label):
+    seat = ccs.render_seat(w)
+    alias, why = ccs.model_alias(w)
+    if not alias:
+        log(f"⚠ {why} — 세션 기본 모델로 돌린다")
+    if dry:
+        print(f"\n───── {label} / {w['id']} 프롬프트 ({len(prompt)}자, --model "
+              f"{alias or '없음'}) ─────")
+        print(prompt)
+        print("───── 끝 ─────\n")
+        return alias, f"(dry-run — 세션을 띄우지 않았다)"
+
+    claude = ccs.shutil.which("claude")
+    if not claude:
+        log("claude 를 찾지 못했다 — 설치하고 구독 계정으로 로그인한다")
+        return alias, None
+
+    env = dict(os.environ)
+    ccs.scrub(env)                                   # 구독 경로만 남긴다
+    cmd = [claude, "-p", prompt, "--allowed-tools", ALLOWED_TOOLS]
+    if alias:
+        cmd += ["--model", alias]
+    t0 = time.time()
+    try:
+        r = subprocess.run(cmd, cwd=str(seat), env=env, capture_output=True,
+                           text=True, timeout=SESSION_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return alias, f"(세션 시간 초과 — {SESSION_TIMEOUT}초)"
+    dt = round(time.time() - t0, 1)
+    if r.returncode != 0:
+        return alias, f"(세션 실패 rc={r.returncode}, {dt}초)\n\n{r.stderr.strip()[:2000]}"
+    log(f"{w['id']} / {label} 종료 — {dt}초, {len(r.stdout)}자")
+    return alias, r.stdout.strip()
+
+
+def parse_routing(text):
+    """접수 소견 끝의 json 코드블록을 뽑는다. 없거나 깨졌으면 빈 배정."""
+    blocks = re.findall(r"```json\s*(.*?)```", text or "", re.S)
+    for b in reversed(blocks):                       # 마지막 블록이 배정표다
+        try:
+            d = json.loads(b)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and "assign" in d:
+            return d
+    return {"assign": [], "unassigned": []}
+
+
+# ── 티켓 ────────────────────────────────────────────────────────────
+def load_state():
+    if STATE.exists():
+        try:
+            return json.loads(STATE.read_text(encoding="utf-8"))
+        except ValueError:
+            pass
+    return {}
+
+
+def save_state(st):
+    TICKETS.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def open_ticket(alarms):
+    TICKETS.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    p = TICKETS / f"{stamp}.md"
+    ids = sorted({a["id"] for a in alarms})
+    p.write_text("\n".join([
+        f"# 사건 {stamp} — {', '.join(ids)}",
+        "",
+        f"- 발생: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- 상태: open",
+        "- 최초 경보:",
+        *[f"  - [{a['level']}] {a['id']} {a['scope']} — {a['msg']}" for a in alarms],
+        "",
+    ]) + "\n", encoding="utf-8")
+    return p
+
+
+def append(path, title, w, model, body):
+    p = pathlib.Path(path)
+    p.write_text(p.read_text(encoding="utf-8") + "\n".join([
+        "",
+        "---",
+        "",
+        f"## {title} — {agentctl.get(w,'name')} (`{w['id']}`)",
+        f"*{time.strftime('%H:%M:%S')} · 자율성 {agentctl.get(w,'autonomy')} · "
+        f"{agentctl.get(w,'model')} → --model {model or '세션 기본'}*",
+        "",
+        (body or "(응답 없음)").strip(),
+        "",
+    ]), encoding="utf-8")
+
+
+def note(path, text):
+    p = pathlib.Path(path)
+    p.write_text(p.read_text(encoding="utf-8") + f"\n> {text}\n", encoding="utf-8")
+
+
+def close(path, why):
+    p = pathlib.Path(path)
+    if not p.exists():
+        return
+    t = p.read_text(encoding="utf-8").replace("- 상태: open", "- 상태: closed", 1)
+    p.write_text(t + f"\n---\n\n닫힘 {time.strftime('%Y-%m-%d %H:%M:%S')} — {why}\n",
+                 encoding="utf-8")
+
+
+# ── 한 바퀴 ─────────────────────────────────────────────────────────
+def sweep(dry=False):
+    alarms = envsim("/alarms").get("active", [])
+    st = load_state()
+    inc = st.get("incident")
+
+    if not alarms:
+        if inc:
+            close(inc["ticket"], "경보가 모두 해제됐다")
+            log(f"사건 종료 — {pathlib.Path(inc['ticket']).name}")
+            st.pop("incident")
+            save_state(st)
+        else:
+            log("활성 경보 없음")
+        return 0
+
+    state = envsim("/state")
+    events = envsim("/events?limit=40").get("events", [])
+    loops, workers = load_loops(), agentctl.load_roster()
+
+    if inc is None:
+        p = open_ticket(alarms)
+        inc = {"ticket": str(p), "engaged": [], "verdicts": 0}
+        st["incident"] = inc
+        log(f"사건 접수 — 티켓 {p.name}")
+
+    def left():
+        return MAX_SESSIONS - len(inc["engaged"])
+
+    def read_ticket():
+        return pathlib.Path(inc["ticket"]).read_text(encoding="utf-8")
+
+    def runnable(w, role):
+        """돌릴 몸이 있는가. 없으면 티켓에 남기고 예산은 쓰지 않는다."""
+        if agentctl.get(w, "runtime") == "claude":
+            return True
+        msg = (f"{role} {w['id']} 는 런타임이 {agentctl.get(w,'runtime')} 라 세션을 띄우지 못했다"
+               f" — `./agentctl runtime {w['id']} claude`")
+        log(f"⚠ {msg}")
+        note(inc["ticket"], msg)
+        return False
+
+    matched, unmatched = fast_path(alarms, loops, workers)
+    plan = {k: v for k, v in matched.items() if k not in inc["engaged"]}
+
+    # ── ② 접수 → 라우팅 ───────────────────────────────────────────
+    need_triage = bool(unmatched) or len(matched) >= 2
+    if need_triage and DISPATCHER not in inc["engaged"] and left() > 0:
+        d = worker(workers, DISPATCHER)
+        if d is None:
+            log(f"⚠ 접수자 {DISPATCHER} 가 명단에 없다 — 정적 매핑만으로 간다")
+        elif runnable(d, "접수자"):
+            log(f"접수 — 미배정 경보 {len(unmatched)}개 / 자동배정 {len(matched)}명")
+            alias, body = run_session(
+                d, triage_prompt(d, alarms, unmatched, matched, state, events, workers),
+                dry, "접수")
+            if body is None:
+                return 0
+            inc["engaged"].append(DISPATCHER)
+            append(inc["ticket"], "접수", d, alias, body)
+            route = parse_routing(body)
+            for a in sorted(route.get("assign") or [],
+                            key=lambda x: x.get("priority", 99)):
+                wid = a.get("worker")
+                w2 = worker(workers, wid)
+                if not w2:
+                    note(inc["ticket"], f"접수자가 명단에 없는 `{wid}` 를 배정했다 — 무시했다")
+                    continue
+                if wid in inc["engaged"] or wid in plan:
+                    continue
+                plan[wid] = {"w": w2, "loops": [], "alarms": unmatched,
+                             "why": f"접수 배정 — {a.get('why','')}"}
+            for u in route.get("unassigned") or []:
+                note(inc["ticket"], f"미배정 {u.get('alarm')} — {u.get('why','')}")
+
+    # ── 전문가 세션 ───────────────────────────────────────────────
+    # 소견이 둘 이상 모이면 승인자를 불러야 한다. 그 몫 한 자리를 미리 떼어 둔다 —
+    # 전문가로 예산을 다 쓰면 판정 없는 티켓이 남고, 그건 L2 절차가 아니다.
+    approver = next((x for x in workers
+                     if agentctl.get(x, "autonomy") == "approver"), None)
+    reserve = 1 if (approver and inc["verdicts"] + len(plan) >= 2) else 0
+
+    for wid, s in sorted(plan.items(), key=lambda kv: kv[0]):
+        if left() - reserve <= 0:
+            note(inc["ticket"], f"세션 예산({MAX_SESSIONS}) 소진 — `{wid}` 미배정으로 남는다")
+            log(f"⚠ 예산 소진 — {wid} 미배정")
+            continue
+        if not runnable(s["w"], "담당"):
+            continue
+        log(f"{wid} 호출 — {s['why']} / 경보 {', '.join(s['alarms']) or '—'}")
+        alias, body = run_session(
+            s["w"], worker_prompt(s["w"], s["loops"], s["alarms"], alarms, state, events,
+                                  read_ticket()),
+            dry, "소견")
+        if body is None:
+            break
+        inc["engaged"].append(wid)
+        inc["verdicts"] += 1
+        append(inc["ticket"], "소견", s["w"], alias, body)
+
+    # ── 승인 판정 ─────────────────────────────────────────────────
+    if (approver and inc["verdicts"] >= 2 and approver["id"] not in inc["engaged"]
+            and left() > 0 and runnable(approver, "승인자")):
+        log(f"{approver['id']} 판정 — 소견 {inc['verdicts']}건")
+        alias, body = run_session(
+            approver, approval_prompt(approver, alarms, state, events, read_ticket()),
+            dry, "판정")
+        if body is not None:
+            inc["engaged"].append(approver["id"])
+            append(inc["ticket"], "판정", approver, alias, body)
+
+    if dry:
+        st.pop("incident", None)                     # dry-run 은 상태를 남기지 않는다
+    save_state(st)
+    log(f"티켓 {pathlib.Path(inc['ticket']).name} — 세션 {len(inc['engaged'])}/{MAX_SESSIONS}")
+    return len(inc["engaged"])
+
+
+def show_tickets():
+    rows = sorted(TICKETS.glob("*.md"), reverse=True) if TICKETS.is_dir() else []
+    if not rows:
+        print("아직 티켓이 없다.")
+        return
+    for p in rows:
+        lines = p.read_text(encoding="utf-8").splitlines()
+        title = lines[0].lstrip("# ") if lines else p.stem
+        stat = next((l.split(":", 1)[1].strip() for l in lines if l.startswith("- 상태:")), "?")
+        who = [l.split("(`")[1].split("`)")[0] for l in lines if l.startswith("## ") and "(`" in l]
+        print(f"  [{stat:<6}] {p.name}  {title}")
+        print(f"           참여: {', '.join(who) or '—'}")
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="사건이 나면 담당 근무자의 구독 CC 세션을 돌린다")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--watch", action="store_true", help=f"주기 폴링 ({POLL_SEC}초)")
+    g.add_argument("--tickets", action="store_true", help="티켓 목록")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="프롬프트만 찍는다. 세션도 안 띄우고 상태도 안 남긴다")
+    a = ap.parse_args()
+
+    if a.tickets:
+        show_tickets()
+        return 0
+    if a.watch:
+        log(f"{ENVSIM} 을 {POLL_SEC}초마다 본다. Ctrl-C 로 멈춘다.")
+        try:
+            while True:
+                sweep(a.dry_run)
+                time.sleep(POLL_SEC)
+        except KeyboardInterrupt:
+            print()
+            log("멈춘다")
+        return 0
+    sweep(a.dry_run)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

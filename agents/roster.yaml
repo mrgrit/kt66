@@ -123,10 +123,14 @@ workers:
     name: 시설 담당(전기/기계)
     floor: 1F
     zone: ot
-    runtime: hermes           # 주기 점검이 많아 cron 이 있는 hermes 가 맞다
+    # 원래는 hermes 였다 — 주기 점검이 많아 cron 이 있는 쪽이 맞다는 판단이었다. 그런데
+    # hermes 는 이 랩에 설치돼 있지 않아 **도는 몸이 없었다**: cadence 를 적어 둔 루프를
+    # 아무도 깨우지 않았다. 지금은 구독 CC 세션으로 옮기고, cadence 대신 cc-runner 가
+    # 경보로 깨운다. 주기 점검과 사건 대응 중 무엇이 이 자리에 맞는지는 W15 에서 비교한다.
+    runtime: claude
     autonomy: L2
     team: cooling-team
-    model: local-reasoning
+    model: cc-sonnet          # 신호 여러 개를 읽어 인과를 잇는 일이다
     loops: [env-health-sweep, power-capacity-check]
     assets: [ups, pdu, crac, chiller, fm200]
     curriculum: [W1, W5, W13]
@@ -186,10 +190,13 @@ workers:
     name: 서비스데스크
     floor: 4F
     zone: mgmt
-    runtime: bastion
+    # 접수 담당이다 — 사건이 나면 **가장 먼저** 불린다(cc-runner). 정적 트리거로 담당이
+    # 안 잡히거나 여러 도메인에 걸치면 여기서 분류하고 배정한다. 그래서 도는 몸이 있어야
+    # 한다: hermes 는 설치돼 있지 않으므로 구독 CC 세션으로 둔다.
+    runtime: claude
     autonomy: L2
     team: servicedesk-team
-    model: local-small
+    model: cc-haiku           # 분류와 배정이다. 깊이보다 회전이 중요하다
     loops: [ticket-triage]
     assets: [itsm, cmdb]
     curriculum: [W6, W8, W9]
