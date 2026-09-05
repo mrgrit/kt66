@@ -124,6 +124,31 @@ resolve_int_host_ip() {
     fi
 }
 
+# 구독 이상의 과금이 열릴 수 있는 환경을 짚는다.
+#
+# kt66 의 프런티어 모델 자리는 토큰당 과금되는 API 가 아니라 **이미 구독 중인 Claude
+# Code 세션**이다(agents/cc-session). 그런데 Claude Code 는 환경에 ANTHROPIC_API_KEY
+# 같은 변수가 있으면 그쪽을 먼저 쓴다 — 조용히, 아무 경고 없이. 셸 프로파일에 한 줄
+# 넣어 둔 사람은 자기가 API 로 붙는지 모른다.
+#
+# cc-session 은 실행 직전에 그 변수들을 걷어내므로 안전하다. 여기서 짚는 것은 **손으로
+# claude 를 띄우는 경우**다. 랩 기동을 막지는 않는다 — kt66 자체는 이 변수를 쓰지 않는다.
+check_no_metered_llm() {
+    local found=""
+    local v
+    for v in $(env | sed -n 's/^\(ANTHROPIC_[A-Z_]*\|CLAUDE_CODE_USE_[A-Z_]*\|AWS_BEARER_TOKEN_[A-Z_]*\)=.*/\1/p'); do
+        found="$found $v"
+    done
+    if grep -qE '^[[:space:]]*(ANTHROPIC_|CLAUDE_CODE_USE_)[A-Z_]*[[:space:]]*=[[:space:]]*[^[:space:]]' .env 2>/dev/null; then
+        found="$found .env"
+    fi
+    if [ -n "$found" ]; then
+        echo "[kt66] ⚠ 과금 경로가 열려 있다:${found}"
+        echo "[kt66]   이 셸에서 손으로 'claude' 를 띄우면 구독이 아니라 토큰당 과금으로 붙는다."
+        echo "[kt66]   ./agents/cc-session <근무자> 로 띄우면 실행 직전에 걷어낸다."
+    fi
+}
+
 # 데이터센터 콘솔이 **바깥에서** 실제로 응답하는지 본다.
 # 이 랩에서 가장 조용한 실패가 여기였다: 컨테이너는 Up, 포트도 publish, 그런데
 # 바인딩 IP 에 아무도 닿을 수 없어 화면만 안 열린다. up 이 끝날 때 한 번 짚고 넘어간다.
@@ -374,6 +399,7 @@ cmd_up() {
     # root 로 생성된 사용자-facing 파일을 원 사용자 소유로 환원 (이후 비-root 운영/down 가능하게)
     chown -R "$REAL_USER:$REAL_USER" .env keys 2>/dev/null || true
     check_datacenter_consoles
+    check_no_metered_llm
     echo "[kt66] ✅ up 완료. 웹 진입 http://${WEB_HOST_IP}:8001.. / 내부 GUI http://${INT_HOST_IP}:{5601,8000,8081-8083}"
     echo "[kt66]    데이터센터 http://${INT_HOST_IP}:{8010,8020,8030,8050,8060,8070} — 관제는 :8020"
     echo "[kt66]    이름으로도 열린다(학생 hosts 3번째 줄): http://noc.kt66.lab/ 등 — README 참고"

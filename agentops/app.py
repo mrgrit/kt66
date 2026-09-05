@@ -36,6 +36,13 @@ AGENTS = Path(os.environ.get("AGENTS_DIR", "/agents"))
 BAK = AGENTS / ".bak"
 API_KEY = os.environ.get("API_KEY", "ccc-api-key-2026")
 
+# 토큰당 과금되는 공개 LLM API. 여기 걸리면 조직 저장이 거부된다(validate_all).
+# 목록이지 정규식이 아니다 — 랩 안(10.20.x)의 자체 호스팅 OpenAI 호환 엔드포인트는
+# 통과해야 하고, 실제로 막고 싶은 것은 "카드가 긁히는 주소" 뿐이다.
+METERED_HOSTS = ("api.anthropic.com", "api.openai.com", "api.mistral.ai",
+                 "generativelanguage.googleapis.com", "api.cohere.ai",
+                 "api.groq.com", "openrouter.ai")
+
 app = FastAPI(title="kt66 agentops", docs_url="/api/docs")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 tpl = Jinja2Templates(directory=str(HERE / "templates"))
@@ -119,6 +126,24 @@ def validate_all(over: dict | None = None) -> list[str]:
     worker_ids = {w["id"] for w in workers}
     models = set(roster.get("models", {}))
     runtimes = set(roster.get("runtimes", {}))
+
+    # ── 과금 경로 차단 ────────────────────────────────────────────────
+    # kt66 은 랩 안의 GPU 와 **이미 구독 중인** Claude Code 세션만 쓴다. 토큰당 과금되는
+    # API 를 카탈로그에 되돌려 놓으면 학생이 드롭다운 하나로 청구서를 만들 수 있다 —
+    # 그것도 자기 것이 아닌 청구서를. 규칙을 주석으로 적어 두면 다음 편집에서 지워진다.
+    # 검사로 둔다: 이 화면과 셸 편집(POST /api/file/roster) 이 같은 문을 지난다.
+    endpoints = roster.get("endpoints") or {}
+    for ep_name, ep in endpoints.items():
+        url = str((ep or {}).get("base_url") or "")
+        hit = next((h for h in METERED_HOSTS if h in url), "")
+        if hit:
+            err.append(f"엔드포인트 {ep_name} 가 토큰당 과금 API 를 가리킨다({hit}) — "
+                       f"kt66 은 랩 GPU 와 구독 Claude Code 세션만 쓴다")
+    # 모델이 없는 엔드포인트를 가리키면 위 검사를 우회할 길이 생긴다. 같이 막는다.
+    for mk, m in (roster.get("models") or {}).items():
+        ep_name = (m or {}).get("endpoint")
+        if ep_name and ep_name not in endpoints:
+            err.append(f"모델 {mk} 의 엔드포인트가 없다: {ep_name}")
 
     for d in dept_list:
         for gid in d.get("owns_goals", []):

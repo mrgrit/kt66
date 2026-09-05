@@ -141,7 +141,16 @@ cd agents
 ./agentctl runtime soc-analyst hermes  # 런타임 교체
 ./agentctl render --all                # 각 런타임 형식으로 렌더
 ./agentctl diff facility-engineer      # 두 런타임 결과 비교 (W15 실습)
+
+./cc-session                           # 구독 Claude Code 세션 자리 목록
+./cc-session ops-lead                  # 그 자리에 세션 하나 띄운다
 ```
+
+**모델에 과금되는 API 는 없다.** kt66 이 쓰는 것은 랩 안의 GPU(Ollama)와 **이미 구독
+중인 Claude Code 세션**뿐이다 — `runtime: claude` 인 근무자는 새 API 계정이 아니라
+세션 하나를 받는다(`agents/cc-session`). 강의용 랩에서 학생이 드롭다운 하나를 잘못 골라
+남의 청구서를 만드는 일은 없어야 한다. 규칙은 주석이 아니라 검사다: `roster.yaml` 에
+과금 호스트를 되돌려 놓으면 저장이 거부된다.
 
 | | bastion | Hermes Agent | Claude Code |
 |---|---|---|---|

@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""cc-session — 근무자 자리에 **구독 Claude Code 세션**을 하나 띄운다.
+
+kt66 의 프런티어 모델 자리는 API 가 아니라 이미 구독 중인 CC 세션이다. 자리마다
+세션을 하나씩 띄우면 되고, 새로 청구되는 것은 없다.
+
+    ./agents/cc-session                 근무자 목록 + 상태
+    ./agents/cc-session ops-lead        그 자리를 렌더하고 세션을 띄운다
+    ./agents/cc-session --all           자리를 전부 렌더하고 실행 명령을 찍는다
+    ./agents/cc-session ops-lead -- -p "오늘 승인 대기 건 정리"   ← 뒤는 claude 로 전달
+
+── 왜 스크립트인가 ──────────────────────────────────────────────────
+`cd .../rendered/ops-lead && claude` 를 손으로 쳐도 된다. 그런데 그 셸에
+ANTHROPIC_API_KEY 가 하나 export 돼 있으면 Claude Code 는 **말없이** 그 키로 붙고
+그 순간부터 토큰당 과금이다. 구독 자격증명은 환경변수가 아니라 디스크에 있으므로,
+여기서 ANTHROPIC_* 를 전부 걷어내고 실행한다 — 지우고 나서야 구독 경로만 남는다.
+"""
+import importlib.machinery
+import importlib.util
+import os
+import pathlib
+import shutil
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent
+
+# 명단 파서를 두 벌 두지 않는다 — agentctl 것을 그대로 쓴다. agentctl 은 .py 가 아니라
+# 실행 파일이라 확장자로 로더를 못 고른다. SourceFileLoader 를 직접 준다.
+_loader = importlib.machinery.SourceFileLoader("agentctl", str(ROOT / "agentctl"))
+_spec = importlib.util.spec_from_loader("agentctl", _loader)
+agentctl = importlib.util.module_from_spec(_spec)
+_loader.exec_module(agentctl)
+
+
+def scrub(env):
+    """구독 이외의 경로를 만들 수 있는 변수를 전부 걷어낸다.
+
+    개별 변수를 열거하지 않고 접두어로 지운다. 이름을 나열하면 내가 아는 변수까지만
+    막히고, 모르는 변수 하나가 조용히 과금 경로를 연다. 구독 로그인은 디스크에
+    저장되므로(~/.claude) 환경을 비워도 그대로 붙는다.
+    """
+    dropped = sorted(k for k in env
+                     if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_USE_", "AWS_BEARER_TOKEN_")))
+    for k in dropped:
+        del env[k]
+    return dropped
+
+
+def workers_on_claude():
+    return [w for w in agentctl.load_roster()
+            if agentctl.get(w, "runtime") == "claude"]
+
+
+def render_seat(w):
+    rt, _ = agentctl.render(w)
+    return agentctl.OUT / rt / "rendered" / w["id"]
+
+
+def show():
+    ws = agentctl.load_roster()
+    seats = workers_on_claude()
+    print("구독 Claude Code 세션 자리 (roster.yaml 의 runtime: claude)")
+    print("-" * 66)
+    if not seats:
+        print("  없다. ./agentctl runtime <근무자> claude 로 자리를 만든다.")
+    for w in seats:
+        print(f"  {w['id']:<24}{agentctl.get(w,'name'):<20}"
+              f"{agentctl.get(w,'floor')} {agentctl.get(w,'autonomy')}")
+    print("-" * 66)
+    others = [w["id"] for w in ws if agentctl.get(w, "runtime") != "claude"]
+    print(f"  다른 런타임 {len(others)}명: {', '.join(others)}")
+    print()
+    print(f"  claude CLI : {shutil.which('claude') or '없음 — 설치·로그인 후 다시'}")
+    leak = sorted(k for k in os.environ
+                  if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_USE_", "AWS_BEARER_TOKEN_")))
+    print(f"  과금 변수  : {', '.join(leak) if leak else '없음 (구독 경로)'}"
+          + ("  ← 세션 실행 때 걷어낸다" if leak else ""))
+    print()
+    print("  ./agents/cc-session <근무자>      한 자리에 세션 하나")
+    print("  ./agents/cc-session --all         전부 렌더 + 실행 명령 출력")
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        show()
+        return 0
+
+    if argv[0] == "--all":
+        seats = workers_on_claude()
+        if not seats:
+            sys.exit("[cc-session] runtime: claude 인 근무자가 없다")
+        print("자리를 렌더했다. **터미널을 하나씩 열어** 아래를 실행한다 —")
+        print("세션은 자리마다 따로 돌아야 컨텍스트가 섞이지 않는다.\n")
+        for w in seats:
+            render_seat(w)
+            print(f"  ./agents/cc-session {w['id']}")
+        return 0
+
+    wid = argv[0]
+    passthru = argv[1:]
+    if passthru and passthru[0] == "--":
+        passthru = passthru[1:]
+
+    w = next((x for x in agentctl.load_roster() if x["id"] == wid), None)
+    if not w:
+        sys.exit(f"[cc-session] 명단에 없는 근무자다: {wid}")
+    rt = agentctl.get(w, "runtime")
+    if rt != "claude":
+        sys.exit(f"[cc-session] {wid} 의 런타임은 {rt} 다. 자리를 옮기려면:\n"
+                 f"    ./agentctl runtime {wid} claude")
+
+    claude = shutil.which("claude")
+    if not claude:
+        sys.exit("[cc-session] claude 를 찾지 못했다. 설치하고 구독 계정으로 로그인한 뒤 다시 실행한다.")
+
+    dest = render_seat(w)
+
+    env = dict(os.environ)
+    dropped = scrub(env)
+    if dropped:
+        print(f"[cc-session] 과금 경로 차단 — 환경에서 걷어냄: {', '.join(dropped)}")
+    print(f"[cc-session] {wid} ({agentctl.get(w,'name')}) 자리에서 구독 세션을 띄운다")
+    print(f"[cc-session] {dest}")
+    # execve 는 이 프로세스를 통째로 갈아치운다 — 버퍼에 남은 위 세 줄은 그대로 사라진다.
+    # 터미널에서는 줄바꿈마다 흘러나가 눈치채지 못하지만, 파이프로 받으면 통째로 없다.
+    sys.stdout.flush()
+    os.chdir(dest)
+    os.execve(claude, [claude, *passthru], env)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
