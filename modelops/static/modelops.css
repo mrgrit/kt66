@@ -17,6 +17,14 @@ h1 span{color:var(--acc);font-weight:500}
 h2{font-size:17px;margin:0 0 6px}
 h3{font-size:13.5px;margin:0 0 8px;color:var(--dim)}
 .head-right{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--dim)}
+/* 키 입력칸 — 값이 어디서 오는지를 폼 옆에 적어 둔다. 이름이 "API 키"라 LLM API 키로
+   읽히고, 그러면 학생은 있지도 않은 키를 찾으러 간다. 실제로는 .env 한 줄이다. */
+.keyfield{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.keyrow{display:flex;align-items:center;gap:6px}
+.keyhint{font-size:11px;color:var(--dim);text-align:right;max-width:46ch;line-height:1.5}
+.keyhint b{color:var(--ink);font-weight:600}
+.keyhint code{background:#0a1420;border:1px solid var(--line);border-radius:4px;
+  padding:0 4px;font-size:10.5px;color:var(--ink)}
 input,select,textarea{background:#0a1420;border:1px solid var(--line);color:var(--ink);
   border-radius:6px;padding:6px 9px;font:inherit;font-size:13px}
 input:focus,select:focus,textarea:focus{outline:1px solid var(--acc);border-color:var(--acc)}

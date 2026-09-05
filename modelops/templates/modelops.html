@@ -12,7 +12,11 @@
   <div class="head-right">
     <span id="active" class="pill">…</span>
     <span id="backend" class="pill"></span>
-    <label>API 키 <input id="key" type="password" placeholder="API_KEY" autocomplete="off"></label>
+    <label class="keyfield">
+      <span class="keyrow">API 키 <input id="key" type="password" placeholder="API_KEY" autocomplete="off"></span>
+      <small class="keyhint">이 콘솔의 <b>쓰기 잠금</b>이다 — 서버 <code>.env</code> 의 <code>API_KEY</code>
+        (건드리지 않았으면 <code>ccc-api-key-2026</code>). LLM API 키가 아니다.</small>
+    </label>
   </div>
 </header>
 

@@ -70,7 +70,8 @@ def init():
 
 def _auth(r: Request):
     if API_KEY and r.headers.get("x-api-key") != API_KEY:
-        raise HTTPException(401, "API 키가 필요하다")
+        raise HTTPException(401, "API 키가 필요하다 — 화면 우측 상단에 서버 .env 의 API_KEY 값을 넣는다"
+                            " (건드리지 않았으면 ccc-api-key-2026). LLM API 키가 아니다.")
 
 
 # ── 수요 루프 ───────────────────────────────────────────────────────
