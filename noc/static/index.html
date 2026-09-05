@@ -105,7 +105,14 @@
       <span class="sh-icon">⚙</span>
       <b>강사 패널</b>
       <span class="sh-sub">고장 주입 48종 · 시설 10 + IT 38</span>
+      <label class="inj-key">강사 키
+        <input id="inj-key" type="password" placeholder="API_KEY" autocomplete="off">
+      </label>
       <button class="btn ghost sm" id="inj-close">✕</button>
+    </div>
+    <div class="inj-keyhint" id="inj-keyhint">
+      조작하려면 강사 키가 필요합니다 — 서버 <code>.env</code> 의 <code>API_KEY</code>
+      (건드리지 않았으면 <code>ccc-api-key-2026</code>). 보는 것은 키 없이도 됩니다.
     </div>
     <div class="sheet-body" id="inj-body"></div>
     <div class="sheet-foot">

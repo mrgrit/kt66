@@ -44,6 +44,24 @@ INT_HOST = os.getenv("INT_HOST", "") or WEB_HOST
 if INT_HOST in ("0.0.0.0", "::"):
     INT_HOST = WEB_HOST
 API_KEY = os.getenv("API_KEY", "")
+
+
+def _auth(key: str) -> None:
+    """강사 패널 조작을 잠근다.
+
+    이 화면은 학생이 보라고 있는 화면이다 — 층을 돌리고 경보를 읽는 것은 전부 열려
+    있어야 한다. 잠그는 것은 **상태를 바꾸는 것**뿐이다: 고장 주입·해제·시간배속·전체
+    초기화. 이것들은 강사가 수업을 진행하는 손잡이라, 아무나 누르면 수업이 망가진다.
+
+    부하 차단(/api/shed)은 잠그지 않는다. 그건 ENV-03 에서 **학생이 내리는 판단**이고,
+    잠그면 실습 자체가 없어진다.
+
+    키가 비어 있으면 아무 요청도 통과하지 못한다(fail closed). 실수로 API_KEY 를
+    비워 둔 서버가 무방비로 열리는 것보다, 안 눌리는 편이 낫다.
+    """
+    if key != API_KEY:
+        raise HTTPException(401, "강사 키가 필요하다 — 강사 패널 상단에 서버 .env 의 "
+                                 "API_KEY 값을 넣는다 (건드리지 않았으면 ccc-api-key-2026).")
 STATIC = pathlib.Path(__file__).parent / "static"
 
 app = FastAPI(title="kt66 NOC", version="1.0")
@@ -222,8 +240,9 @@ async def faults():
 
 
 @app.post("/api/inject")
-async def inject(fault: str, target: str = "*", clear: bool = False):
+async def inject(fault: str, target: str = "*", clear: bool = False, key: str = ""):
     """강사 조작. 화면 밖으로 나가지 않고 여기서 시나리오를 넣는다."""
+    _auth(key)
     code, d = await _env("POST", "/inject",
                          params={"fault": fault, "target": target,
                                  "clear": str(clear).lower(), "key": API_KEY})
@@ -259,7 +278,9 @@ async def inj_active():
 
 
 @app.post("/api/inj/inject")
-async def inj_inject(id: str, target: str, ttl: int | None = None, params: str | None = None):
+async def inj_inject(id: str, target: str, ttl: int | None = None, params: str | None = None,
+                     key: str = ""):
+    _auth(key)
     q = {"id": id, "target": target, "key": API_KEY}
     if ttl is not None:
         q["ttl"] = ttl
@@ -272,7 +293,8 @@ async def inj_inject(id: str, target: str, ttl: int | None = None, params: str |
 
 
 @app.post("/api/inj/clear")
-async def inj_clear(handle: str):
+async def inj_clear(handle: str, key: str = ""):
+    _auth(key)
     code, d = await _inj("POST", "/clear", params={"handle": handle, "key": API_KEY})
     if code >= 400:
         raise HTTPException(code, d.get("detail", "해제 실패"))
@@ -280,14 +302,16 @@ async def inj_clear(handle: str):
 
 
 @app.post("/api/inj/clear_all")
-async def inj_clear_all():
+async def inj_clear_all(key: str = ""):
+    _auth(key)
     _, d = await _inj("POST", "/clear_all", params={"key": API_KEY})
     return d
 
 
 @app.post("/api/timescale")
-async def timescale(value: float):
+async def timescale(value: float, key: str = ""):
     """시간 배속. 유휴 랩은 열이 천천히 오르므로 강사가 수업 속도에 맞춘다."""
+    _auth(key)
     code, d = await _env("POST", "/timescale", params={"value": value, "key": API_KEY})
     if code >= 400:
         raise HTTPException(code, d.get("detail", "배속 변경 실패"))
@@ -295,7 +319,8 @@ async def timescale(value: float):
 
 
 @app.post("/api/reset")
-async def reset():
+async def reset(key: str = ""):
+    _auth(key)
     _, d = await _env("POST", "/reset", params={"key": API_KEY})
     _cache.clear()
     return d

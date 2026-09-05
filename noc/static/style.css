@@ -450,3 +450,16 @@ tr.shed td:first-child::after{content:" · 차단됨";color:var(--red);font-size
   padding:5px 7px;color:var(--tx);font-family:var(--mono);font-size:11px
 }
 .pin input:focus{outline:none;border-color:var(--cyan)}
+
+
+/* ── 강사 키 ─────────────────────────────────────────────────────
+   보는 것은 열어 두고 누르는 것만 잠근다. 그 경계를 패널 머리에 둔다 — 키 칸이
+   보이지 않는 곳에 있으면 강사가 왜 안 눌리는지 모른 채 헤맨다. */
+.inj-key { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+.inj-key input { background: #0a1420; border: 1px solid var(--line); color: var(--tx);
+  border-radius: 6px; padding: 5px 9px; font: inherit; font-size: 12px; width: 168px; }
+.inj-key input:focus { outline: 1px solid var(--cyan); border-color: var(--cyan); }
+.inj-key input.bad { border-color: var(--red); outline: 1px solid var(--red); }
+.inj-keyhint { padding: 6px 16px 0; font-size: 11px; line-height: 1.5; color: var(--dim); }
+.inj-keyhint code { background: #0a1420; border: 1px solid var(--line); border-radius: 4px;
+  padding: 0 4px; font-size: 10.5px; color: var(--tx); }

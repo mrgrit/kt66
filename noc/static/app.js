@@ -1413,11 +1413,30 @@ async function refreshInj() {
 async function get(url) {
   const r = await fetch(url); if (!r.ok) throw new Error(`${url} → ${r.status}`); return r.json();
 }
+/* 강사 키 — 상태를 바꾸는 요청에만 붙는다.
+ *
+ * 이 화면은 학생이 보라고 있다. 층을 돌리고 경보를 읽는 것은 전부 열려 있어야 하고,
+ * 잠그는 것은 고장 주입·해제·시간배속·초기화뿐이다. 그런데 그 버튼들이 아무나 누를 수
+ * 있는 자리에 있었다 — 수업 중에 학생이 장난으로 누르면 그대로 들어갔다.
+ *
+ * 부하 차단(/api/shed)에도 키가 붙지만 서버가 그 라우트에서는 보지 않는다. ENV-03 은
+ * 학생이 무엇을 끊을지 판단하는 실습이라 잠그면 실습 자체가 없어진다. 키를 붙이는 쪽이
+ * 아니라 **보는 쪽**을 라우트마다 고른다 — 화면이 무엇을 잠글지 정하면 우회할 길이 생긴다.
+ */
+const IKEY = () => (document.getElementById('inj-key')?.value || '').trim();
+
 async function post(url, params) {
   const q = new URLSearchParams(Object.fromEntries(
-    Object.entries(params).map(([k, v]) => [k, String(v)])));
+    Object.entries({ ...params, key: IKEY() }).map(([k, v]) => [k, String(v)])));
   const r = await fetch(`${url}?${q}`, { method: 'POST' });
-  if (!r.ok) alert(`실패: ${(await r.json().catch(() => ({}))).detail || r.status}`);
+  if (!r.ok) {
+    const d = (await r.json().catch(() => ({}))).detail;
+    if (r.status === 401) {
+      const el = document.getElementById('inj-key');
+      if (el) { el.focus(); el.classList.add('bad'); setTimeout(() => el.classList.remove('bad'), 1500); }
+    }
+    alert(`실패: ${d || r.status}`);
+  }
   return r.json().catch(() => ({}));
 }
 async function poll() {
@@ -1458,6 +1477,14 @@ async function boot() {
 $$('#tabs .tab').forEach(t => t.onclick = () => selectTab(t.dataset.tab));
 $('#dr-close').onclick = () => { $('#drawer').hidden = true; SELECTED = null; };
 $('#ups-close').onclick = () => { upsDismissed = true; $('#ups-modal').hidden = true; };
+/* 키는 브라우저에만 남는다. 강사 노트북에서 한 번 넣으면 다음 수업에도 그대로 있다. */
+{
+  const el = document.getElementById('inj-key');
+  if (el) {
+    el.value = localStorage.getItem('kt66_noc_key') || '';
+    el.oninput = () => localStorage.setItem('kt66_noc_key', IKEY());
+  }
+}
 $('#btn-instructor').onclick = async () => { $('#inj-modal').hidden = false;
   renderInjector(); await refreshInj(); };
 $('#inj-close').onclick = () => $('#inj-modal').hidden = true;
