@@ -1220,9 +1220,9 @@ function renderUps() {
     <div class="ups-stat ${p.ups_charge_pct < 30 ? 'crit' : ''}"><label>배터리</label>
       <b>${p.ups_charge_pct}%</b><small>분당 ${p.drain_pct_per_min}% 감소</small></div>
     <div class="ups-stat ${p.ups_runtime_min < 10 ? 'crit' : ''}"><label>잔여 시간</label>
-      <b>${p.ups_runtime_min}분</b><small>현재 부하 유지 시</small></div>
+      <b>${p.ups_runtime_min}분</b><small>배터리 실부하 ${p.battery_kw}kW 기준</small></div>
     <div class="ups-stat"><label>총 부하</label><b>${p.total_kw.toFixed(1)}kW</b>
-      <small>정격 ${p.rated_kw}kW</small></div>
+      <small>정격 ${p.rated_kw}kW · UPS 손실 +${(p.battery_kw - p.total_kw).toFixed(2)}kW</small></div>
     <div class="ups-stat"><label>냉방</label>
       <b style="color:${p.generator_running ? 'var(--green)' : 'var(--red)'}">${
         p.generator_running ? '가동' : '정지'}</b><small>CRAC 은 UPS 를 타지 않는다</small></div>`;

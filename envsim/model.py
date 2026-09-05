@@ -124,7 +124,19 @@ class PowerState:
     total_kw: float = 0.0
     measured_kw: float = 0.0
     drain_pct_per_min: float = 0.0
+    ups_efficiency: float = 0.96
     pdu_load: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def battery_kw(self) -> float:
+        """배터리에서 실제로 빠져나가는 전력.
+
+        PDU 로 total_kw 를 **내보내려면** UPS 는 그보다 많이 끌어와야 한다 — 이중변환
+        손실이 그만큼 있다. 예전에는 total_kw 를 그대로 썼고, 그래서 잔여 시간이
+        4% 낙관적으로 나왔다. 냉방은 여기 없다: 실제 DC 에서 CRAC 은 UPS 를 타지 않고
+        (_compute_thermal 의 주석과 같은 전제다), 이 랩도 정전 즉시 펌프가 멈춘다.
+        """
+        return self.total_kw / max(self.ups_efficiency, 0.01)
 
 
 class Simulator:
@@ -159,7 +171,8 @@ class Simulator:
 
         ups = assets["facility"]["ups"][0]
         cap = float(ups["battery_kwh"])
-        self.power = PowerState(ups_capacity_kwh=cap, ups_charge_kwh=cap)
+        self.power = PowerState(ups_capacity_kwh=cap, ups_charge_kwh=cap,
+                                ups_efficiency=float(ups.get("efficiency", 0.96)))
         self.asset_kw: dict[str, float] = {}
         self.asset_util: dict[str, float] = {}
         self._rack_kw: dict[str, float] = {}
@@ -497,7 +510,7 @@ class Simulator:
                                        p.ups_charge_kwh + p.ups_capacity_kwh * 0.03 * dt_h * 60)
             else:
                 p.on_battery = True
-                p.ups_charge_kwh = max(0.0, p.ups_charge_kwh - p.total_kw * dt_h)
+                p.ups_charge_kwh = max(0.0, p.ups_charge_kwh - p.battery_kw * dt_h)
 
         # 연료 소비 — 발전기가 도는 동안만. 누유가 있으면 훨씬 빨리 준다.
         ft = (fac.get("fuel_tank") or [{}])[0]
@@ -512,7 +525,7 @@ class Simulator:
 
         # 분당 감소율 — 캡처의 "분당 5.4% 감소"
         if p.on_battery and p.ups_capacity_kwh > 0:
-            p.drain_pct_per_min = p.total_kw / p.ups_capacity_kwh * 100.0 / 60.0
+            p.drain_pct_per_min = p.battery_kw / p.ups_capacity_kwh * 100.0 / 60.0
         else:
             p.drain_pct_per_min = 0.0
 
@@ -523,14 +536,17 @@ class Simulator:
 
     @property
     def ups_runtime_min(self) -> float:
-        load = max(self.power.total_kw, 0.01)
-        return self.power.ups_charge_kwh / load * 60.0
+        return self.power.ups_charge_kwh / max(self.power.battery_kw, 0.01) * 60.0
 
     def runtime_if_shed(self, group: str) -> float:
-        """이 그룹을 끊으면 잔여 몇 분인가 — ENV-03 판단의 근거."""
+        """이 그룹을 끊으면 잔여 몇 분인가 — ENV-03 판단의 근거.
+
+        학생이 이 숫자를 보고 무엇을 끊을지 정한다. 낙관적이면 안 된다 — 부하를 줄이면
+        UPS 변환 손실도 같은 비율로 준다(효율은 부하와 무관한 상수로 둔다).
+        """
         drop = sum(kw for aid, kw in self.asset_kw.items()
                    if self._group_of(aid) == group)
-        load = max(self.power.total_kw - drop, 0.01)
+        load = max(self.power.total_kw - drop, 0.01) / max(self.power.ups_efficiency, 0.01)
         return self.power.ups_charge_kwh / load * 60.0
 
     def _group_of(self, asset_id: str) -> str | None:
@@ -616,6 +632,11 @@ class Simulator:
         e = self.eff
         it_kw = sum(self._rack_kw.values())
         p = self.plant
+        # 냉방 계통은 UPS 를 타지 않는다(_compute_thermal 의 전제와 같다). 그런데 이
+        # 함수는 그 사실을 몰라서, 배터리 단독 급전 중에도 팬 3.8kW·냉각탑 0.66kW 를
+        # 계속 청구했다 — 냉방이 다 죽은 상태에서 화면은 PUE 1.55 를 보여 줬다.
+        # 학생이 그걸 읽고 "설비가 배터리를 먹고 있다"고 오진하기 딱 좋았다.
+        cooling_powered = self.power.utility_ok or self.power.generator_running
 
         # 냉동기 — 걷어낸 열을 COP 로 나눈 것이 소비 전력이다
         cop = float((fac.get("chiller") or [{}])[0].get("cop", 5.0))
@@ -628,15 +649,15 @@ class Simulator:
         load = max(0.3, min(1.0, p.reject_kw / cap_total))
         fan_kw = 0.0
         for c in fac.get("crac", []):
-            if not self._faulted("crac_fail", c["id"]):
+            if not self._faulted("crac_fail", c["id"]) and cooling_powered:
                 fan_kw += float(c.get("fan_kw", 0.0)) * load
         for f in fac.get("fan_coil", []):
-            if not self._faulted("fan_coil_fail", f["id"]):
+            if not self._faulted("fan_coil_fail", f["id"]) and cooling_powered:
                 fan_kw += float(f.get("fan_kw", 0.0)) * load
         tower_kw = 0.0
         water_lpm = 0.0
         for ct in fac.get("cooling_tower", []):
-            if self._faulted("cooling_tower_fail", ct["id"]):
+            if self._faulted("cooling_tower_fail", ct["id"]) or not cooling_powered:
                 continue
             share = min(1.0, p.reject_kw / max(float(ct["capacity_kw"]), 0.01))
             tower_kw += float(ct.get("fan_kw", 0.0)) * max(0.3, share)
@@ -649,7 +670,9 @@ class Simulator:
         ups_eff = float((fac.get("ups") or [{}])[0].get("efficiency", 0.96))
         tr_eff = float((fac.get("transformer") or [{}])[0].get("efficiency", 0.985))
         ups_loss = it_kw * (1.0 / ups_eff - 1.0)
-        tr_loss = it_kw * (1.0 / tr_eff - 1.0)
+        # 변압기는 UPS 위쪽이다. 상용전원이 끊기면 그 손실도 같이 사라진다 —
+        # 배터리나 발전기에서 오는 전기는 이 변압기를 지나지 않는다.
+        tr_loss = it_kw * (1.0 / tr_eff - 1.0) if self.power.utility_ok else 0.0
 
         e.breakdown = {
             "chiller": round(chiller_kw, 2),
@@ -855,6 +878,10 @@ class Simulator:
                 "generator_failed": p.generator_failed,
                 "ups_charge_pct": round(p.ups_charge_kwh / p.ups_capacity_kwh * 100, 1),
                 "ups_runtime_min": round(self.ups_runtime_min, 1),
+                # 잔여 시간이 무엇으로 나눠졌는지 함께 낸다. 숫자만 주면 학생도
+                # 에이전트도 "무엇이 배터리를 먹고 있나"를 추측하기 시작한다.
+                "battery_kw": round(p.battery_kw, 2),
+                "ups_efficiency": p.ups_efficiency,
                 "drain_pct_per_min": round(p.drain_pct_per_min, 2),
                 "total_kw": round(p.total_kw, 2),
                 "measured_kw": round(p.measured_kw, 3),   # 실물(dgx-spark-01) 실측. 전체 아님
