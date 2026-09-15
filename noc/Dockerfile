@@ -7,11 +7,13 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 TZ=Asia/Seoul
 
 WORKDIR /app
-COPY requirements.txt .
+COPY noc/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py ./
-COPY static ./static
+COPY noc/app.py ./
+COPY noc/static ./static
+
+COPY ui/ /app/ui/
 
 EXPOSE 8000
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-API_KEY = os.getenv("API_KEY", "ccc-api-key-2026")
+API_KEY = os.environ["API_KEY"]
 
 app = FastAPI(title="kt66 Bastion API", version="0.1.0")
 

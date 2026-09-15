@@ -33,6 +33,7 @@ defaults:
       ticket_create: allow
       ticket_update: allow
       # 상태를 바꾸는 것은 기본이 ask 다
+      simulation_control: ask     # exact active virtual fault only; L2 requires approval
       env_alarm_ack: ask
       cooling_adjust: ask
       power_switch: ask
@@ -99,6 +100,10 @@ defaults:
 # ── 근무자별 조정 ─────────────────────────────────────────────────
 # defaults 를 덮어쓴다. 느슨하게 만드는 방향은 명시적으로만 가능하다.
 workers:
+  service-desk:
+    constrain:
+      permission:
+        delegate_work: allow
   facility-engineer:
     constrain:
       permission:
@@ -161,3 +166,16 @@ levers:
   - "permission 을 전부 allow 로 바꾸면? — 빨라지지만 되돌릴 수 없는 조치가 나간다"
   - "ops-lead 에게 실행 권한을 주면? — 승인이 형식이 되고 감사가 무너진다"
   - "ratchet 을 지우면? — 같은 사고를 다시 겪는다. 지우고 재현해 보는 것이 실습이다"
+
+# Persistent orchestration; original loop cadence remains the source of scheduling.
+execution:
+  enabled: true
+  timezone: Asia/Seoul
+  poll_seconds: 5
+  max_concurrent_sessions: 2
+  max_attempts: 2
+  retry_backoff_sec: 30
+  quota_backoff_sec: 900
+  max_catchup_minutes: 30
+  daily_session_limit: null  # optional configured cap; subscription limits still apply
+  dispatcher: service-desk

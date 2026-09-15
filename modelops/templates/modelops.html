@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>kt66 모델 운영</title>
 <link rel="stylesheet" href="/static/modelops.css">
+<link rel="stylesheet" href="/ui/console.css">
 </head>
-<body>
+<body data-console="modelops">
 <header>
   <h1>kt66 <span>모델 운영</span></h1>
   <div class="head-right">
@@ -14,8 +15,7 @@
     <span id="backend" class="pill"></span>
     <label class="keyfield">
       <span class="keyrow">API 키 <input id="key" type="password" placeholder="API_KEY" autocomplete="off"></span>
-      <small class="keyhint">이 콘솔의 <b>쓰기 잠금</b>이다 — 서버 <code>.env</code> 의 <code>API_KEY</code>
-        (건드리지 않았으면 <code>ccc-api-key-2026</code>). LLM API 키가 아니다.</small>
+      <small class="keyhint">운영 키를 입력하면 설정을 변경할 수 있습니다.</small>
     </label>
   </div>
 </header>
@@ -109,6 +109,7 @@
   <div id="evalout" class="cards"></div>
 </section>
 
+<script src="/ui/console.js"></script>
 <script src="/static/modelops.js"></script>
 </body>
 </html>

@@ -247,6 +247,13 @@ ADAPTERS = {"bastion": render_bastion, "hermes": render_hermes,
 
 
 def render(worker, runtime=None):
+    chosen = runtime or get(worker, "runtime", "claude")
+    if chosen in ("claude", "codex"):
+        import harness_compiler
+        if chosen != get(worker, "runtime"):
+            raise ValueError("save the worker runtime before rendering")
+        dest, manifest = harness_compiler.compile_worker(worker["id"], ROOT)
+        return chosen, [dest / ("CLAUDE.md" if chosen == "claude" else "AGENTS.md"), dest / "manifest.json"]
     rt = runtime or get(worker, "runtime", "bastion")
     if rt not in ADAPTERS:
         sys.exit(f"[agentctl] 알 수 없는 런타임: {rt} (가능: {', '.join(RUNTIMES)})")

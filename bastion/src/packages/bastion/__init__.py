@@ -1486,7 +1486,7 @@ def shell_exec(command: str, timeout: int = 60) -> dict:
 _VENV = f"source {CCC_DIR}/.venv/bin/activate 2>/dev/null"
 _ENVLOAD = f"set -a; [ -f {CCC_DIR}/.env ] && source {CCC_DIR}/.env; set +a; export PYTHONPATH={CCC_DIR}"
 _API_START = f"{_VENV}; {_ENVLOAD}; nohup python3 -m uvicorn apps.ccc_api.src.main:app --host 0.0.0.0 --port 9100 > /tmp/ccc-api.log 2>&1 & echo \"API started (pid: $!)\""
-_API_KEY = os.getenv("CCC_API_KEY", "ccc-api-key-2026")
+_API_KEY = (os.environ.get("CCC_API_KEY") or os.environ["API_KEY"])
 
 
 def ccc_manage(action: str, params: dict = None) -> dict:

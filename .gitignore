@@ -53,3 +53,26 @@ agents/.bak/
 # 무너진다. 감사인의 루프 이름도 evidence-collection 이다. 그래서 티켓은 git 에 남긴다.
 # 러너의 내부 상태만 뺀다(진행 중 사건 추적용이지 기록이 아니다).
 agents/tickets/.state.json
+
+# Worker runner transient locks/health (execution audit remains evidence).
+agents/tickets/.runner.lock
+agents/tickets/.state.tmp
+agents/tickets/runner-status.json
+agents/tickets/runner-status.tmp
+
+
+# Local immutable harnesses, runtime queues and operational evidence
+agents/runtimes/
+agents/evidence/
+agents/tickets/.engine.lock
+agents/tickets/loop-engine.sqlite3*
+agents/tickets/loop-engine-status.json
+agents/tickets/approvals/
+agents/tickets/delegations/
+agents/tickets/worker-memory/
+agents/tickets/cycle-state/
+
+# Local diagnostic runs (existing tracked teaching examples are retained)
+agents/tickets/20*.md
+agents/tickets/session-work-*.md
+agents/tickets/*.jsonl

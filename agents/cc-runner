@@ -41,6 +41,10 @@
   서로 무관한 두 고장을 동시에 주입하면 한 티켓에 섞인다 — 알고 쓰는 단순화다.
 """
 import argparse
+import copy
+import tempfile
+import datetime
+import fcntl
 import importlib.machinery
 import importlib.util
 import json
@@ -58,7 +62,23 @@ TICKETS = ROOT / "tickets"
 STATE = TICKETS / ".state.json"
 GRAPH = ROOT / "graph" / "experience.json"
 
-ENVSIM = os.getenv("ENVSIM_URL", "http://127.0.0.1:8010")
+def default_envsim():
+    # Compose may publish only on INT_HOST_IP; never source .env as shell code.
+    host = os.getenv("INT_HOST_IP", "")
+    if not host:
+        envfile = ROOT.parent / ".env"
+        if envfile.exists():
+            for line in envfile.read_text().splitlines():
+                key, sep, value = line.partition("=")
+                if key.strip() == "INT_HOST_IP" and sep:
+                    host = value.strip().strip("\"'")
+                    break
+    if not re.fullmatch(r"[A-Za-z0-9.-]+", host or "") or host == "0.0.0.0":
+        host = "127.0.0.1"
+    return f"http://{host}:8010"
+
+
+ENVSIM = os.getenv("ENVSIM_URL") or default_envsim()
 POLL_SEC = int(os.getenv("CC_RUNNER_POLL", "30"))
 MAX_SESSIONS = int(os.getenv("CC_RUNNER_MAX_SESSIONS", "5"))
 DISPATCHER = "service-desk"          # 접수자. roster 에 있는 id 여야 한다
@@ -67,13 +87,24 @@ SESSION_TIMEOUT = int(os.getenv("CC_RUNNER_TIMEOUT", "600"))
 # 세션에 주는 도구. 자기 자리(CLAUDE.md·페르소나)를 읽는 것까지만.
 # 상태를 바꾸는 도구(Bash·Write·Edit)는 주지 않는다 — L2 의 "상태를 바꾸지 않는다"를
 # 프롬프트가 아니라 실행 환경으로 지킨다.
-ALLOWED_TOOLS = "Read Glob Grep"
+# No tools are exposed in the automated analysis path.
+ALLOWED_TOOLS = ""
 
 # cc-session 의 헬퍼를 재사용한다(환경 청소·모델 별칭·렌더). 두 벌 두면 한쪽만 고쳐진다.
 _loader = importlib.machinery.SourceFileLoader("cc_session", str(ROOT / "cc-session"))
 ccs = importlib.util.module_from_spec(importlib.util.spec_from_loader("cc_session", _loader))
 _loader.exec_module(ccs)
 agentctl = ccs.agentctl
+_session_loader = importlib.machinery.SourceFileLoader("kt66_session_cli", str(ROOT / "session_cli.py"))
+session_cli = importlib.util.module_from_spec(importlib.util.spec_from_loader("kt66_session_cli", _session_loader))
+_session_loader.exec_module(session_cli)
+_event_loader = importlib.machinery.SourceFileLoader("kt66_instructor_events", str(ROOT / "instructor_events.py"))
+instructor_events = importlib.util.module_from_spec(importlib.util.spec_from_loader("kt66_instructor_events", _event_loader))
+_event_loader.exec_module(instructor_events)
+
+
+NOC_URL = os.getenv("NOC_URL", default_envsim().rsplit(":", 1)[0] + ":8020")
+
 
 try:
     import yaml
@@ -120,14 +151,26 @@ def fast_path(alarms, loops, workers):
         hit = sorted(active & set((lp.get("triggers") or {}).get("alarms") or []))
         if not hit:
             continue
-        covered.update(hit)
         w = worker(workers, lp.get("owner"))
         if not w:
             log(f"⚠ 루프 {lp.get('id')} 의 담당 {lp.get('owner')} 가 명단에 없다 — 건너뛴다")
             continue
+        if lp.get("id") not in (w.get("loops") or []):
+            continue
+        covered.update(hit)
         slot = by_worker.setdefault(w["id"], {"w": w, "loops": [], "alarms": set(), "why": "정적 트리거"})
         slot["loops"].append(lp)
         slot["alarms"].update(hit)
+    for alarm in alarms:
+        if alarm.get("source") != "instructor":
+            continue
+        w = worker(workers, alarm.get("owner"))
+        if not w:
+            continue
+        covered.add(alarm["id"])
+        slot = by_worker.setdefault(w["id"], {"w": w, "loops": [], "alarms": set(),
+                                             "why": "instructor event + SIEM evidence"})
+        slot["alarms"].add(alarm["id"])
     for s in by_worker.values():
         s["alarms"] = sorted(s["alarms"])
     return by_worker, sorted(active - covered)
@@ -141,7 +184,7 @@ def persona_of(wid):
 
 def snapshot(state):
     """판단에 쓰는 수치만. 컨테이너 목록 같은 건 뺀다."""
-    keep = ("power", "plant", "weather", "fuel", "battery", "efficiency", "shed_analysis")
+    keep = ("power", "plant", "weather", "fuel", "battery", "efficiency", "shed_analysis", "instructor_injections", "siem_evidence")
     return {k: state[k] for k in keep if k in state}
 
 
@@ -160,7 +203,11 @@ def context_block(alarms, state, events):
         "## 지금 떠 있는 경보",
         *alarm_lines(alarms),
         "",
-        "## 계통 실측값 (envsim)",
+        "## 관측 자료 (envsim 가상 시설 + 실제 인프라 로그)",
+        "envsim 시설(문/CCTV/전력/냉방)은 가상이다. 실제 현장 출동을 요구하지 말고",
+        "fault와 target을 특정한 시뮬레이터 복구 방법과 복구 후 관측 조건을 제시한다.",
+        "instructor 주입 사실은 공격 탐지 성공의 증거가 아니다. siem_evidence의 실제 로그를 대조한다.",
+        "실제 인프라의 로그나 조치 증거가 없으면 수행했다고 주장하지 않는다.",
         "```json",
         json.dumps(snapshot(state), ensure_ascii=False, indent=1),
         "```",
@@ -221,54 +268,16 @@ def triage_prompt(w, alarms, unmatched, matched, state, events, workers):
     ])
 
 
+
+
 def worker_prompt(w, loops_hit, my_alarms, alarms, state, events, ticket_so_far):
-    autonomy = agentctl.get(w, "autonomy", "L1")
-    parts = [
-        f"너는 kt66 미니 AI데이터센터의 {agentctl.get(w,'name')}"
-        f"({agentctl.get(w,'floor')} · {agentctl.get(w,'zone')} 존)다.",
-        "이번 회차에 주어진 것은 아래가 전부다. 랩을 직접 뒤질 수 없다 — 필요한 수치는 다 여기 있다.",
-        "",
-        "## 네 역할 (페르소나 원문)",
-        persona_of(w["id"]),
-        "",
-        "## 네가 불려 온 이유 — 네 담당 경보",
-        *alarm_lines(alarms, set(my_alarms)),
-        "",
-        *context_block(alarms, state, events),
-    ]
-    if loops_hit:
-        parts += ["", "## 네가 도는 루프 (원문)"]
-        for lp in loops_hit:
-            parts += ["```yaml",
-                      yaml.safe_dump(lp, allow_unicode=True, sort_keys=False).strip(), "```"]
-    if ticket_so_far:
-        parts += ["", "## 이 사건의 티켓 — 지금까지 적힌 것",
-                  "다른 사람이 이미 쓴 내용이다. **되풀이하지 말고**, 네 관점에서 더할 것과",
-                  "동의하지 않는 지점을 적는다.", "", "```markdown", ticket_so_far.strip(), "```"]
+    return ("An operational observation is available. Perform your organizational role "
+            "under the loaded harness; decide what evidence and follow-up are warranted.\n"
+            + json.dumps({"assigned_alarm_ids": my_alarms, "alarms": alarms,
+                          "observations": snapshot(state), "recent_events": events[-12:],
+                          "due_loops": [lp.get("id") for lp in loops_hit],
+                          "ticket_evidence": ticket_so_far}, ensure_ascii=False))
 
-    parts += ["", f"## 자율성 {autonomy} — 지켜야 한다"]
-    if autonomy in ("L1", "L2"):
-        parts += [
-            "- **상태를 바꾸지 않는다.** 부하 차단·냉방 조정·전원 절체를 직접 하지 않는다.",
-            "- 조치는 **제안**하고, 승인은 ops-lead(운영 리드)에게 요청한다.",
-            "- 도구도 읽기만 주어져 있다. 못 하는 게 아니라 **하면 안 되는** 것이다.",
-        ]
-    else:
-        parts.append("- 등록된 런북 범위 안에서만 실행한다.")
-
-    parts += [
-        "",
-        "## 내야 하는 것 (이 순서, 이 제목으로)",
-        "### 1. 무슨 일이 났나", "한 문단. 시간 순서로.",
-        "### 2. 원인 추정", "근거가 되는 수치를 함께 적는다. 단일 측정값으로 단정하지 않는다.",
-        "### 3. 영향 범위", "어느 층·존·자산이, 언제까지.",
-        "### 4. 조치안", "우선순위 순. 각각에 **되돌리기 경로**를 함께 적는다.",
-        "### 5. 승인 요청", "ops-lead 에게. 무엇을 승인받아야 하는지 한 줄로.",
-        "",
-        "규칙: '여유 있음'·'전반적으로 정상' 같은 문장은 쓰지 않는다. 숫자로 적는다.",
-        "시간이 걸린 판단에는 **몇 분 남았는지**를 반드시 넣는다.",
-    ]
-    return "\n".join(parts)
 
 
 def approval_prompt(w, alarms, state, events, ticket_so_far):
@@ -295,39 +304,41 @@ def approval_prompt(w, alarms, state, events, ticket_so_far):
 
 
 # ── 세션 ────────────────────────────────────────────────────────────
-def run_session(w, prompt, dry, label):
-    seat = ccs.render_seat(w)
-    alias, why = ccs.model_alias(w)
-    if not alias:
-        log(f"⚠ {why} — 세션 기본 모델로 돌린다")
+def run_session(w, prompt, dry, label, schema=None):
+    rt = agentctl.get(w, "runtime")
+    entry = agentctl.load_models().get(agentctl.get(w, "model"), {})
+    alias = entry.get("name")
+    expected = {"claude": "claude-code", "codex": "codex-cli"}
     if dry:
-        print(f"\n───── {label} / {w['id']} 프롬프트 ({len(prompt)}자, --model "
-              f"{alias or '없음'}) ─────")
+        print(f"DRY RUN: fresh {rt} session / {label} / {w['id']} / model={alias}")
         print(prompt)
-        print("───── 끝 ─────\n")
-        return alias, f"(dry-run — 세션을 띄우지 않았다)"
-
-    claude = ccs.shutil.which("claude")
-    if not claude:
-        log("claude 를 찾지 못했다 — 설치하고 구독 계정으로 로그인한다")
-        return alias, None
-
-    env = dict(os.environ)
-    ccs.scrub(env)                                   # 구독 경로만 남긴다
-    cmd = [claude, "-p", prompt, "--allowed-tools", ALLOWED_TOOLS]
-    if alias:
-        cmd += ["--model", alias]
-    t0 = time.time()
+        return alias, "(dry-run; no session created)"
+    started = time.time()
+    result = {"worker": w["id"], "role": label, "runtime": rt, "model": alias,
+              "started_at": started, "status": "failed", "mode": "analysis_only",
+              "execution": "fresh_cli_session"}
+    body = None
     try:
-        r = subprocess.run(cmd, cwd=str(seat), env=env, capture_output=True,
-                           text=True, timeout=SESSION_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        return alias, f"(세션 시간 초과 — {SESSION_TIMEOUT}초)"
-    dt = round(time.time() - t0, 1)
-    if r.returncode != 0:
-        return alias, f"(세션 실패 rc={r.returncode}, {dt}초)\n\n{r.stderr.strip()[:2000]}"
-    log(f"{w['id']} / {label} 종료 — {dt}초, {len(r.stdout)}자")
-    return alias, r.stdout.strip()
+        if rt not in expected or entry.get("endpoint") != expected[rt] or not alias:
+            raise session_cli.SessionError("unsupported_session_runtime_or_model")
+        import harness_compiler
+        dest, manifest = harness_compiler.compile_worker(w["id"], ROOT)
+        evidence = ROOT / "evidence" / ("session-" + str(time.time_ns()) + "-" + w["id"])
+        data = session_cli.run(rt, alias, prompt, timeout=min(180, SESSION_TIMEOUT),
+                               schema=schema, harness=dest, evidence_dir=evidence)
+        result.update(harness_version=manifest["version"], evidence_dir=str(evidence), mode="policy_tools")
+        body = data["body"]
+        result.update(status="succeeded", session_id=data["session_id"],
+                      fresh_session=data["fresh_session"], auth=data["auth"],
+                      usage=data.get("usage", {}), model_usage=data.get("model_usage", {}))
+    except (OSError, ValueError, subprocess.TimeoutExpired, session_cli.SessionError) as e:
+        result["error"] = str(e) if isinstance(e, session_cli.SessionError) else type(e).__name__
+        log(f"{w['id']} / {label}: {result['error']}")
+    result["duration_sec"] = round(time.time() - started, 3)
+    TICKETS.mkdir(parents=True, exist_ok=True)
+    with (TICKETS / "runs.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(result, ensure_ascii=False) + "\n")
+    return alias, body
 
 
 def parse_routing(text):
@@ -355,12 +366,14 @@ def load_state():
 
 def save_state(st):
     TICKETS.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp = STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(STATE)
 
 
 def open_ticket(alarms):
     TICKETS.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     p = TICKETS / f"{stamp}.md"
     ids = sorted({a["id"] for a in alarms})
     p.write_text("\n".join([
@@ -377,6 +390,15 @@ def open_ticket(alarms):
 
 def append(path, title, w, model, body):
     p = pathlib.Path(path)
+    session_line = ""
+    audit_path = TICKETS / "runs.jsonl"
+    if audit_path.is_file():
+        try:
+            latest = json.loads(audit_path.read_text().splitlines()[-1])
+            if latest.get("worker") == w["id"] and latest.get("status") == "succeeded":
+                session_line = "Session: " + str(latest.get("session_id", "unknown"))
+        except (ValueError, IndexError):
+            pass
     p.write_text(p.read_text(encoding="utf-8") + "\n".join([
         "",
         "---",
@@ -385,6 +407,7 @@ def append(path, title, w, model, body):
         f"*{time.strftime('%H:%M:%S')} · 자율성 {agentctl.get(w,'autonomy')} · "
         f"{agentctl.get(w,'model')} → --model {model or '세션 기본'}*",
         "",
+        session_line,
         (body or "(응답 없음)").strip(),
         "",
     ]), encoding="utf-8")
@@ -523,8 +546,10 @@ def record_experience(inc, workers):
 
 
 # ── 한 바퀴 ─────────────────────────────────────────────────────────
-def sweep(dry=False):
+def _sweep(dry=False):
     alarms = envsim("/alarms").get("active", [])
+    injections = instructor_events.active(NOC_URL)
+    alarms += instructor_events.to_alarms(injections)
     st = load_state()
     inc = st.get("incident")
 
@@ -543,6 +568,13 @@ def sweep(dry=False):
         return 0
 
     state = envsim("/state")
+    records = instructor_events.siem_records(
+        [i["handle"] for i in injections], [a["id"] for a in alarms if a.get("source") != "instructor"])
+    if injections and not all(any(i["handle"] in e["full_log"] for e in records) for i in injections):
+        log("instructor event detected; waiting for actual SIEM receipt evidence")
+        return 0
+    state["instructor_injections"] = [dict(id=i["id"], handle=i["handle"], target=i["target"], domain=i["domain"]) for i in injections]
+    state["siem_evidence"] = records
     events = envsim("/events?limit=40").get("events", [])
     loops, workers = load_loops(), agentctl.load_roster()
 
@@ -562,20 +594,39 @@ def sweep(dry=False):
         inc["roles"][wid] = {"role": role, "alarms": sorted(set(alarm_ids)),
                              "at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
+    inc.setdefault("attempts", {wid: 1 for wid in inc["engaged"]})
+    inc.setdefault("last_attempt", {})
+
     def left():
-        return MAX_SESSIONS - len(inc["engaged"])
+        return MAX_SESSIONS - sum(inc["attempts"].values())
+
+    def invoke(w, prompt, dry, label, schema=None):
+        wid = w["id"]
+        inc["attempts"][wid] = inc["attempts"].get(wid, 0) + 1
+        inc["last_attempt"][wid] = time.time()
+        save_state(st)  # reserve before launch, including crashes and failures
+        alias, body = run_session(w, prompt, dry, label, schema=schema)
+        if body is None:
+            note(inc["ticket"], f"{wid}: session failed; no successful participation recorded.")
+        return alias, body
 
     def read_ticket():
         return pathlib.Path(inc["ticket"]).read_text(encoding="utf-8")
 
     def runnable(w, role):
         """돌릴 몸이 있는가. 없으면 티켓에 남기고 예산은 쓰지 않는다."""
-        if agentctl.get(w, "runtime") == "claude":
+        if inc["attempts"].get(w["id"], 0) >= 2:
+            return False
+        if time.time() - inc["last_attempt"].get(w["id"], 0) < 5:
+            return False
+        if agentctl.get(w, "runtime") in ("claude", "codex"):
             return True
         msg = (f"{role} {w['id']} 는 런타임이 {agentctl.get(w,'runtime')} 라 세션을 띄우지 못했다"
                f" — `./agentctl runtime {w['id']} claude`")
-        log(f"⚠ {msg}")
-        note(inc["ticket"], msg)
+        if w["id"] not in inc.setdefault("blocked_workers", []):
+            log(f"⚠ {msg}")
+            note(inc["ticket"], msg)
+            inc["blocked_workers"].append(w["id"])
         return False
 
     matched, unmatched = fast_path(alarms, loops, workers)
@@ -589,10 +640,11 @@ def sweep(dry=False):
             log(f"⚠ 접수자 {DISPATCHER} 가 명단에 없다 — 정적 매핑만으로 간다")
         elif runnable(d, "접수자"):
             log(f"접수 — 미배정 경보 {len(unmatched)}개 / 자동배정 {len(matched)}명")
-            alias, body = run_session(
+            alias, body = invoke(
                 d, triage_prompt(d, alarms, unmatched, matched, state, events, workers),
                 dry, "접수")
             if body is None:
+                save_state(st)
                 return 0
             inc["engaged"].append(DISPATCHER)
             took(DISPATCHER, "접수", inc["seen_alarms"])   # 접수자는 사건 전체를 본다
@@ -617,7 +669,9 @@ def sweep(dry=False):
     # 전문가로 예산을 다 쓰면 판정 없는 티켓이 남고, 그건 L2 절차가 아니다.
     approver = next((x for x in workers
                      if agentctl.get(x, "autonomy") == "approver"), None)
-    reserve = 1 if (approver and inc["verdicts"] + len(plan) >= 2) else 0
+    needs_approval = inc.get("needs_approval", False) or any(
+        agentctl.get(s["w"], "autonomy") == "L2" for s in plan.values())
+    reserve = 1 if (approver and (needs_approval or inc["verdicts"] + len(plan) >= 2)) else 0
 
     for wid, s in sorted(plan.items(), key=lambda kv: kv[0]):
         if left() - reserve <= 0:
@@ -627,7 +681,7 @@ def sweep(dry=False):
         if not runnable(s["w"], "담당"):
             continue
         log(f"{wid} 호출 — {s['why']} / 경보 {', '.join(s['alarms']) or '—'}")
-        alias, body = run_session(
+        alias, body = invoke(
             s["w"], worker_prompt(s["w"], s["loops"], s["alarms"], alarms, state, events,
                                   read_ticket()),
             dry, "소견")
@@ -635,14 +689,16 @@ def sweep(dry=False):
             break
         inc["engaged"].append(wid)
         inc["verdicts"] += 1
+        if agentctl.get(s["w"], "autonomy") == "L2":
+            inc["needs_approval"] = True
         took(wid, "소견", s["alarms"])
         append(inc["ticket"], "소견", s["w"], alias, body)
 
     # ── 승인 판정 ─────────────────────────────────────────────────
-    if (approver and inc["verdicts"] >= 2 and approver["id"] not in inc["engaged"]
+    if (approver and (inc["verdicts"] >= 2 or inc.get("needs_approval")) and approver["id"] not in inc["engaged"]
             and left() > 0 and runnable(approver, "승인자")):
         log(f"{approver['id']} 판정 — 소견 {inc['verdicts']}건")
-        alias, body = run_session(
+        alias, body = invoke(
             approver, approval_prompt(approver, alarms, state, events, read_ticket()),
             dry, "판정")
         if body is not None:
@@ -655,6 +711,203 @@ def sweep(dry=False):
     save_state(st)
     log(f"티켓 {pathlib.Path(inc['ticket']).name} — 세션 {len(inc['engaged'])}/{MAX_SESSIONS}")
     return len(inc["engaged"])
+
+
+def _isolated_preview(callback):
+    """Preview uses disposable copies and cannot close or erase a live incident."""
+    global TICKETS, STATE, GRAPH
+    old = TICKETS, STATE, GRAPH
+    st = copy.deepcopy(load_state())
+    with tempfile.TemporaryDirectory(prefix="kt66-preview-") as td:
+        TICKETS = pathlib.Path(td)
+        STATE = TICKETS / ".state.json"
+        GRAPH = TICKETS / "experience.json"
+        try:
+            if old[2].exists():
+                GRAPH.write_bytes(old[2].read_bytes())
+            if st.get("incident"):
+                source = pathlib.Path(st["incident"]["ticket"])
+                target = TICKETS / source.name
+                target.write_text(source.read_text() if source.exists() else "# Preview\n")
+                st["incident"]["ticket"] = str(target)
+            save_state(st)
+            return callback()
+        finally:
+            TICKETS, STATE, GRAPH = old
+
+
+def sweep(dry=False):
+    if dry:
+        return _isolated_preview(lambda: _sweep(True))
+    TICKETS.mkdir(parents=True, exist_ok=True)
+    with (TICKETS / ".runner.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            log("another runner is active; skipped")
+            return 0
+        return _sweep(False)
+
+
+def cron_matches(expression, now):
+    """Standard five-field cron, with cron's DOM/DOW OR semantics."""
+    bounds = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)]
+    fields = expression.split()
+    if len(fields) != 5:
+        raise ValueError("cadence must have five fields")
+    values = [now.minute, now.hour, now.day, now.month, (now.weekday() + 1) % 7]
+    matched = []
+    for i, (field, (lo, hi), value) in enumerate(zip(fields, bounds, values)):
+        selected = set()
+        for item in field.split(","):
+            base, slash, step_text = item.partition("/")
+            step = int(step_text) if slash else 1
+            if step <= 0:
+                raise ValueError("invalid cron step")
+            if base == "*":
+                start, end = lo, hi
+            elif "-" in base:
+                start, end = map(int, base.split("-"))
+            else:
+                start = int(base)
+                end = hi if slash else start
+            if not lo <= start <= end <= hi:
+                raise ValueError("cron value out of range")
+            selected.update(range(start, end + 1, step))
+        if i == 4 and 7 in selected:
+            selected.add(0)
+        matched.append(value in selected)
+    day = (matched[2] or matched[4]) if fields[2] != "*" and fields[4] != "*" else (matched[2] and matched[4])
+    return matched[0] and matched[1] and matched[3] and day
+
+
+def scheduled_sweep(dry=False, now=None):
+    """Opt-in periodic analysis. No actuator is attached to this scheduler."""
+    from zoneinfo import ZoneInfo
+    now = now or datetime.datetime.now(ZoneInfo(os.getenv("KT66_RUNNER_TZ", "Asia/Seoul")))
+    if dry:
+        return _isolated_preview(lambda: _scheduled_sweep(True, now))
+    TICKETS.mkdir(parents=True, exist_ok=True)
+    with (TICKETS / ".runner.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0
+        return _scheduled_sweep(False, now)
+
+
+def _scheduled_sweep(dry, now):
+    st = load_state()
+    slots = st.setdefault("scheduled", {})
+    workers, loops = agentctl.load_roster(), load_loops()
+    slot = now.isoformat(timespec="minutes")
+    due = []
+    for lid, lp in loops.items():
+        try:
+            matches = cron_matches(lp.get("cadence", ""), now)
+        except (ValueError, TypeError):
+            log(f"{lid}: invalid cadence")
+            continue
+        if matches and slots.get(lid, {}).get("slot") != slot:
+            due.append((lid, lp))
+    if not due:
+        return 0
+    state = envsim("/state")
+    alarms = envsim("/alarms").get("active", [])
+    events = envsim("/events?limit=40").get("events", [])
+    calls = 0
+    day = now.date().isoformat()
+    daily = st.setdefault("scheduled_daily", {"date": day, "calls": 0})
+    if daily.get("date") != day:
+        daily.update(date=day, calls=0)
+    daily_limit = int(os.getenv("KT66_SCHEDULED_DAILY_LIMIT", "20"))
+    for lid, lp in due:
+        w = worker(workers, lp.get("owner"))
+        rec = {"slot": slot, "worker": lp.get("owner"), "status": "blocked",
+               "mode": "analysis_only"}
+        slots[lid] = rec
+        if not w or lid not in (w.get("loops") or []):
+            rec["reason"] = "owner_not_bound_in_roster"
+            save_state(st)
+            continue
+        if agentctl.get(w, "runtime") not in ("claude", "codex"):
+            rec["reason"] = "runtime_not_supported"
+            save_state(st)
+            continue
+        if calls >= MAX_SESSIONS:
+            rec["reason"] = "per_sweep_budget_exhausted"
+            save_state(st)
+            continue
+        if daily["calls"] >= daily_limit:
+            rec["reason"] = "daily_budget_exhausted"
+            save_state(st)
+            continue
+        daily["calls"] += 1
+        rec["status"] = "running"
+        save_state(st)  # reserve slot before model invocation; never replay on restart
+        prompt = worker_prompt(w, [lp], [], alarms, state, events, "")
+        prompt += ("\n\nPeriodic review: " + lid + " at " + slot +
+                   "\nOnly supplied envsim data is available. Explicitly report missing "
+                   "logs, metrics or backup evidence. Do not claim checks ran or passed "
+                   "without evidence. Produce findings and proposed actions only; "
+                   "no action executor is attached.")
+        alias, body = run_session(w, prompt, dry, "periodic:" + lid)
+        calls += 1
+        rec["status"] = "succeeded" if body else "failed"
+        if body:
+            path = open_ticket([])
+            append(path, "Periodic review: " + lid, w, alias, body)
+            note(path, "Analysis completed. Proposed changes are NOT executed or verified.")
+            # This is a completed review, not a resolved operational incident.
+            close(path, "Periodic analysis completed; no operational action performed")
+            rec["ticket"] = str(path)
+        save_state(st)
+    return calls
+
+
+def show_status():
+    st = load_state()
+    workers = agentctl.load_roster()
+    result = {"envsim_url": ENVSIM, "mode": "analysis_only",
+              "execution": "fresh_cli_session", "api_fallback": False,
+              "automatic_actions": False, "workers": [],
+              "scheduled": st.get("scheduled", {}),
+              "incident": st.get("incident")}
+    for w in workers:
+        rt = agentctl.get(w, "runtime")
+        result["workers"].append({"id": w["id"], "runtime": rt,
+            "model": agentctl.get(w, "model"), "loops": w.get("loops", []),
+            "runner_supported": rt in ("claude", "codex"),
+            "cli_installed": bool(ccs.shutil.which(rt)) if rt in ("claude", "codex") else None})
+    try:
+        result["active_alarms"] = len(envsim("/alarms").get("active", []))
+        result["envsim_reachable"] = True
+    except SystemExit:
+        result["envsim_reachable"] = False
+    result["authentication"] = {}
+    for rt in ("claude", "codex"):
+        try:
+            result["authentication"][rt] = session_cli.authenticated(
+                rt, session_cli.executable(rt), session_cli.clean_env())
+        except (session_cli.SessionError, OSError, subprocess.TimeoutExpired) as e:
+            result["authentication"][rt] = {"verified": False, "error": type(e).__name__}
+    status = TICKETS / "runner-status.json"
+    result["watcher"] = json.loads(status.read_text()) if status.exists() else None
+    if result["watcher"]:
+        result["watcher"]["heartbeat_recent"] = (
+            result["watcher"].get("status") == "watching" and
+            time.time() - result["watcher"]["at"] < max(60, POLL_SEC * 3))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def heartbeat(scheduled, status="watching"):
+    TICKETS.mkdir(parents=True, exist_ok=True)
+    p = TICKETS / "runner-status.json"
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"pid": os.getpid(), "at": time.time(),
+                              "status": status, "scheduled_enabled": scheduled,
+                              "mode": "analysis_only"}))
+    tmp.replace(p)
 
 
 def show_tickets():
@@ -679,7 +932,16 @@ def main():
     g.add_argument("--tickets", action="store_true", help="티켓 목록")
     ap.add_argument("--dry-run", action="store_true",
                     help="프롬프트만 찍는다. 세션도 안 띄우고 상태도 안 남긴다")
+    g.add_argument("--status", action="store_true", help="Read-only runtime and execution status")
+    ap.add_argument("--scheduled", action="store_true", help="Enable periodic analysis (consumes model usage)")
     a = ap.parse_args()
+    if a.watch and not a.dry_run:
+        import loop_engine
+        return loop_engine.run()
+    if a.status:
+        status = ROOT / "tickets" / "loop-engine-status.json"
+        print(status.read_text() if status.exists() else '{"status":"not_started"}')
+        return 0
 
     if a.tickets:
         show_tickets()
@@ -688,13 +950,28 @@ def main():
         log(f"{ENVSIM} 을 {POLL_SEC}초마다 본다. Ctrl-C 로 멈춘다.")
         try:
             while True:
-                sweep(a.dry_run)
+                if not a.dry_run:
+                    heartbeat(a.scheduled)
+                try:
+                    sweep(a.dry_run)
+                    if a.scheduled:
+                        scheduled_sweep(a.dry_run)
+                except (SystemExit, OSError, ValueError) as e:
+                    log(f"poll failed: {type(e).__name__}; retry on next poll")
                 time.sleep(POLL_SEC)
         except KeyboardInterrupt:
             print()
             log("멈춘다")
+        finally:
+            if not a.dry_run:
+                heartbeat(a.scheduled, "stopped")
         return 0
+    if not a.dry_run:
+        import loop_engine
+        return loop_engine.run_once()
     sweep(a.dry_run)
+    if a.scheduled:
+        scheduled_sweep(a.dry_run)
     return 0
 
 

@@ -1,0 +1,12 @@
+.git/
+**/__pycache__/
+modelops/data/
+injector/state/
+
+# Keep credentials and operational evidence out of image build contexts
+.env
+**/.env
+**/.git-credentials
+agents/evidence/
+agents/runtimes/
+agents/tickets/

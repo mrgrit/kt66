@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse
 
 from .app import DockerExecutor  # 동일 docker.sock exec 메커니즘 재사용
 
-API_KEY = os.getenv("API_KEY", "ccc-api-key-2026")
+API_KEY = os.environ["API_KEY"]
 VERSION = "1.1.0"
 SIEM = "kt66-siem"
 # ★ 'zz-' prefix — Wazuh 는 etc/rules/*.xml 를 알파벳 순으로 로드하므로, if_sid(100260)/

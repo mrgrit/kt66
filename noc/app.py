@@ -61,10 +61,14 @@ def _auth(key: str) -> None:
     """
     if key != API_KEY:
         raise HTTPException(401, "강사 키가 필요하다 — 강사 패널 상단에 서버 .env 의 "
-                                 "API_KEY 값을 넣는다 (건드리지 않았으면 ccc-api-key-2026).")
+                                 "API_KEY 값을 넣는다.")
 STATIC = pathlib.Path(__file__).parent / "static"
 
 app = FastAPI(title="kt66 NOC", version="1.0")
+UI_DIR = pathlib.Path(__file__).resolve().parent / "ui"
+if not UI_DIR.is_dir():
+    UI_DIR = pathlib.Path(__file__).resolve().parent.parent / "ui"
+app.mount("/ui", StaticFiles(directory=UI_DIR), name="ui")
 
 _cache: dict[str, tuple[float, object]] = {}
 

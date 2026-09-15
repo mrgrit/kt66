@@ -15,25 +15,32 @@ from typing import Any
 
 import docker
 import httpx
+import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 
 
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
 
 app = FastAPI(title="kt66 Portal", docs_url="/api/docs", redoc_url=None)
+UI_DIR = Path(__file__).resolve().parent / "ui"
+if not UI_DIR.is_dir():
+    UI_DIR = Path(__file__).resolve().parent.parent / "ui"
+app.mount("/ui", StaticFiles(directory=UI_DIR), name="ui")
 
-EXPECTED_CONTAINERS = [
-    ("kt66-bastion",   "10.20.30.201", "Bastion (SSH 점프 + API)"),
-    ("kt66-secu",      "10.20.30.1",   "Firewall + IDS"),
-    ("kt66-web",       "10.20.30.80",  "Web (Apache + ModSec)"),
-    ("kt66-juiceshop", "10.20.30.81",  "JuiceShop (web 만)"),
-    ("kt66-siem",      "10.20.30.100", "SIEM (Wazuh)"),
-    ("kt66-attacker",  "10.20.30.202", "Attacker (도구)"),
-    ("kt66-portal",    "10.20.30.50",  "이 포털"),
-]
+ASSETS_PATH = Path(os.getenv("ASSETS_PATH", str(BASE / "assets.yaml")))
+if not ASSETS_PATH.exists():
+    ASSETS_PATH = BASE.parent / "envsim" / "assets.yaml"
+
+
+def expected_containers() -> list[tuple[str, str, str]]:
+    """The same ledger used by NOC; read again so asset changes are reflected."""
+    assets = yaml.safe_load(ASSETS_PATH.read_text(encoding="utf-8")) or {}
+    return [(a["container"], a.get("ip", ""), a.get("name", a["id"]))
+            for a in assets.get("it_assets", []) if a.get("container")]
 
 
 def docker_client() -> docker.DockerClient:
@@ -44,9 +51,12 @@ def docker_client() -> docker.DockerClient:
 
 def list_containers() -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    cli = None
     try:
         cli = docker_client()
         for c in cli.containers.list(all=True):
+            if not c.name.startswith("kt66-"):
+                continue
             attrs = c.attrs
             net = (attrs.get("NetworkSettings") or {}).get("Networks") or {}
             ip = ""
@@ -63,13 +73,18 @@ def list_containers() -> list[dict[str, Any]]:
                 "name": c.name,
                 "status": c.status,
                 "ip": ip,
-                "image": (c.image.tags[0] if c.image.tags else c.image.short_id),
+                # Config.Image survives image pruning. Resolving c.image makes
+                # one removed image erase the entire dashboard with a 404.
+                "image": (attrs.get("Config") or {}).get("Image") or attrs.get("Image", "-"),
                 "ports": ", ".join(ports) or "-",
                 "started_at": attrs.get("State", {}).get("StartedAt", "")[:19],
             })
         out.sort(key=lambda x: x["name"])
     except Exception as e:
         return [{"name": "error", "status": str(e), "ip": "-", "image": "-", "ports": "-", "started_at": "-"}]
+    finally:
+        if cli is not None:
+            cli.close()
     return out
 
 
@@ -164,7 +179,7 @@ def _extract_first(text: str, *prefixes: str) -> str:
 def dashboard(request: Request) -> HTMLResponse:
     containers = list_containers()
     running = sum(1 for c in containers if c["status"] == "running")
-    expected_set = {n for n, _, _ in EXPECTED_CONTAINERS}
+    expected_set = {n for n, _, _ in expected_containers()}
     missing = sorted(expected_set - {c["name"] for c in containers})
     latest_ids = parse_eve_alerts(Path("/data/suricata-logs/eve.json"))[:5]
     return templates.TemplateResponse("dashboard.html", {
@@ -183,7 +198,7 @@ def resources(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("resources.html", {
         "request": request,
         "containers": list_containers(),
-        "expected": EXPECTED_CONTAINERS,
+        "expected": expected_containers(),
         "page": "resources",
     })
 
@@ -220,14 +235,14 @@ def network(request: Request) -> HTMLResponse:
 def logs_index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("logs.html", {
         "request": request,
-        "services": [n for n, _, _ in EXPECTED_CONTAINERS],
+        "services": [n for n, _, _ in expected_containers()],
         "page": "logs",
     })
 
 
 @app.get("/logs/{name}/tail", response_class=PlainTextResponse)
 def logs_tail(name: str, lines: int = 100) -> str:
-    expected = [n for n, _, _ in EXPECTED_CONTAINERS]
+    expected = [n for n, _, _ in expected_containers()]
     if name not in expected:
         raise HTTPException(404, f"unknown container: {name}")
     try:
@@ -285,7 +300,7 @@ def audit(request: Request) -> HTMLResponse:
 @app.get("/agent", response_class=HTMLResponse)
 async def agent(request: Request) -> HTMLResponse:
     api_url = os.getenv("BASTION_API_URL", "http://bastion:9100")
-    api_key = os.getenv("BASTION_API_KEY", "ccc-api-key-2026")
+    api_key = os.environ["BASTION_API_KEY"]
     health = {}
     skills: list[dict[str, Any]] = []
     targets: list[dict[str, Any]] = []

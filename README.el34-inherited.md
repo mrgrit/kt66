@@ -375,7 +375,7 @@ sudo tail -20 /var/ossec/logs/alerts/alerts.json | jq '.rule.description, .agent
 | 시스템 | 계정 |
 |--------|------|
 | 모든 컨테이너 SSH | `ccc / ccc` (`.env` 의 `SSH_USER` / `SSH_PASS`) |
-| Bastion API | header `X-API-Key: ccc-api-key-2026` |
+| Bastion API | header `X-API-Key: $API_KEY` |
 | Wazuh manager API (5601 lite UI 는 인증 없음) | `admin / SecretPassword` (실제 운영시 변경) |
 | DVWA | `admin / password` |
 | JuiceShop | 가입 자유, `admin@juice-sh.op` 의 비밀번호 추측 학습 |
@@ -410,7 +410,7 @@ docker exec kt66-siem grep -c "kt66-win" /var/ossec/logs/archives/archives.json
 *check-spec* 만 보내고, Assessor 가 **고정 명령 템플릿 + 화이트리스트**로만 안전 명령을 합성한다.
 
 ```bash
-KEY=ccc-api-key-2026
+KEY="$API_KEY"
 # WAF 차단 모드 + Suricata 동작 + SQLi 탐지 알림을 한 번에 질의 (부작용 0)
 curl -s -H "Host: assessor.kt66.lab" -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
   -X POST http://<VM_IP>/assess -d '{"checks":[

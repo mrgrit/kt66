@@ -15,5 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY portal/main.py /app/main.py
 COPY portal/templates/ /app/templates/
 
+COPY ui/ /app/ui/
+
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

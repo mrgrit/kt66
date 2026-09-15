@@ -179,7 +179,7 @@ Host kt66-fw kt66-ips kt66-web kt66-siem kt66-portal
 # 모두 비밀번호 ccc (ProxyJump 키는 kt66.sh up 이 자동 생성).
 # siem 웹 대시보드: https://siem.kt66.lab/  (admin / SecretPassword)</code></pre>
 
-<p class="muted">기본 SSH 비밀번호: <code>ccc</code> · Bastion API 키: <code>ccc-api-key-2026</code></p>
+<p class="muted">기본 SSH 비밀번호: <code>ccc</code> · Bastion API 키: <code>환경변수 API_KEY 참조</code></p>
 
 <h2>네트워크 구성 (ext → pipe → dmz → int, + app(3F GPU) / ot(1F 시설))</h2>
 <p class="muted">외부 요청은 <code>fw</code>(80/443) 한 곳으로만 들어와 <strong>fw(방화벽) → ips(Suricata) → web(WAF) → int 백엔드</strong> 체인을 강제로 거친다. int 의 취약 사이트는 직접 노출되지 않는다.

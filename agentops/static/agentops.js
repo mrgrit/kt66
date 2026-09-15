@@ -26,7 +26,7 @@ const withKey = p => p + (p.includes('?') ? '&' : '?') + 'key=' + encodeURICompo
 $$('.step').forEach(b => b.onclick = () => {
   $$('.step').forEach(x => x.classList.toggle('on', x === b));
   $$('.panel').forEach(p => p.classList.toggle('on', p.dataset.panel === b.dataset.step));
-  if (b.dataset.step === '6') loadBackups();
+  if (b.dataset.step === '6') { loadBackups(); loadActivation(); }
 });
 
 /* ── 로드 ───────────────────────────────────────────────── */
@@ -180,7 +180,7 @@ $('#save-persona').onclick = async () => {
   const id = $('#persona-box').dataset.id, m = $('[data-msg=persona]');
   try {
     await api(withKey('/api/file/persona:' + id), { method: 'POST', body: { text: $('#ed-persona').value } });
-    m.className = 'msg ok'; m.textContent = '저장됨';
+    m.className = 'msg ok'; m.textContent = '저장 및 하네스 반영 완료';
   } catch (e) { m.className = 'msg bad'; m.textContent = e.message; }
 };
 
@@ -240,7 +240,7 @@ $('#save-loop').onclick = async () => {
   const id = $('#loop-box').dataset.id, m = $('[data-msg=loop]');
   try {
     await api(withKey('/api/file/loop:' + id), { method: 'POST', body: { text: $('#ed-loop').value } });
-    m.className = 'msg ok'; m.textContent = '저장됨';
+    m.className = 'msg ok'; m.textContent = '저장 및 하네스 반영 완료';
   } catch (e) { m.className = 'msg bad'; m.textContent = e.message; }
 };
 
@@ -250,7 +250,7 @@ $$('[data-save]').forEach(b => b.onclick = async () => {
   m.className = 'msg'; m.textContent = '저장 중…';
   try {
     await api(withKey('/api/file/' + n), { method: 'POST', body: { text: $('#ed-' + n).value } });
-    m.className = 'msg ok'; m.textContent = '저장됨';
+    m.className = 'msg ok'; m.textContent = '저장 및 하네스 반영 완료';
     await load();
   } catch (e) { m.className = 'msg bad'; m.textContent = e.message; }
 });
@@ -308,3 +308,17 @@ async function loadBackups() {
 $('#key').value = localStorage.getItem('kt66_agentops_key') || '';
 $('#key').oninput = () => localStorage.setItem('kt66_agentops_key', KEY());
 load().catch(e => { $('#errbar').hidden = false; $('#errbar').textContent = '로드 실패: ' + e.message; });
+
+
+async function loadActivation() {
+  const target = $('#activation-state');
+  if (!target) return;
+  try {
+    const [activation, runner] = await Promise.all([api('/api/activation'), api('/api/loop-status')]);
+    const versions = Object.entries(activation.workers || {}).map(([id, row]) => id + ': ' + row.version.slice(0, 12));
+    target.textContent = '상시 루프: ' + (runner.heartbeat_recent && runner.status === 'running' ? '가동 중' : '상태 확인 필요')
+      + '\n실행 중: ' + (runner.active_workers || []).join(', ')
+      + '\n업무 상태: ' + JSON.stringify(runner.queue || {})
+      + '\n\n적용 하네스\n' + versions.join('\n');
+  } catch (e) { target.textContent = '상태 조회 실패: ' + e.message; }
+}

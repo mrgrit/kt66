@@ -115,7 +115,7 @@ VM_SIEM_IP=10.20.32.100
 VM_MANAGER_IP=10.20.30.201
 
 BASTION_API_PORT=9200
-BASTION_API_KEY=ccc-api-key-2026
+BASTION_API_KEY=${API_KEY:?Set API_KEY before running setup}
 EOF
 else
     echo "  .env 보존 (이미 존재)"
@@ -170,4 +170,4 @@ echo
 echo "[kt66-agents] complete."
 echo "  · SubAgent: http://<container>:8002/health (각 컨테이너 내부)"
 echo "  · Manager:  http://<vm_ip>:9200/health (호스트)"
-echo "  · chat:     curl -H 'X-API-Key: ccc-api-key-2026' http://<vm_ip>:9200/chat"
+echo "  · chat:     curl -H 'X-API-Key: $API_KEY' http://<vm_ip>:9200/chat"

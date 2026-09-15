@@ -5,5 +5,7 @@ WORKDIR /app
 COPY modelops/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY modelops/ /app/
+COPY ui/ /app/ui/
+
 EXPOSE 8000
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

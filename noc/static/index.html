@@ -5,78 +5,57 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>kt66 NOC — 미니 AI데이터센터 관제</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="/ui/console.css">
+<link rel="stylesheet" href="dashboard.css?v=viewport-1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23c6f582%27/%3E%3Ctext x=%276%27 y=%2724%27 font-size=%2723%27 font-family=%27sans-serif%27 font-weight=%27700%27 fill=%27%23141816%27%3Ek%3C/text%3E%3C/svg%3E">
 </head>
-<body>
-
+<body data-console="noc">
+<a class="skip-link" href="#workspace">관제 화면으로 이동</a>
 <header id="hud">
-  <div class="brand">
-    <span class="logo">kt66</span>
-    <span class="sub" id="bld-name">미니 AI데이터센터</span>
-  </div>
-
-  <div class="gauges" id="gauges"></div>
-
+  <div class="page-heading"><div class="eyebrow">WORKSPACE <span>/</span> OVERVIEW</div><h1>데이터센터 관제<span class="page-tag">NOC</span></h1></div>
   <div class="hud-right">
-    <span class="chip ts" id="tsbadge" hidden></span>
-    <!-- 호스트 글루가 끊기면 게시 포트가 조용히 죽는다. 조용한 것이 문제다. -->
-    <span class="chip bad" id="netbadge" hidden
-          title="net.bridge.bridge-nf-call-iptables=1 — fw 입구가 죽어 있다. sudo ./kt66-net.sh 또는 docker compose up -d netglue">망 글루 끊김</span>
-    <span class="chip clock" id="clock">--:--:--</span>
-    <button class="btn key" id="btn-instructor">강사 패널</button>
-    <span class="dot" id="link-status" title="envsim 연결"></span>
+    <div class="header-time"><span id="today"></span><time id="clock">--:--:--</time></div>
+    <button class="btn key" id="btn-instructor"><span aria-hidden="true">⚙</span> 강사 패널</button>
   </div>
 </header>
-
-<main>
-  <section id="stage">
-    <div class="stage-body" id="stage-body">
-      <svg id="scene" xmlns="http://www.w3.org/2000/svg"></svg>
-
-      <!-- 층 선택 — 엘리베이터 패널 -->
-      <nav class="lift" id="lift"></nav>
-
-      <div class="viewctl">
-        <button class="vbtn" id="z-in" title="확대">＋</button>
-        <button class="vbtn" id="z-out" title="축소">－</button>
-        <button class="vbtn" id="z-fit" title="맞춤">⤢</button>
+<div class="dashboard-body">
+  <div class="overview-heading"><div><span class="status-light" id="link-status" title="연결 중"></span><b id="bld-name">데이터센터 연결 중</b><span class="site-meta">실측 기반 환경 시뮬레이션</span></div><div class="status-badges"><span class="chip ts" id="tsbadge" hidden></span><span class="chip bad" id="netbadge" hidden title="웹 진입 경로를 확인하세요">네트워크 경로 이상</span><span class="sync-label" id="sync-label" role="status">상태 수집 중</span></div></div>
+  <div id="load-error" class="load-error" role="alert" hidden><span id="load-error-text"></span><button class="btn" id="retry">다시 연결</button></div>
+  <section class="gauges" id="gauges" aria-label="핵심 운영 지표"><div class="loading-metrics">운영 지표를 가져오고 있습니다…</div></section>
+  <main id="workspace">
+    <section id="stage" aria-label="데이터센터 입체 배치도">
+      <div class="section-heading"><div><span class="eyebrow">FACILITY EXPLORER</span><h2 id="view-title">데이터센터 배치</h2></div><span class="scene-mode"><i></i> LIVE VIEW</span></div>
+      <div class="stage-toolbar"><nav class="lift" id="lift" aria-label="층 선택"></nav><button class="btn ghost sm" id="asset-toggle" aria-pressed="false">자산 목록</button></div>
+      <div class="stage-body" id="stage-body">
+        <div class="scene-caption"><span id="scene-floor-code">KT66</span><span id="scene-floor-note">물리 배치 · 자산 대장 기준</span></div>
+        <svg id="scene" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="데이터센터 입체 배치도. 자산 목록에서도 장비를 선택할 수 있습니다."></svg>
+        <div class="viewctl"><button class="vbtn" id="z-in" aria-label="배치도 확대" title="확대">＋</button><button class="vbtn" id="z-out" aria-label="배치도 축소" title="축소">−</button><button class="vbtn" id="z-fit" aria-label="배치도 화면에 맞춤" title="화면에 맞춤">⤢</button></div>
+        <button class="legend-toggle" id="legend-toggle" aria-expanded="false">레이어 범례</button><div class="legend" id="legend" hidden></div>
+        <span class="scene-instruction">드래그로 이동 <span>·</span> 스크롤로 확대 <span>·</span> 장비 선택으로 상세 보기</span>
+        <div class="tooltip" id="tip" hidden></div>
       </div>
-
-      <button class="legend-toggle" id="legend-toggle">범례</button>
-      <div class="legend" id="legend" hidden></div>
-
-      <div class="tooltip" id="tip" hidden></div>
-    </div>
+      <div id="asset-explorer" hidden><label class="asset-search"><span>자산 검색</span><input id="asset-search" type="search" placeholder="이름, 자산 ID 또는 IP 주소" autocomplete="off"></label><div id="asset-list"></div></div>
+      <div class="stage-bottom"><div class="legend-inline"><span><i class="leg-online"></i>가동</span><span><i class="leg-cooling"></i>냉각</span><span><i class="leg-power"></i>전력</span><span><i class="leg-alarm"></i>이상</span></div><span id="scene-summary">자산 대장을 읽는 중</span></div>
+    </section>
+    <aside id="rail" aria-label="운영 상태 상세">
+      <div class="section-heading"><div><span class="eyebrow">OPERATIONS</span><h2>운영 현황</h2></div><span class="rail-status" id="rail-status">—</span></div>
+      <nav class="tabs" id="tabs" aria-label="운영 정보"><button class="tab active" data-tab="overview">개요</button><button class="tab" data-tab="power">전력</button><button class="tab" data-tab="zone">존</button><button class="tab" data-tab="crew">근무자</button><button class="tab" data-tab="alarm">경보<span class="badge" id="tab-alarm-n" hidden></span></button><button class="tab" data-tab="log">로그</button></nav>
+      <div class="tabbody" id="tabbody"><div class="pane active" id="pane-overview"></div><div class="pane" id="pane-power"></div><div class="pane" id="pane-zone"></div><div class="pane" id="pane-crew"></div><div class="pane" id="pane-alarm"></div><div class="pane" id="pane-log"></div></div>
+    </aside>
+  </main>
+  <section class="telemetry-grid" aria-label="환경 추이와 최근 이벤트">
+    <article class="telemetry-card"><div class="telemetry-head"><div><span class="eyebrow">POWER TREND</span><h3>전력 부하 추이</h3></div><span class="subtle-tag">이 화면의 관측 기록</span></div><div id="power-trend"></div></article>
+    <article class="telemetry-card"><div class="telemetry-head"><div><span class="eyebrow">COOLING PLANT</span><h3>냉각 계통</h3></div><span id="cooling-status" class="subtle-tag">—</span></div><div id="cooling-summary"></div></article>
+    <article class="telemetry-card"><div class="telemetry-head"><div><span class="eyebrow">EVENT STREAM</span><h3>최근 이벤트</h3></div><button id="show-events" class="text-button">전체 보기 ↗</button></div><div id="recent-events"></div></article>
   </section>
-
-  <aside id="rail">
-    <nav class="tabs" id="tabs">
-      <button class="tab active" data-tab="power">전력</button>
-      <button class="tab" data-tab="zone">존</button>
-      <button class="tab" data-tab="crew">근무자</button>
-      <button class="tab" data-tab="alarm">경보<span class="badge" id="tab-alarm-n" hidden></span></button>
-      <button class="tab" data-tab="log">로그</button>
-    </nav>
-    <div class="tabbody" id="tabbody">
-      <div class="pane active" id="pane-power"></div>
-      <div class="pane" id="pane-zone"></div>
-      <div class="pane" id="pane-crew"></div>
-      <div class="pane" id="pane-alarm"></div>
-      <div class="pane" id="pane-log"></div>
-    </div>
-  </aside>
-</main>
-
-<footer id="ticker">
-  <span class="tk-tag">LIVE</span>
-  <span class="tk-line" id="tk-line">—</span>
-  <span class="tk-stats" id="tk-stats"></span>
-</footer>
+</div>
+<footer id="ticker"><span class="tk-tag"><i></i>LIVE</span><span class="tk-line" id="tk-line">상태 수집 중</span><span class="tk-stats" id="tk-stats"></span></footer>
 
 <!-- 상세 패널 -->
 <div class="drawer" id="drawer" hidden>
   <div class="drawer-head">
     <div class="dh-l"><b id="dr-name">—</b><span class="zchip" id="dr-zone" hidden></span></div>
-    <button class="btn ghost sm" id="dr-close">✕</button>
+    <button class="btn ghost sm" id="dr-close" aria-label="상세 패널 닫기">✕</button>
   </div>
   <div class="drawer-body" id="dr-body"></div>
 </div>
@@ -104,15 +83,14 @@
     <div class="sheet-head">
       <span class="sh-icon">⚙</span>
       <b>강사 패널</b>
-      <span class="sh-sub">고장 주입 48종 · 시설 10 + IT 38</span>
+      <span class="sh-sub" id="inj-count">고장 카탈로그를 읽는 중</span>
       <label class="inj-key">강사 키
         <input id="inj-key" type="password" placeholder="API_KEY" autocomplete="off">
       </label>
-      <button class="btn ghost sm" id="inj-close">✕</button>
+      <button class="btn ghost sm" id="inj-close" aria-label="강사 패널 닫기">✕</button>
     </div>
     <div class="inj-keyhint" id="inj-keyhint">
-      조작하려면 강사 키가 필요합니다 — 서버 <code>.env</code> 의 <code>API_KEY</code>
-      (건드리지 않았으면 <code>ccc-api-key-2026</code>). 보는 것은 키 없이도 됩니다.
+      고장 주입과 해제는 강사 키를 입력한 뒤 사용할 수 있습니다.
     </div>
     <div class="sheet-body" id="inj-body"></div>
     <div class="sheet-foot">
@@ -122,6 +100,9 @@
   </div>
 </div>
 
-<script src="app.js"></script>
+<script src="/ui/console.js"></script>
+<script src="scene.js?v=crew-2"></script>
+<script src="dashboard.js?v=crew-1"></script>
+<script src="app.js?v=crew-1"></script>
 </body>
 </html>

@@ -144,19 +144,35 @@ def main(argv):
     if not claude:
         sys.exit("[cc-session] claude 를 찾지 못했다. 설치하고 구독 계정으로 로그인한 뒤 다시 실행한다.")
 
-    dest = render_seat(w)
+    dest = render_seat(w).resolve()
 
-    env = dict(os.environ)
-    dropped = scrub(env)
-    if dropped:
-        print(f"[cc-session] 과금 경로 차단 — 환경에서 걷어냄: {', '.join(dropped)}")
+    helper_loader = importlib.machinery.SourceFileLoader("kt66_session_cli_manual", str(ROOT / "session_cli.py"))
+    helper = importlib.util.module_from_spec(importlib.util.spec_from_loader("kt66_session_cli_manual", helper_loader))
+    helper_loader.exec_module(helper)
     alias, why = model_alias(w)
-    if alias:
-        argv_claude = ["--model", alias, *passthru]
-        print(f"[cc-session] 모델 {agentctl.get(w,'model')} → --model {alias} (구독 세션. 토큰당 과금 없음)")
-    else:
-        argv_claude = list(passthru)
-        print(f"[cc-session] ⚠ {why} — 세션 기본 모델로 띄운다")
+    if not alias:
+        sys.exit("[cc-session] unsupported session model; no fallback")
+    if passthru and not (len(passthru) == 2 and passthru[0] in ("-p", "--print")):
+        sys.exit("[cc-session] only -p <prompt> is accepted; auth/settings/resume overrides are disabled")
+    env = helper.clean_env()
+    try:
+        helper.authenticated("claude", claude, env)
+    except Exception:
+        sys.exit("[cc-session] claude.ai subscription login required; no API fallback")
+    import uuid
+    argv_claude = ["--model", alias, "--session-id", str(uuid.uuid4()),
+                   "--setting-sources", "", "--strict-mcp-config",
+                   "--settings", '{"disableAllHooks":true}', *passthru]
+    import json
+    evidence = ROOT / "evidence" / ("manual-" + str(uuid.uuid4()))
+    evidence.mkdir(parents=True)
+    manifest = dest / "manifest.json"
+    config_path = evidence / "mcp.json"
+    config_path.write_text(json.dumps({"mcpServers": {"kt66": {"command": "/usr/bin/python3",
+        "args": [str(ROOT / "harness_tools.py"), str(manifest), str(evidence)]}}}))
+    argv_claude += ["--tools", "", "--allowedTools", "mcp__kt66__*",
+                   "--mcp-config", str(config_path), "--append-system-prompt", (dest / "HARNESS.md").read_text()]
+    print("[cc-session] new subscription-authenticated session; usage limits apply")
     print(f"[cc-session] {wid} ({agentctl.get(w,'name')}) 자리에서 구독 세션을 띄운다")
     print(f"[cc-session] {dest}")
     # execve 는 이 프로세스를 통째로 갈아치운다 — 버퍼에 남은 위 세 줄은 그대로 사라진다.

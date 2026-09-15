@@ -34,7 +34,7 @@ from fastapi.templating import Jinja2Templates
 HERE = Path(__file__).parent
 AGENTS = Path(os.environ.get("AGENTS_DIR", "/agents"))
 BAK = AGENTS / ".bak"
-API_KEY = os.environ.get("API_KEY", "ccc-api-key-2026")
+API_KEY = os.environ["API_KEY"]
 
 # 토큰당 과금되는 공개 LLM API. 여기 걸리면 조직 저장이 거부된다(validate_all).
 # 목록이지 정규식이 아니다 — 랩 안(10.20.x)의 자체 호스팅 OpenAI 호환 엔드포인트는
@@ -44,6 +44,10 @@ METERED_HOSTS = ("api.anthropic.com", "api.openai.com", "api.mistral.ai",
                  "api.groq.com", "openrouter.ai")
 
 app = FastAPI(title="kt66 agentops", docs_url="/api/docs")
+UI_DIR = Path(__file__).resolve().parent / "ui"
+if not UI_DIR.is_dir():
+    UI_DIR = Path(__file__).resolve().parent.parent / "ui"
+app.mount("/ui", StaticFiles(directory=UI_DIR), name="ui")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 tpl = Jinja2Templates(directory=str(HERE / "templates"))
 
@@ -210,7 +214,7 @@ def _write_text(p: Path, text: str) -> None:
 def _auth(key: str | None) -> None:
     if key != API_KEY:
         raise HTTPException(401, "API 키가 필요하다 — 화면 우측 상단에 서버 .env 의 API_KEY 값을 넣는다"
-                            " (건드리지 않았으면 ccc-api-key-2026). LLM API 키가 아니다.")
+                            ". LLM API 키가 아니다.")
 
 
 # ── API: 조회 ───────────────────────────────────────────────────────
@@ -518,3 +522,38 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def console(request: Request):
     return tpl.TemplateResponse("agentops.html", {"request": request})
+
+
+@app.middleware("http")
+async def activate_saved_harness(request, call_next):
+    response = await call_next(request)
+    if (request.method in ("POST", "PATCH", "DELETE") and response.status_code < 300
+            and (request.url.path.startswith("/api/file/") or request.url.path.startswith("/api/worker"))):
+        from fastapi.concurrency import run_in_threadpool
+        from fastapi.responses import JSONResponse
+        import sys
+        if str(AGENTS) not in sys.path:
+            sys.path.insert(0, str(AGENTS))
+        import harness_compiler
+        try:
+            await run_in_threadpool(harness_compiler.compile_all, AGENTS)
+            response.headers["X-KT66-Harness-Activation"] = "current"
+        except Exception as exc:
+            return JSONResponse(status_code=409, content={"saved": True, "activated": False,
+                "detail": "Configuration saved; harness activation failed: " + str(exc)})
+    return response
+
+@app.get("/api/activation")
+def active_harness_versions():
+    path = AGENTS / "runtimes" / "activation.json"
+    return json.loads(path.read_text()) if path.exists() else {"workers": {}}
+
+
+@app.get("/api/loop-status")
+def loop_status():
+    path = AGENTS / "tickets" / "loop-engine-status.json"
+    if not path.exists():
+        return {"status": "not_started"}
+    result = json.loads(path.read_text())
+    result["heartbeat_recent"] = __import__("time").time() - result.get("at", 0) < 60
+    return result

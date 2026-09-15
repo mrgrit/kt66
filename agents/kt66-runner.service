@@ -1,0 +1,16 @@
+[Unit]
+Description=KT66 organizational harness routine and event loops
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/work/kt66
+Environment=PATH=%h/.local/node20/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 %h/work/kt66/agents/loop_engine.py
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=320
+
+[Install]
+WantedBy=default.target

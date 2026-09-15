@@ -48,3 +48,8 @@ COPY siem/93-auth-force.sh /etc/cont-init.d/93-auth-force
 RUN chmod +x /etc/cont-init.d/93-auth-force
 
 EXPOSE 22 514/udp 8002
+
+# KT66 instructor lifecycle and virtual facility event detection
+COPY siem/kt66-events-rules.xml /opt/kt66-events-rules.xml
+COPY siem/92-kt66-events-rules.sh /etc/cont-init.d/92-kt66-events-rules
+RUN chmod +x /etc/cont-init.d/92-kt66-events-rules

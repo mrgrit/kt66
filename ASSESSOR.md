@@ -17,7 +17,7 @@
 | 컨테이너 | `kt66-assessor` (dmz, `10.20.32.55`) |
 | 스택 | `python:3.12-slim` + FastAPI + docker SDK + httpx |
 | 외부 노출 | `http://assessor.kt66.lab/` (fw 경유, WAF 우회 — portal 과 동일) |
-| 인증 | `X-API-Key` (env `API_KEY`, 기본 `ccc-api-key-2026`) |
+| 인증 | `X-API-Key` (env `API_KEY`, 환경에 설정된 값) |
 | 마운트(전부 read-only) | `/var/run/docker.sock`, `wazuh-manager-logs`, `ips-suricata-logs`, `web-apache-logs` |
 | 토글 | `SKIP_ASSESSOR=1 bash kt66.sh up` → 생성 안 함(base 무영향) |
 | (옵션) provisioner | `kt66-provisioner` (dmz `10.20.32.56`) — write 서비스, **기본 OFF**(`SKIP_PROVISIONER=0` 으로만 기동). §10 |
@@ -169,7 +169,7 @@ osquery 가 없거나(attacker/취약웹) 안 되는 것(grep·해시·로그·n
 ## 6. 예시
 
 ```bash
-KEY=ccc-api-key-2026
+KEY="$API_KEY"
 ASSESS="curl -s -H Host:assessor.kt66.lab -H X-API-Key:$KEY -H Content-Type:application/json -X POST http://<VM_IP>/assess -d"
 
 # 1) WAF 차단 모드 확인
@@ -312,7 +312,7 @@ Wazuh 탐지룰은 manager(siem)에서만, Suricata 룰은 ips 에서 평가된�
 
 예시:
 ```bash
-KEY=ccc-api-key-2026
+KEY="$API_KEY"
 PROV="curl -s -H Host:provisioner.kt66.lab -H X-API-Key:$KEY -H Content-Type:application/json -X POST http://<VM_IP>"
 # 무장: 'secret_exfil' 명령 탐지(level 12)
 $PROV/provision-rule -d '{"template":"alert_command_pattern","params":{"label":"mission-exfil","pattern":"secret_exfil","level":12}}'

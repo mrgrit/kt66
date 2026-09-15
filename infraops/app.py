@@ -22,6 +22,10 @@ HERE = pathlib.Path(__file__).parent
 REQ_DIR = pathlib.Path(os.getenv("REQ_DIR", str(HERE / "requirements")))
 
 app = FastAPI(title="kt66 인프라 요구사항", version="1.0")
+UI_DIR = pathlib.Path(__file__).resolve().parent / "ui"
+if not UI_DIR.is_dir():
+    UI_DIR = pathlib.Path(__file__).resolve().parent.parent / "ui"
+app.mount("/ui", StaticFiles(directory=UI_DIR), name="ui")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 

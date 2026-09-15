@@ -24,7 +24,7 @@ from .checks.base import ExecResult
 from .targets import known_targets
 
 VERSION = "1.1.0"   # v2: /activity 모니터링 피드 + auditd 명령 수집 추가
-API_KEY = os.getenv("API_KEY", "ccc-api-key-2026")
+API_KEY = os.environ["API_KEY"]
 ALERTS_PATH = Path(os.getenv("ALERTS_PATH", "/data/wazuh/alerts/alerts.json"))
 EXEC_TIMEOUT = int(os.getenv("EXEC_TIMEOUT", "15"))
 
