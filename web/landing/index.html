@@ -88,7 +88,7 @@ th { background: #f1f5f9; }
 </div>
 <p class="muted">⚠️ 위 여섯은 <strong>WAF 뒤가 아니라 호스트 포트에 직접 publish</strong> 된다(<code>.env</code> 의 <code>INT_HOST_IP</code>). 운영·강사 도구라서 취약 사이트와 같은 입구에 두지 않았다.</p>
 
-<div class="banner" data-classroom-only>
+<div class="banner">
 <strong>포트로 안 열리면 이름으로 들어온다.</strong> 위 링크가 안 열리는 서버가 있다 —
 <code>INT_HOST_IP</code> 가 그 서버에서 닿을 수 없는 주소로 잡힌 경우다(예전 기본값이 호스트 전용 더미 NIC 이었다).
 그때는 <strong>취약 사이트와 똑같은 입구(:80)</strong> 로 들어오면 된다. 학생 PC <code>hosts</code> 파일에 아래 한 줄을 더 넣는다:
@@ -103,11 +103,11 @@ th { background: #f1f5f9; }
 </div>
 
 <h2>취약 웹 7개 (학습용)</h2>
-<p class="muted" data-classroom-only>학생 PC hosts 파일(<code>/etc/hosts</code> · 윈도우 <code>C:\Windows\System32\drivers\etc\hosts</code>)에 아래 <strong>세 줄</strong> 추가 — <strong>각 줄이 IP 로 시작</strong>해야 합니다:</p>
-<pre data-classroom-only><code>&lt;VM_IP&gt;  kt66.lab juice.kt66.lab dvwa.kt66.lab neobank.kt66.lab govportal.kt66.lab mediforum.kt66.lab admin.kt66.lab ai.kt66.lab portal.kt66.lab
+<p class="muted">학생 PC hosts 파일(<code>/etc/hosts</code> · 윈도우 <code>C:\Windows\System32\drivers\etc\hosts</code>)에 아래 <strong>세 줄</strong> 추가 — <strong>각 줄이 IP 로 시작</strong>해야 합니다:</p>
+<pre><code>&lt;VM_IP&gt;  kt66.lab juice.kt66.lab dvwa.kt66.lab neobank.kt66.lab govportal.kt66.lab mediforum.kt66.lab admin.kt66.lab ai.kt66.lab portal.kt66.lab
 &lt;VM_IP&gt;  siem.kt66.lab bastion.kt66.lab assessor.kt66.lab fw-gui.kt66.lab ips-gui.kt66.lab waf-gui.kt66.lab
 &lt;VM_IP&gt;  noc.kt66.lab injector.kt66.lab envsim.kt66.lab agentops.kt66.lab modelops.kt66.lab infraops.kt66.lab</code></pre>
-<p class="muted" data-classroom-only>⚠️ 한 줄로 길게 넣다가 에디터에서 줄바꿈되면 둘째·셋째 줄에 IP 가 빠져 <strong>그 항목만 “안 열림”</strong>이 됩니다. <code>juice</code>~<code>portal</code> 은 되는데 <code>siem</code>/<code>*-gui</code>/<code>noc</code> 만 안 열리면 거의 이 경우 — 위처럼 세 줄로 나눠 각각 IP 로 시작하세요. (확인: <code>ping noc.kt66.lab</code> → VM IP)</p>
+<p class="muted">⚠️ 한 줄로 길게 넣다가 에디터에서 줄바꿈되면 둘째·셋째 줄에 IP 가 빠져 <strong>그 항목만 “안 열림”</strong>이 됩니다. <code>juice</code>~<code>portal</code> 은 되는데 <code>siem</code>/<code>*-gui</code>/<code>noc</code> 만 안 열리면 거의 이 경우 — 위처럼 세 줄로 나눠 각각 IP 로 시작하세요. (확인: <code>ping noc.kt66.lab</code> → VM IP)</p>
 <div class="grid">
   <a class="card" href="http://juice.kt66.lab/"><span class="tag attack">취약</span>OWASP Juice Shop<span class="meta">juice.kt66.lab — 종합 OWASP Top 10</span></a>
   <a class="card" href="http://dvwa.kt66.lab/"><span class="tag attack">취약</span>DVWA<span class="meta">dvwa.kt66.lab — Damn Vulnerable Web App</span></a>
@@ -117,7 +117,7 @@ th { background: #f1f5f9; }
   <a class="card" href="http://admin.kt66.lab/"><span class="tag attack">취약</span>AdminConsole<span class="meta">admin.kt66.lab — RCE/XXE/SSRF 종합</span></a>
   <a class="card" href="http://ai.kt66.lab/"><span class="tag ai">AI</span>AICompanion<span class="meta">ai.kt66.lab — OWASP LLM Top 10 (mock LLM)</span></a>
 </div>
-<p class="muted" data-classroom-only>hosts 파일을 못 고치는 PC 는 포트로도 같은 사이트에 닿는다 — <code>&lt;VM_IP&gt;:8001</code> juice · <code>:8002</code> dvwa · <code>:8003</code> neobank · <code>:8004</code> govportal · <code>:8005</code> mediforum · <code>:8006</code> admin · <code>:8007</code> ai. (모두 web 의 ModSecurity 를 그대로 지난다.)</p>
+<p class="muted">hosts 파일을 못 고치는 PC 는 포트로도 같은 사이트에 닿는다 — <code>&lt;VM_IP&gt;:8001</code> juice · <code>:8002</code> dvwa · <code>:8003</code> neobank · <code>:8004</code> govportal · <code>:8005</code> mediforum · <code>:8006</code> admin · <code>:8007</code> ai. (모두 web 의 ModSecurity 를 그대로 지난다.)</p>
 
 <h2>관리/모니터링</h2>
 <div class="grid">
@@ -161,8 +161,8 @@ syslog forward 는 rsyslog 가 모든 로그를 그대로 UDP/514 로 전달하�
 agent = 정밀 + 보안적으로 우수, syslog = 단순 + 표준 호환.
 강사의 주입도 사건으로 같은 SIEM 에 남는다 — 학생 타임라인에서 원인과 결과가 한 줄에 놓인다.</p>
 
-<h2 data-classroom-only>학생 PC SSH 접속 (Bastion ProxyJump)</h2>
-<pre data-classroom-only><code>Host kt66-bastion
+<h2>학생 PC SSH 접속 (Bastion ProxyJump)</h2>
+<pre><code>Host kt66-bastion
   HostName &lt;VM_IP&gt;
   Port 2204
   User ccc
@@ -229,91 +229,8 @@ kt66 — CCC 단일 VM Docker 버전 · <a href="https://github.com/mrgrit/kt66"
  * 프로토콜은 http 고정 — **직접 포트**에는 TLS 가 없다. 랜딩을 https 로 열었다고
  * location.protocol 을 따라가면 전부 죽는다.
  * (이름 경로 https://noc.kt66.lab/ 는 web 의 Apache 가 TLS 를 붙여 주므로 그쪽은 https 도 된다.) */
-
-/* ── 공개 접속(Cloudflare 터널) ────────────────────────────────────
- * 강의실에서는 hosts 파일 + kt66.lab 이름으로 들어온다. 인터넷에서는 그 이름이 없고
- * 포트도 열려 있지 않다 — 터널은 443 하나만 연다. 그래서 그 주소로 들어온 경우에만
- * 링크를 공개 이름으로 바꾼다. **강의실 경로는 손대지 않는다**: 아래 표에 없는 것,
- * 공개 도메인이 아닌 접속은 전부 원래대로 둔다.
- *
- * 1단계 서브도메인만 쓴다. Cloudflare 무료 Universal SSL 은 *.dawnofagi.cloud 한
- * 단계만 덮어서 juice.aidc.dawnofagi.cloud 같은 두 단계는 인증서 오류가 난다.
- *
- * 취약 사이트 7종은 **일부러 공개하지 않았다.** RCE 콘솔이 인터넷에 열리면 이 서버의
- * 발판이 된다. 그 카드는 링크를 끊고 '내부 전용'으로 표시한다 — 지워 버리면 학생이
- * 랩에 그게 없다고 생각한다. 있는데 여기서 못 갈 뿐이다. */
-const PUBLIC_DOMAIN = 'dawnofagi.cloud';
-const PUBLIC_NAME = {                       // 내부 이름 → 공개 1단계 이름
-  'kt66.lab': 'aidc',
-  'noc.kt66.lab': 'aidc-noc',
-  'injector.kt66.lab': 'aidc-injector',
-  'envsim.kt66.lab': 'aidc-envsim',
-  'agentops.kt66.lab': 'aidc-agentops',
-  'modelops.kt66.lab': 'aidc-modelops',
-  'infraops.kt66.lab': 'aidc-infraops',
-  'portal.kt66.lab': 'aidc-portal',
-  'siem.kt66.lab': 'aidc-siem',
-  'fw-gui.kt66.lab': 'aidc-fw',
-  'ips-gui.kt66.lab': 'aidc-ips',
-  'waf-gui.kt66.lab': 'aidc-waf',
-};
-const PUBLIC_PORT = {                       // data-port 카드 → 같은 콘솔의 공개 이름
-  '8010': 'aidc-envsim', '8020': 'aidc-noc', '8030': 'aidc-injector',
-  '8050': 'aidc-agentops', '8060': 'aidc-modelops', '8070': 'aidc-infraops',
-};
-const isPublic = location.hostname === PUBLIC_DOMAIN
-  || location.hostname.endsWith('.' + PUBLIC_DOMAIN);
-
-if (!isPublic) {
-  /* 강의실 경로 — 지금 이 페이지를 연 주소에 포트를 이어 붙인다.
-   * 프로토콜은 http 고정: **직접 포트**에는 TLS 가 없다. 랜딩을 https 로 열었다고
-   * location.protocol 을 따라가면 전부 죽는다. */
-  for (const a of document.querySelectorAll('a[data-port]')) {
-    a.href = 'http://' + location.hostname + ':' + a.dataset.port + (a.dataset.path || '/');
-  }
-} else {
-  const pub = n => 'https://' + n + '.' + PUBLIC_DOMAIN;
-
-  for (const a of document.querySelectorAll('a[data-port]')) {
-    const n = PUBLIC_PORT[a.dataset.port];
-    if (n) a.href = pub(n) + (a.dataset.path || '/');
-  }
-
-  for (const a of document.querySelectorAll('a[href]')) {
-    let u;
-    try { u = new URL(a.href); } catch { continue; }
-    if (!u.hostname.endsWith('kt66.lab')) continue;
-    const n = PUBLIC_NAME[u.hostname];
-    if (n) {                                 // 공개된 것 — 이름만 갈아 끼운다
-      a.href = pub(n) + u.pathname.replace(/^\/$/, '/') + u.search + u.hash;
-    } else {                                 // 공개 안 한 것 — 끊고 표시한다
-      a.removeAttribute('href');
-      a.style.opacity = '.55';
-      a.style.cursor = 'not-allowed';
-      a.title = '내부 전용 — 강의실 망에서만 열립니다';
-      if (a.classList.contains('card') && !a.querySelector('.tag-internal')) {
-        const t = document.createElement('span');
-        t.className = 'tag tag-internal';
-        t.style.cssText = 'background:#e2e8f0;color:#475569';
-        t.textContent = '내부 전용';
-        a.prepend(t);
-      }
-    }
-  }
-
-  /* hosts 파일·SSH 안내는 여기서 쓸모가 없다(2204 포트는 터널에 없다). 본문 글자를
-   * 정규식으로 훑어 숨기면 문구를 고칠 때마다 조용히 어긋난다 — HTML 에 표시를 달아 뒀다. */
-  for (const el of document.querySelectorAll('[data-classroom-only]')) {
-    el.style.display = 'none';
-  }
-  const note = document.createElement('div');
-  note.className = 'banner';
-  note.innerHTML = '<strong>공개 주소로 접속했습니다.</strong> 관제·운영·보안 콘솔은 '
-    + '여기서 그대로 열립니다. <strong>취약 웹 7종은 내부 전용</strong>이라 링크를 끊어 '
-    + '뒀습니다 — 공격 실습은 강의실 망(또는 VPN)에서 <code>hosts</code> 파일로 '
-    + '<code>*.kt66.lab</code> 이름을 잡아 진행합니다.';
-  const h1 = document.querySelector('h1');
-  if (h1) h1.after(note);
+for (const a of document.querySelectorAll('a[data-port]')) {
+  a.href = 'http://' + location.hostname + ':' + a.dataset.port + (a.dataset.path || '/');
 }
 </script>
 </body>
