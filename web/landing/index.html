@@ -38,6 +38,7 @@ a.card .meta { color: var(--muted); font-size: 0.86em; display: block; margin-to
 .tag.ai { background: #f3e8ff; color: #7c3aed; }
 .tag.edu { background: #cffafe; color: #0e7490; }
 .tag.dc { background: #ffedd5; color: #c2410c; }
+.tag.war { background: #e0e7ff; color: #4338ca; }
 pre { background: #1e293b; color: #e2e8f0; padding: 14px 18px; border-radius: 8px; overflow-x: auto; font-size: 0.88em; }
 code { background: #e2e8f0; padding: 1px 6px; border-radius: 4px; font-size: 0.92em; }
 /* pre 내부의 code 는 배경/색 상속으로 가독성 확보 (외부 inline code 와 분리) */
@@ -57,6 +58,13 @@ th { background: #f1f5f9; }
 이 페이지는 <code>kt66-web</code> (Apache + ModSecurity) 가 응답한 랜딩 페이지입니다.
 <strong>모든 취약 사이트 트래픽은 web 의 ModSecurity 검사를 통과한 후</strong> 백엔드 컨테이너로 전달됩니다.
 </div>
+
+<h2>공방전 플랫폼 — tubewar</h2>
+<p class="muted">kt66 은 <strong>표적 환경</strong>이다. 무엇을 공격하고 무엇을 지킬지, 그래서 몇 점인지는 여기서 정해지지 않는다 — 시나리오·미션 배정과 채점은 <strong>tubewar</strong> 가 한다. 이 랩만 열고 들어오면 "그래서 뭘 하지"가 남는다. <strong>미션은 저쪽에서 받아 온다.</strong></p>
+<a class="card" href="https://tubewar.dawnofagi.cloud/">
+  <span class="tag war">공방전</span>tubewar — 사이버 공방전 플랫폼
+  <span class="meta">tubewar.dawnofagi.cloud — 시나리오 128종 · Red/Blue 미션(솔로 · 1v1 · 자율) · 자동 채점 · 리더보드 · 워크북 생성</span>
+</a>
 
 <h2>미니 AI데이터센터 — 관제와 운영</h2>
 <p class="muted">4개 층(1F 시설 · 2F 네트워크/보안 · 3F AI 전산실 · 4F 운영)을 가진 데이터센터를 컨테이너로 세운 것. 전력·발열·존 경계는 가상이지만 <strong>부하와 고장은 실제로 랩에 적용된다</strong> — 3F 에 부하를 걸면 온도가 진짜로 오르고, 주입한 고장은 진짜로 컨테이너를 멈춘다.</p>
