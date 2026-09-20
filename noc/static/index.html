@@ -6,7 +6,7 @@
 <title>kt66 NOC — 미니 AI데이터센터 관제</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="/ui/console.css">
-<link rel="stylesheet" href="dashboard.css?v=viewport-1">
+<link rel="stylesheet" href="dashboard.css?v=adaptive-5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23c6f582%27/%3E%3Ctext x=%276%27 y=%2724%27 font-size=%2723%27 font-family=%27sans-serif%27 font-weight=%27700%27 fill=%27%23141816%27%3Ek%3C/text%3E%3C/svg%3E">
 </head>
 <body data-console="noc">
@@ -25,7 +25,7 @@
   <main id="workspace">
     <section id="stage" aria-label="데이터센터 입체 배치도">
       <div class="section-heading"><div><span class="eyebrow">FACILITY EXPLORER</span><h2 id="view-title">데이터센터 배치</h2></div><span class="scene-mode"><i></i> LIVE VIEW</span></div>
-      <div class="stage-toolbar"><nav class="lift" id="lift" aria-label="층 선택"></nav><button class="btn ghost sm" id="asset-toggle" aria-pressed="false">자산 목록</button></div>
+      <div class="stage-toolbar"><nav class="lift" id="lift" aria-label="층 선택"></nav><a class="btn agent-control-link" id="agent-control-link" href="/agent-control" hidden>AI 에이전트 관제 ↗</a><button class="btn ghost sm" id="asset-toggle" aria-pressed="false">자산 목록</button></div>
       <div class="stage-body" id="stage-body">
         <div class="scene-caption"><span id="scene-floor-code">KT66</span><span id="scene-floor-note">물리 배치 · 자산 대장 기준</span></div>
         <svg id="scene" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="데이터센터 입체 배치도. 자산 목록에서도 장비를 선택할 수 있습니다."></svg>
@@ -101,8 +101,9 @@
 </div>
 
 <script src="/ui/console.js"></script>
-<script src="scene.js?v=crew-2"></script>
-<script src="dashboard.js?v=crew-1"></script>
-<script src="app.js?v=crew-1"></script>
+<script src="agent-sprites.js?v=adaptive-5"></script>
+<script src="scene.js?v=adaptive-5"></script>
+<script src="dashboard.js?v=adaptive-5"></script>
+<script src="app.js?v=adaptive-5"></script>
 </body>
 </html>

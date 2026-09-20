@@ -110,38 +110,42 @@ function drawRoomEquipment(item,x,y,z,compact=false) {
 function workerAttributes(worker) {
   const open=e=>{e.stopPropagation();openCrew(worker.id)};
   return {class:'hit','data-worker':worker.id,role:'button',tabindex:0,
-    'aria-label':`${worker.name} 상세 보기`,on:{click:open,keydown:e=>{
+    'aria-label':`${worker.name} AI 에이전트 상세 보기`,on:{click:open,keydown:e=>{
       if(e.key==='Enter' || e.key===' '){e.preventDefault();open(e)}
     }}};
 }
 function drawWorkerFigure(worker,x,y,z,seated=false) {
-  const [sx,sy]=iso(x,y,z),accent=RT_COLOR[worker.runtime] || '#b9d9a0';
-  const facility=worker.id==='facility-engineer',coat=facility?'#9c9258':'#406c7b';
-  const g=el('g',{'data-worker-figure':worker.id,transform:`translate(${sx},${sy})`});
-  // The figure marks a roster assignment, not a live execution state.
-  g.appendChild(roomRect(-16,-58,34,62,'transparent'));
-  g.appendChild(el('ellipse',{cx:1,cy:0,rx:11,ry:3.5,fill:'#10232b',opacity:.4}));
-  const body=el('g',{transform:seated?'translate(0,7) scale(.95)':null});
-  body.appendChild(el('path',{d:'M-5,-22 L-5,-4 M5,-22 L7,-4',fill:'none',stroke:'#243c49','stroke-width':5.5,'stroke-linecap':'round'}));
-  body.appendChild(el('path',{d:'M-8,-2 H-2 M4,-2 H11',stroke:'#152630','stroke-width':4,'stroke-linecap':'round'}));
-  body.appendChild(el('path',{d:'M-8,-37 Q0,-41 8,-37 L10,-20 Q0,-17 -10,-20 Z',fill:coat,stroke:'#203b46','stroke-width':1}));
-  body.appendChild(el('path',{d:'M-8,-34 L-12,-23 M8,-34 L13,-24',fill:'none',stroke:coat,'stroke-width':5,'stroke-linecap':'round'}));
-  body.appendChild(el('path',{d:'M-3,-38 L0,-33 L4,-38',fill:'none',stroke:'#ccd8d5','stroke-width':1.3}));
-  body.appendChild(roomRect(2,-31,4,6,accent,{rx:1}));
-  body.appendChild(el('ellipse',{cx:0,cy:-45,rx:5.7,ry:6.5,fill:'#c6af94',stroke:'#314753','stroke-width':.8}));
-  body.appendChild(el('path',{d:'M-6,-46 Q-7,-54 0,-54 Q7,-54 6,-45 L3,-48 L-3,-48 Z',fill:facility?'#d8bb73':'#263e49'}));
-  if(facility)body.appendChild(el('path',{d:'M-8,-46 H8',stroke:'#e6cd8a','stroke-width':2,'stroke-linecap':'round'}));
-  body.appendChild(el('g',{transform:'rotate(-12 12 -23)'},[
-    roomRect(9,-28,9,13,'#172e3a',{rx:1.5,stroke:'#9cb6c1','stroke-width':.8}),
-    roomRect(11,-25,5,1,accent),roomRect(11,-22,4,1,'#8aa4b0')]));
-  g.appendChild(body);
+  const [sx,sy]=iso(x,y,z),width=seated?22:24,height=width*AGENT_SPRITE_SIZE.height/AGENT_SPRITE_SIZE.width;
+  const g=el('g',{'data-worker-figure':worker.id,'data-avatar-style':'pixel-office',
+    transform:`translate(${sx},${sy})`});
+  const activity=workerActivity(worker.id);
+  const ring=el('ellipse',{'data-agent-ring':worker.id,'data-agent-state':activity.state,
+    cx:0,cy:1,rx:width*.7,ry:width*.24,fill:'#14212966',stroke:activity.color,
+    'stroke-width':1.6,'vector-effect':'non-scaling-stroke',
+    ...(activity.dash?{'stroke-dasharray':activity.dash}:{}),
+    'aria-label':`${worker.name}: ${activity.label}`});
+  g.appendChild(ring);
+  const sprite=createAgentSprite(worker,{seated});
+  sprite.setAttribute('x',-width/2);sprite.setAttribute('y',-height);
+  sprite.setAttribute('width',width);sprite.setAttribute('height',height);
+  sprite.setAttribute('aria-hidden','true');
+  g.appendChild(sprite);
+  // A forgiving target for pointer/touch selection, including transparent pixels.
+  const hitWidth=Math.max(width,32);
+  g.appendChild(roomRect(-hitWidth/2,-height,hitWidth,height,'transparent'));
+  g.appendChild(roomRect(-width*.3,-height*.9,width*.6,height*.27,'transparent',{'data-agent-hit':'head'}));
   return g;
 }
+
 function workerInfo(g,worker,x,y,z,detail) {
-  tipify(g,{title:worker.name,sub:`${worker.id} · ${worker.floor}`,color:'#c6dfad',
-    rows:[['런타임',worker.runtime],['자율성',worker.autonomy],['담당 존',worker.zone]],
-    foot:'명단 기준 배치 · 선택하면 담당 업무와 설정을 엽니다'});
-  if(detail){const [sx,sy]=iso(x,y,z);pill(sx,sy+25,worker.name,{color:'#d1e5ba',size:9,anchor:'mid',gap:3})}
+  const activity=workerActivity(worker.id);
+  g.setAttribute('aria-label',`${worker.name} · ${activity.label} · AI 에이전트 상세 보기`);
+  tipify(g,{title:worker.name,sub:`AI 에이전트 · ${worker.id} · ${worker.floor}`,color:activity.color,
+    rows:[['자동 작업 상태',activity.label],['판정 근거',safeText(activity.reason)],
+      ['검토 대기',activity.counts?`${activity.counts.needs_review||0}건`:'미확인'],
+      ['런타임',worker.runtime],['자율성',worker.autonomy],['담당 존',worker.zone]],
+    foot:'발밑 원 = 자동 실행기 관측 상태 · 선택하면 상태와 근거를 엽니다'});
+  if(detail){const [sx,sy]=iso(x,y,z);pill(sx,sy+25,`AI · ${worker.name}`,{color:'#d1e5ba',size:9,anchor:'mid',gap:3})}
   return g;
 }
 function drawRoomWorker(worker,x,y,z,detail) {
@@ -164,8 +168,9 @@ function drawWorkstation(worker,x,y,z,detail) {
   g.appendChild(quad(x+.4,y+.55,z+.72,.65,.16,{fill:'#394f5f'}));
   g.appendChild(prism(x+.5,y+1.05,z,.08,.08,.45,'#45616f'));
   g.appendChild(prism(x+.27,y+.88,z+.45,.52,.5,.08,'#2b4352'));
-  g.appendChild(drawWorkerFigure(worker,x+.53,y+1.1,z,true));
+  // Keep the chair behind the front-facing sprite so faces stay visible.
   g.appendChild(prism(x+.27,y+1.27,z+.52,.52,.09,.57,'#2c4352'));
+  g.appendChild(drawWorkerFigure(worker,x+.53,y+1.1,z,true));
   return workerInfo(g,worker,x+.53,y+1.45,z,detail);
 }
 function drawRoom(fid,detail) {
@@ -240,6 +245,14 @@ function drawRoom(fid,detail) {
       assetsOf(fid).slice(0,5).forEach((a,k)=>f.appendChild(roomRect(.15,.16+k*.10,Math.max(.04,Math.min(assetState(a.id).util,1)*1.1),.035,n===1?'#a7c883':'#6a9fb9')));
       g.appendChild(f);
     }
+    const control=el('a',{href:'/agent-control','aria-label':'4층 AI 에이전트 관제실 열기'});
+    // The wall uses positive z-up coordinates; lettering needs a y-down face.
+    // Starting at the sign's top edge keeps the plate and text upright together.
+    const [signX,signY]=iso(2,.24,z+2.27);
+    const sign=el('g',{'data-office-sign':'agent-control',transform:`matrix(${XS},${YS},0,${ZS},${signX},${signY})`});
+    sign.appendChild(roomRect(0,0,4.65,.34,'#223b32',{rx:.04}));
+    sign.appendChild(el('text',{x:.2,y:.235,'font-size':.205,'font-family':'sans-serif','font-weight':600,fill:'#dcf2c4',text:'AI Agent Control  ›'}));
+    control.appendChild(sign);g.appendChild(control);
   } else {
     const workers=crewOf(fid),columns=Math.min(workers.length,3);
     workers.forEach((w,i)=>{

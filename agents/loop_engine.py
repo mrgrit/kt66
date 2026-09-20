@@ -2,7 +2,7 @@
 import concurrent.futures, datetime, fcntl, hashlib, json, os, pathlib, signal, sqlite3, time, uuid
 from zoneinfo import ZoneInfo
 import yaml
-import harness_compiler, session_cli
+import harness_compiler, session_cli, adaptive_monitor
 from harness_tools import atomic
 ROOT=pathlib.Path(__file__).resolve().parent
 STOP=False
@@ -38,14 +38,16 @@ def db_open():
     CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
     CREATE TABLE IF NOT EXISTS session_attempts(job_id TEXT,started REAL);
     """)
+    adaptive_monitor.install(db)
     # Interrupted jobs retain attempts and evidence; they are eligible for bounded retry.
     db.execute("UPDATE jobs SET status='retry',not_before=? WHERE status='running'",(time.time()+5,))
     db.commit();return db
 
 def enqueue(db,jid,worker,kind,payload):
-    db.execute("INSERT OR IGNORE INTO jobs(id,worker,kind,payload,status,created,updated) VALUES(?,?,?,?,?,?,?)",
+    inserted=db.execute("INSERT OR IGNORE INTO jobs(id,worker,kind,payload,status,created,updated) VALUES(?,?,?,?,?,?,?)",
                (jid,worker,kind,json.dumps(payload,ensure_ascii=False),"queued",time.time(),time.time()))
     db.commit()
+    return inserted.rowcount == 1
 
 def observe(url):
     import urllib.request
@@ -55,6 +57,7 @@ def poll(db,cfg):
     roster=yaml.safe_load((ROOT/"roster.yaml").read_text())["workers"]
     workers={w["id"]:w for w in roster}
     loops=[yaml.safe_load(p.read_text()) for p in sorted((ROOT/"loops").glob("*.yaml"))]
+    loops=[lp for lp in loops if lp.get('owner') in workers and lp['id'] in workers[lp['owner']].get('loops',[])]
     now=datetime.datetime.now(ZoneInfo(cfg.get("timezone","Asia/Seoul")))
     minute=int(time.time()//60)
     old=db.execute("SELECT value FROM metadata WHERE key='minute'").fetchone()
@@ -65,6 +68,7 @@ def poll(db,cfg):
         for lp in loops:
             owner=lp.get("owner")
             if owner not in workers or lp["id"] not in workers[owner].get("loops",[]):continue
+            if adaptive_monitor.enabled(lp,cfg):continue
             matching=[moment for moment in candidates if cron_matches(lp.get("cadence",""),moment)]
             if matching:
                 due=matching[-1];due_minute=int(due.timestamp()//60)
@@ -78,7 +82,7 @@ def poll(db,cfg):
     alarms=observe("http://"+host+":8010/alarms").get("active",[])
     injections=observe("http://"+host+":8020/api/inj/active").get("active",[])
     events=alarms+[{"id":"INJ:"+i["handle"],"source":"instructor","injection":i,"since":i.get("started")} for i in injections]
-    active_ids=[]
+    active_ids=[];notified_workers=set()
     previous=db.execute("SELECT value FROM metadata WHERE key='event_epochs'").fetchone()
     epochs=json.loads(previous[0]) if previous else {}
     new_epochs={}
@@ -90,7 +94,8 @@ def poll(db,cfg):
         # Alarm metrics can fluctuate: key recurrence by alarm id and start time, not metric value.
         key=epochs.get(eid,uuid.uuid4().hex)
         new_epochs[eid]=key
-        for wid in targets:enqueue(db,"event:"+key+":"+wid,wid,"event",{"event":event})
+        for wid in targets:
+            if enqueue(db,"event:"+key+":"+wid,wid,"event",{"event":event}):notified_workers.add(wid)
     db.execute("INSERT OR REPLACE INTO metadata VALUES('event_epochs',?)",(json.dumps(new_epochs),));db.commit()
     for p in (ROOT/"tickets"/"approvals").glob("*.json"):
         request=json.loads(p.read_text())
@@ -105,6 +110,8 @@ def poll(db,cfg):
         request=json.loads(p.read_text())
         if request["worker"] in workers:enqueue(db,"delegation:"+p.stem,request["worker"],"delegated",request)
     db.execute("INSERT OR REPLACE INTO metadata VALUES('active_events',?)",(json.dumps(active_ids),));db.commit()
+    adaptive_monitor.poll(db,loops,cfg,adaptive_monitor.Probes(ROOT,host,observe,time.time()),enqueue,
+                          notified_workers=notified_workers)
 
 def execute(job):
     wid=job["worker"]
@@ -120,7 +127,10 @@ def execute(job):
     evidence=ROOT/"evidence"/("loop-"+str(time.time_ns())+"-"+wid)
     evidence.mkdir(parents=True)
     prior=ROOT/"tickets"/"worker-memory"/(wid+".json")
-    context={"job_id":job["id"],"kind":job["kind"],"observation":json.loads(job["payload"]),
+    context={"job_id":job["id"],"kind":job["kind"],"worker":wid,
+             "attempt":job.get("attempts",0)+1,"requested_at":job.get("created"),
+             "retry_of":job.get("evidence"),"retry_reason":json.loads(job.get("result") or "null"),
+             "observation":json.loads(job["payload"]),
              "prior_cycle":json.loads(prior.read_text()) if prior.exists() else None}
     prompt=("A work cycle is due. Fulfil your role and loop objectives under the loaded organizational harness. "
             "Select observations and permitted follow-up yourself. Preserve verifiable evidence and next-cycle state. "
@@ -195,6 +205,8 @@ def run():
                     last_kind=job["kind"].startswith("periodic:")
             atomic(ROOT/"tickets"/"loop-engine-status.json",{"pid":os.getpid(),"at":time.time(),"status":"running",
                    "active_workers":[j["worker"] for j in futures.values()],"error":error,
+                   "monitoring":{"enabled":cfg.get('adaptive',{}).get('enabled',False),
+                                 "loops":adaptive_monitor.summary(db)},
                    "queue":dict(db.execute("SELECT status,COUNT(*) FROM jobs GROUP BY status").fetchall())})
             time.sleep(max(1,min(30,int(cfg.get("poll_seconds",5)))))
     finally:

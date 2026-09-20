@@ -324,6 +324,10 @@ def run_session(w, prompt, dry, label, schema=None):
         import harness_compiler
         dest, manifest = harness_compiler.compile_worker(w["id"], ROOT)
         evidence = ROOT / "evidence" / ("session-" + str(time.time_ns()) + "-" + w["id"])
+        evidence.mkdir(parents=True, exist_ok=True)
+        (evidence / "job.json").write_text(json.dumps({"worker":w["id"],"kind":label,
+            "requested_at":started,"attempt":1,"observation":{"source":"cc-runner","role":label}},ensure_ascii=False))
+        result.update(harness_version=manifest["version"], evidence_dir=str(evidence), mode="policy_tools")
         data = session_cli.run(rt, alias, prompt, timeout=min(180, SESSION_TIMEOUT),
                                schema=schema, harness=dest, evidence_dir=evidence)
         result.update(harness_version=manifest["version"], evidence_dir=str(evidence), mode="policy_tools")

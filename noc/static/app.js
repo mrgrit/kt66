@@ -25,8 +25,56 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 let LAYOUT = null, ST = null, ROSTER = { workers: [] }, FAULTS = { available: {} }, EVENTS = [];
+let WORKER_STATES = null, workerStateTimer = null, workerStateLoading = false;
+const WORKER_STATE_STYLES = Object.freeze({
+  working:{label:'작업 중',color:'#77d9a0'},
+  idle:{label:'대기',color:'#93a4b0'},
+  waiting:{label:'재시도·한도 대기',color:'#e9b46f'},
+  attention:{label:'실패·검토 필요',color:'#f48181'},
+  stopped:{label:'실행기 중지',color:'#b3a0db',dash:'6 3'},
+  unknown:{label:'상태 미확인',color:'#a0acb5',dash:'2 3'},
+});
+function workerActivity(id) {
+  const data=WORKER_STATES,now=Date.now()/1000;
+  const entry=data?.items.find(w=>w?.worker===id);
+  const fresh=data && now-data.collected_at>=0 && now-data.collected_at<=30
+    && now-data.engine_at>=0 && now-data.engine_at<=60;
+  const state=fresh && entry && WORKER_STATE_STYLES[entry.state]?entry.state:'unknown';
+  return {...WORKER_STATE_STYLES[state],state,
+    reason:state==='unknown' && (!fresh || !entry)?'최신 자동 실행 상태를 확인할 수 없습니다.':entry.reason,
+    counts:state==='unknown'?null:entry?.counts||null,observedAt:fresh?data.collected_at:null,
+    monitoring:fresh?entry?.monitoring||[]:[]};
+}
+async function pollWorkerStates() {
+  if(workerStateLoading)return;
+  workerStateLoading=true;
+  try {
+    const response=await fetch('/api/agent-control/workers',{cache:'no-store',signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw new Error('worker states unavailable');
+    const data=await response.json();
+    if(!Array.isArray(data.items) || !Number.isFinite(data.collected_at))throw new Error('invalid worker states');
+    WORKER_STATES=data;
+  } catch { WORKER_STATES=null; }
+  finally {workerStateLoading=false;render();renderCrew();refreshCrewActivity();}
+}
+function workerActivityMarkup(id) {
+  const activity=workerActivity(id);
+  const counts=activity.counts;
+  return `${kv('자동 작업 상태',`<span style="color:${activity.color}">${safeText(activity.label)}</span>`)}
+    ${kv('판정 근거',safeText(activity.reason))}
+    ${kv('작업 대기',counts?`${counts.queued||0}건 · 재시도 ${counts.retry||0}건 · 한도 대기 ${counts.waiting_capacity||0}건`:'미확인')}
+    ${kv('검토 대기',counts?`${counts.needs_review||0}건`:'미확인')}
+    ${kv('관측 시각',activity.observedAt?new Date(activity.observedAt*1000).toLocaleTimeString('ko-KR',{hour12:false}):'미확인')}
+    ${activity.monitoring.map(m=>kv('점검 주기',`${safeText(m.loop)} · ${m.interval_sec/60}분 · 다음 ${new Date(m.next_check_at*1000).toLocaleTimeString('ko-KR',{hour12:false})}`)).join('')}`;
+}
+function refreshCrewActivity() {
+  const block=$('[data-crew-activity]');
+  if(block)block.innerHTML=workerActivityMarkup(block.dataset.crewActivity);
+}
 let INJCAT = { injections: [] }, INJACT = { active: [] };
 let VIEW = { mode: 'floor', floor: '2F', zoom: 1, panx: 0, pany: 0 };
+const requestedFloor = new URLSearchParams(location.search).get('floor');
+if (['1F','2F','3F','4F'].includes(requestedFloor)) VIEW.floor = requestedFloor;
 let BASE_VB = null, SELECTED = null, upsDismissed = false;
 let MOUSE = { x: 0, y: 0 };
 const TIPS = new Map();                 // tipId -> 툴팁 payload
@@ -328,7 +376,7 @@ const warnBadge = (cx, cy) => el('g', { filter: 'url(#bloom)' }, [
   el('rect', { x: cx - .9, y: cy + 2, width: 1.8, height: 1.8, fill: '#fff' }),
 ]);
 
-const RT_COLOR = { bastion: '#2ee6ff', hermes: '#a78bfa', claude: '#ffb020' };
+const RT_COLOR = { bastion: '#2ee6ff', hermes: '#a78bfa', claude: '#ffb020', codex: '#a7e1bc' };
 const AU_COLOR = { L3: '#ff4d6a', approver: '#3ddc97', L2: '#38bdf8', L1: '#5b7185' };
 
 function drawFloorContent(fid, detail) { return drawRoom(fid, detail); }
@@ -504,15 +552,11 @@ function renderZonePane() {
 }
 
 function crewPortrait(w) {
-  const rt = RT_COLOR[w.runtime] || '#94a3b8', vest = AU_COLOR[w.autonomy] || '#5b7185';
-  return `<svg class="por" viewBox="0 0 28 32" shape-rendering="crispEdges">
-    <rect x="6" y="2" width="16" height="3" fill="#02050a"/>
-    <rect x="7" y="5" width="14" height="5" fill="${rt}"/>
-    <rect x="8" y="10" width="12" height="8" fill="#e8cfae"/>
-    <rect x="11" y="13" width="2" height="2" fill="#141d2b"/><rect x="16" y="13" width="2" height="2" fill="#141d2b"/>
-    <rect x="6" y="18" width="16" height="12" fill="${vest}"/>
-    <rect x="6" y="21" width="16" height="2" fill="rgba(255,255,255,.45)"/></svg>`;
+  const sprite=createAgentSprite(w);
+  sprite.classList.add('por');
+  return sprite.outerHTML;
 }
+
 function renderCrew() {
   const pane = $('#pane-crew'), ws = ROSTER.workers || [];
   if (!ws.length) { pane.innerHTML = '<div class="empty">근무자 명단을 읽지 못했습니다</div>'; return; }
@@ -521,10 +565,11 @@ function renderCrew() {
   pane.innerHTML = groups.map(f => {
     const list = ws.filter(w => w.floor === f.id);
     if (!list.length) return '';
-    return `<div class="railhead">${f.id} ${f.name} · ${list.length}명</div>` + list.map(w => `
+    return `<div class="railhead">${f.id} ${f.name} · AI 에이전트 ${list.length}명</div>` + list.map(w => `
       <div class="crew" data-crew="${w.id}">${crewPortrait(w)}
         <div style="flex:1;min-width:0">
           <div class="nm">${w.name}</div><div class="sub">${w.id}</div>
+          <div class="crew-activity" style="color:${workerActivity(w.id).color}">${workerActivity(w.id).label}</div>
           <div class="meta"><span class="tag rt-${w.runtime}">${w.runtime}</span>
             <span class="tag au-${w.autonomy}">${w.autonomy}</span>
             <span class="tag" style="color:${zoneColor(w.zone)};border-color:${zoneColor(w.zone)}88">${w.zone}</span></div>
@@ -682,6 +727,8 @@ function openCrew(id) {
     L3: '무인 실행 — 런북이 등록된 작업에만 허용된다',
     approver: '승인 전담 — 스스로 실행하지 않고 L2 요청을 판정한다' }[w.autonomy] || '';
   showDrawer(w.name, w.zone, `
+    <a class="btn agent-control-link" href="/agent-control?worker=${encodeURIComponent(w.id)}">이 에이전트의 실행·판단·증거 조사 ↗</a>
+    <div data-crew-activity="${safeText(w.id)}">${workerActivityMarkup(w.id)}</div>
     ${kv('페르소나 ID', w.id)} ${kv('배치', `${w.floor} · ${w.zone} 존`)}
     ${kv('런타임', w.runtime)} ${kv('자율 등급', w.autonomy)}
     <div class="note">${auto}</div>
@@ -977,6 +1024,7 @@ async function poll() {
 }
 async function boot() {
   clearInterval(pollingTimer); clearInterval(instructorTimer); clearInterval(clockTimer);
+  clearInterval(workerStateTimer);
   try {
     [LAYOUT, ROSTER, FAULTS] = await Promise.all([
       get('/api/layout'), get('/api/roster'), get('/api/faults')]);
@@ -989,6 +1037,8 @@ async function boot() {
   } catch (e) { updateConnection(false, String(e.message || e)); return; }
   renderLegend();
   await poll();
+  pollWorkerStates();
+  workerStateTimer=setInterval(pollWorkerStates,10000);
   pollingTimer = setInterval(poll, 3000);
   instructorTimer = setInterval(() => { if (!$('#inj-modal').hidden) refreshInj(); }, 3000);
   const clock = () => {

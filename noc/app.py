@@ -27,6 +27,8 @@ import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from agent_control import router as agent_control_router
 
 log = logging.getLogger("noc")
 logging.basicConfig(level=logging.INFO, format="[noc] %(message)s")
@@ -59,7 +61,7 @@ def _auth(key: str) -> None:
     키가 비어 있으면 아무 요청도 통과하지 못한다(fail closed). 실수로 API_KEY 를
     비워 둔 서버가 무방비로 열리는 것보다, 안 눌리는 편이 낫다.
     """
-    if key != API_KEY:
+    if not API_KEY or key != API_KEY:
         raise HTTPException(401, "강사 키가 필요하다 — 강사 패널 상단에 서버 .env 의 "
                                  "API_KEY 값을 넣는다.")
 STATIC = pathlib.Path(__file__).parent / "static"
@@ -69,6 +71,12 @@ UI_DIR = pathlib.Path(__file__).resolve().parent / "ui"
 if not UI_DIR.is_dir():
     UI_DIR = pathlib.Path(__file__).resolve().parent.parent / "ui"
 app.mount("/ui", StaticFiles(directory=UI_DIR), name="ui")
+app.include_router(agent_control_router(ROSTER_PATH.parent))
+
+
+@app.get("/agent-control", include_in_schema=False)
+def agent_control_page():
+    return FileResponse(STATIC / "agent-control.html")
 
 _cache: dict[str, tuple[float, object]] = {}
 
@@ -98,9 +106,16 @@ async def _relay(base: str, who: str, method: str, path: str, **kw):
     try:
         async with httpx.AsyncClient(timeout=120.0) as c:
             r = await c.request(method, f"{base}{path}", **kw)
-            return r.status_code, r.json()
+            data = r.json()
     except Exception as e:
-        raise HTTPException(502, f"{who} 도달 실패: {e}")
+        # 예외 문자열에는 key 쿼리가 붙은 URL이 포함될 수 있다.
+        raise HTTPException(502, f"{who} 도달 실패 ({type(e).__name__})") from None
+    if r.status_code == 401:
+        # 여기까지 온 강사 요청은 NOC 인증을 이미 통과했다. 상위 서비스의
+        # 이전 환경변수 때문에 거절된 것을 브라우저의 키 입력 오류로 보내지 않는다.
+        raise HTTPException(503, f"서버 간 인증 설정이 일치하지 않습니다 ({who}). "
+                                 ".env의 API_KEY 변경 후 관련 서비스에 설정을 다시 적용해야 합니다.")
+    return r.status_code, data
 
 
 async def _env(method: str, path: str, **kw):
@@ -308,7 +323,9 @@ async def inj_clear(handle: str, key: str = ""):
 @app.post("/api/inj/clear_all")
 async def inj_clear_all(key: str = ""):
     _auth(key)
-    _, d = await _inj("POST", "/clear_all", params={"key": API_KEY})
+    code, d = await _inj("POST", "/clear_all", params={"key": API_KEY})
+    if code >= 400:
+        raise HTTPException(code, d.get("detail", "전체 해제 실패"))
     return d
 
 
@@ -325,7 +342,9 @@ async def timescale(value: float, key: str = ""):
 @app.post("/api/reset")
 async def reset(key: str = ""):
     _auth(key)
-    _, d = await _env("POST", "/reset", params={"key": API_KEY})
+    code, d = await _env("POST", "/reset", params={"key": API_KEY})
+    if code >= 400:
+        raise HTTPException(code, d.get("detail", "초기화 실패"))
     _cache.clear()
     return d
 

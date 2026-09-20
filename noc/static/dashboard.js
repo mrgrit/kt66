@@ -73,7 +73,8 @@ function renderFloorSelector() {
   box.dataset.signature = signature;
   }
   const floor=floors().find(f=>f.id===VIEW.floor),pool=floor?assetsOf(floor.id):LAYOUT.it_assets;
-  $('#view-title').textContent=floor?floor.name:'데이터센터 전체 배치';
+  $('#view-title').textContent=floor?.id==='4F'?'AI 에이전트 관제 · 운영층':floor?floor.name:'데이터센터 전체 배치';
+  $('#agent-control-link').hidden=VIEW.floor!=='4F';
   $('#scene-floor-code').textContent=floor?`${floor.id} / ${({'1F':'FACILITIES','2F':'SERVER HALL','3F':'AI COMPUTE','4F':'OPERATIONS'}[floor.id] || '')}`:'KT66 / BUILDING';
   $('#scene-floor-note').textContent='자산 대장 기반 개념 배치도';
   $('#scene-summary').textContent=`${floor?racksOf(floor.id).length:LAYOUT.racks.length} RACKS / ${pool.length} ASSETS / 근무자 ${floor?crewOf(floor.id).length:ROSTER.workers.length}명`;
@@ -96,7 +97,7 @@ function renderAssetExplorer() {
   $$('[data-inspect-asset]').forEach(b=>b.onclick=()=>openAsset(b.dataset.inspectAsset));
 }
 function renderRoomLegend() {
-  $('#legend').innerHTML=`<div><b>랙 캐비닛</b> = 자산 대장에 등록된 실제 랙</div><div><b>서버 슬롯의 색 띠</b> = 네트워크 존</div><div>${(LAYOUT.zones || []).map(z=>`<span style="white-space:nowrap"><i class="sw" style="background:${safeText(z.color)}"></i> ${safeText(z.id)}</span>`).join(' · ')}</div><div><b>청색 통로·배관</b> = 냉각 / <b>황색 배선</b> = 전력</div><div><b>녹색 LED</b> = 가동 / <b>붉은 경고</b> = 정지·고장</div><div>층은 물리 배치, 존은 논리 경계입니다.</div>`;
+  $('#legend').innerHTML=`<div><b>랙 캐비닛</b> = 자산 대장에 등록된 실제 랙</div><div><b>서버 슬롯의 색 띠</b> = 네트워크 존</div><div>${(LAYOUT.zones || []).map(z=>`<span style="white-space:nowrap"><i class="sw" style="background:${safeText(z.color)}"></i> ${safeText(z.id)}</span>`).join(' · ')}</div><div><b>청색 통로·배관</b> = 냉각 / <b>황색 배선</b> = 전력</div><div><b>녹색 LED</b> = 가동 / <b>붉은 경고</b> = 정지·고장</div><div><b>유니폼을 입은 도트 근무자</b> = 명단에 배치된 AI 에이전트</div><div>유니폼은 담당 업무, 모자는 자율 등급, 명찰은 모델·런타임을 구분합니다.</div><div><b>발밑 원</b> = 자동 실행 작업 상태</div><div class="agent-state-legend">${Object.values(WORKER_STATE_STYLES).map(s=>`<span><i style="border-color:${s.color};${s.dash?'border-style:dashed':''}"></i>${s.label}</span>`).join('')}</div><div>10초마다 확인 · 개별 CLI 세션은 제외 · 격리/강제 종료 상태는 미연동</div><div>작업 중에도 검토 대기 건이 있을 수 있습니다. 근무자를 선택해 확인하세요.</div><div>층은 물리 배치, 존은 논리 경계입니다.</div>`;
 }
 function updateConnection(ok,error='') {
   $('#link-status').classList.toggle('down',!ok);

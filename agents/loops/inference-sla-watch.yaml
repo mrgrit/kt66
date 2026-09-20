@@ -1,7 +1,8 @@
 id: inference-sla-watch
 owner: gpu-platform-engineer
 autonomy: L1
-cadence: "*/5 * * * *"
+cadence: "*/10 * * * *"
+monitor: { mode: adaptive, probe: inference }
 budget: { max_tokens: 25000, max_tool_calls: 20 }
 state: [latency_history, sla_breaches]
 steps:

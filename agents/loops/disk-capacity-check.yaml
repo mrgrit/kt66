@@ -1,7 +1,8 @@
 id: disk-capacity-check
 owner: systems-engineer
 autonomy: L3            # 런북이 있는 작업만 무인 허용 — 로그 로테이션은 되돌리기가 명확
-cadence: "*/30 * * * *"
+cadence: "*/10 * * * *"
+monitor: { mode: adaptive, probe: storage }
 budget: { max_tokens: 20000, max_tool_calls: 15 }
 state: [usage_history, growth_rate]
 runbook: runbooks/log-rotation.md      # L3 필수 — 런북 없으면 L2 로 강등

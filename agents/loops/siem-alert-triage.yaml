@@ -3,6 +3,7 @@ id: siem-alert-triage
 owner: soc-analyst
 autonomy: L1
 cadence: "*/10 * * * *"
+monitor: { mode: adaptive, probe: security }
 budget: { max_tokens: 60000, max_tool_calls: 50 }
 state: [triaged_alert_ids, known_false_positives, active_campaigns]
 steps:

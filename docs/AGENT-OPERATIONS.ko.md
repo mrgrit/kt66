@@ -195,15 +195,15 @@ GPU 서비스 자체의 주소·모델 설정과 근무자 추론 런타임은 �
 |---|---|---|---|---|
 | access-log-review | physical-security | 매일 08:00 / `0 8 * * *` | 출입·CCTV·변경 티켓의 관계와 평소 패턴 검토 | DOOR_FORCED, DOOR_HELD, CCTV_LOST |
 | backup-verify | systems-engineer | 매일 03:00 / `0 3 * * *` | 백업과 격리 복원·RTO/RPO 검증 목표 | 없음 |
-| disk-capacity-check | systems-engineer | 30분마다 / `*/30 * * * *` | 사용량·증가율과 로그 순환 필요 판단 | 없음 |
-| env-health-sweep | facility-engineer | 15분마다 / `*/15 * * * *` | 온습도·냉방·전력·누수·소방을 이전 값과 비교 | 아래 시설 경보 목록 |
+| disk-capacity-check | systems-engineer | 코드 점검 10→5→2→1분 / 변화 시 AI | 사용량·증가율과 로그 순환 필요 판단 | 없음 |
+| env-health-sweep | facility-engineer | 코드 점검 10→5→2→1분 / 변화 시 AI | 온습도·냉방·전력·누수·소방을 이전 값과 비교 | 아래 시설 경보 목록 |
 | evidence-collection | compliance-auditor | 월요일 06:00 / `0 6 * * 1` | 감사 통제와 증거 연결·공백 확인 | 없음 |
 | firewall-drift-check | network-engineer | 00·04·08·12·16·20시 / `0 */4 * * *` | 현재 방화벽과 기준 구성의 차이 검토 | 없음 |
 | gpu-quota-review | gpu-platform-engineer | 00·06·12·18시 / `0 */6 * * *` | GPU·모델·큐·메모리 경합과 할당 검토 | 없음 |
-| inference-sla-watch | gpu-platform-engineer | 5분마다 / `*/5 * * * *` | 지연 원인을 GPU·망·큐·모델 교체·환경으로 구분 | 없음 |
+| inference-sla-watch | gpu-platform-engineer | 코드 점검 10→5→2→1분 / 변화 시 AI | 지연 원인을 GPU·망·큐·모델 교체·환경으로 구분 | 없음 |
 | power-capacity-check | facility-engineer | 매일 09:00 / `0 9 * * *` | UPS·PDU·부하 증가율과 여유 용량 검토 | 아래 전력 경보 목록 |
-| siem-alert-triage | soc-analyst | 10분마다 / `*/10 * * * *` | 실제 로그로 중복·오탐·보류·사건 분류 | 없음 |
-| ticket-triage | service-desk | 5분마다 / `*/5 * * * *` | 영향·긴급도·담당·SLA와 후속 업무 정리 | 없음 |
+| siem-alert-triage | soc-analyst | 코드 점검 10→5→2→1분 / 변화 시 AI | 실제 로그로 중복·오탐·보류·사건 분류 | 없음 |
+| ticket-triage | service-desk | 코드 점검 10→5→2→1분 / 변화 시 AI | 영향·긴급도·담당·SLA와 후속 업무 정리 | 없음 |
 
 시설 경보 목록: `TEMP_WARN, TEMP_CRIT, TEMP_SHUTDOWN, HUMID_LOW, HUMID_HIGH, CHILLER_DOWN, CRAC_DOWN, CT_DOWN, CT_FREEZE, PUMP_DOWN, HX_FOULING, ECO_DAMPER, CDU_LEAK, COLDPLATE_HOT, AIRFLOW_SHORT, SMOKE`.
 
@@ -596,6 +596,12 @@ execution:
   max_catchup_minutes: 30
   daily_session_limit: null
   dispatcher: service-desk
+  adaptive:
+    enabled: true
+    intervals_sec: [600, 300, 120, 60]
+    stable_samples: 2
+    model_cooldown_sec: 60
+    incident_review_sec: 1800
 ```
 
 | 키 | 의미 |
@@ -610,19 +616,21 @@ execution:
 | max_catchup_minutes | 중단 뒤 주기 보완을 살필 최근 시간 범위 |
 | daily_session_limit | 최근 24시간 세션 시도 예약 상한; null이면 별도 로컬 상한 없음 |
 | dispatcher | 정적 소유자 없는 관측을 받을 기존 근무자 |
+| adaptive | 기본 10분의 코드 감시, 변화·이상 시 간격 단축, 안정 시 복귀, AI 호출 간격 |
 
 한 회차 실행시간은 `constrain.sandbox.max_runtime_sec`를 15–300초 범위로 제한한다.
 현재 기본값은 300초다. `correct.retry.backoff_sec: 5`와 실제 엔진의 `execution.retry_backoff_sec: 30`을 혼동하지 않는다.
 
 ### 9.2 주기 합치기와 사건 중복
 
-- 스케줄은 분 단위로 확인한다. 중단 후 최근 설정 범위의 가장 최근 예정 시각 하나만 채운다.
+- 적응형 감시의 다음 관측 시각은 SQLite에 저장한다. 코드 점검에서 변화가 없으면 AI 작업을 만들지 않는다.
+- 별도 일정의 스케줄은 분 단위로 확인한다. 중단 후 최근 설정 범위의 가장 최근 예정 시각 하나만 채운다.
 - 최초 실행에서 하루치 과거 작업을 몰아서 생성하지 않는다.
 - 같은 근무자의 같은 periodic 루프가 queued/retry/waiting_capacity/running이면 새 주기는 합쳐 생략한다.
 - 시설 `/alarms`와 NOC `/api/inj/active`를 폴링한다. IT 주입은 `INJ:<handle>` 관측이며 instructor 출처를 갖는다.
 - 경보 중복 기준은 활성 상태가 이어지는 동안의 **경보 ID**다. 같은 ID의 대상별 사건이 합쳐질 수 있고, 수치·심각도 변화만으로 재실행을 보장하지 않는다.
 - 경보가 사라졌다 다시 나타나면 새 발생으로 취급한다. 폴링 사이에 생겼다가 사라진 짧은 사건은 놓칠 수 있다.
-- Wazuh 전체 실시간 이벤트 스트림을 모두 작업 큐에 넣는 구조는 아니다. SOC의 정기 로그 읽기가 별도로 있다.
+- Wazuh 전체 실시간 이벤트 스트림을 모두 작업 큐에 넣는 구조는 아니다. SOC 코드 점검은 최근 10분의 최대 200개 레코드에서 레벨 7 이상 경보의 규칙·에이전트·발신지 변화를 비교한다. 창이 잘리거나 로그를 읽지 못하면 정상으로 판단하지 않고 관측 문제로 올린다.
 
 ### 9.3 경합과 우선순위
 
@@ -632,10 +640,11 @@ execution:
 
 ### 9.4 구독 사용량
 
-현재 주기 합계는 **화요일 기준 877회/일**, 월요일은 주간 감사 회차가 더해져 878회다.
-계산은 288 + 288 + 144 + 96 + 48 + 6 + 4 + 1 + 1 + 1 = 877이다.
-이는 예정 정기 회차 수이며 실제 구독 처리 능력이나 확정 호출 수가 아니다.
-사건·전달·승인·사후검증·재시도는 추가되고, 중복 합치기·실행시간·상한·한도 대기는 실제 호출을 줄인다.
+평시 반복 감시 5개는 10분 간격의 코드 점검으로 시작한다. 정상 최초 기준 수집과 변화 없는 점검에는 AI를 호출하지 않는다. 변화 또는 이상이 이어지면 5분 → 2분 → 1분으로 관측 간격을 단축하고, 정상 관측이 2회 연속 이어질 때마다 한 단계씩 10분으로 복귀한다. 일반 변화의 AI 요청은 현재 점검 간격을 따르며 최소 60초의 중복 방지 간격을 두고, 같은 장애의 재검토는 30분 간격이다. 긴급 경보는 기존 사건 경로로 즉시 처리한다.
+
+범위: 시설 온습도·전력·경보, 서비스 실행 상태, 호스트 작업 파일시스템 사용률, 기존 관측 컨테이너를 경유한 GPU 모델 목록·접속 상태, 제한된 최근 SIEM 경보를 비교한다. 전체 시스템 파일 접근 감사, 원격 디스크 전체, 실제 추론 요청 지연시간의 완전한 감시는 아니다. 시각·컨테이너 가동 시간·토큰 사용량·AI 자체 보고서는 변경 신호에서 제외한다.
+
+별도 일정의 방화벽·GPU 쿼터·백업·출입·전력 점검은 합계 13회/일이고 월요일은 주간 감사가 추가된다. 사건·전달·승인·사후검증·재시도와 발견된 변경에 따른 조사는 추가될 수 있다. `max_tokens`는 여전히 CLI 토큰 강제 중단 한도가 아니므로, 집계 토큰을 구독 잔량이나 보장된 소비 상한으로 읽지 않는다.
 
 `daily_session_limit`는 자정 초기화가 아닌 **최근 24시간**의 로컬 시도 수다.
 예를 들어 100으로 정하면 이 엔진의 새 세션 예약을 제한하지만, 같은 계정의 다른 터미널 사용량까지 통제하지는 않는다.
@@ -823,6 +832,19 @@ connection.close()
 
 관제 화면은 `http://192.168.12.100:8020/`다.
 **강사 패널**에서 **강사 키**를 입력하면 주입·해제를 사용할 수 있다.
+
+강사 키는 서버 `.env`의 `API_KEY`다. 파일을 수정해도 실행 중인 컨테이너의 환경변수는
+바뀌지 않는다. 키를 변경했다면 아래 명령으로 공통 키를 사용하는 서비스에 함께 반영한다.
+`docker compose restart`만으로는 새 값이 적용되지 않는다.
+
+```bash
+docker compose -f docker-compose.yaml up -d --no-deps bastion portal envsim injector agentops modelops noc
+```
+
+변경된 서비스는 재생성되므로 진행 중인 실습을 마친 뒤 적용한다. 환경 시뮬레이터의 상태는
+초기화되고, 고장 주입기는 재시작 시 기존 주입을 해제한다. 브라우저에 저장된 강사 키도
+새 값으로 바꾼다. NOC만 새 키로 실행되고 envsim·injector가 이전 키를 유지하면
+입력한 키가 맞아도 명령이 실패한다. 이 경우에는 서버 간 인증 설정 불일치로 안내한다.
 
 현재 카탈로그는 시설 25종 + IT 47종 = **72종**이다.
 화면은 실제 카탈로그에서 개수를 계산한다. 과거 README나 코드 주석의 38종·48종 같은 수치는 현황 기준으로 사용하지 않는다.

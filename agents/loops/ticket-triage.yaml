@@ -1,7 +1,8 @@
 id: ticket-triage
 owner: service-desk
 autonomy: L2
-cadence: "*/5 * * * *"
+cadence: "*/10 * * * *"
+monitor: { mode: adaptive, probe: tickets }
 budget: { max_tokens: 40000, max_tool_calls: 30 }
 state: [open_tickets, sla_clocks, assignment_history]
 steps:

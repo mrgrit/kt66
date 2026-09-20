@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>4F AI 에이전트 관제 · kt66</title>
+<link rel="stylesheet" href="/ui/console.css"><link rel="stylesheet" href="/agent-control.css?v=adaptive-5">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23c6f582'/%3E%3Ctext x='5' y='23' font-size='20' font-family='sans-serif'%3EAI%3C/text%3E%3C/svg%3E">
+</head>
+<body data-console="agentcontrol">
+<a class="skip" href="#cases">실행 기록으로 이동</a>
+<header class="control-header"><div><div class="eyebrow">4F / AGENT CONTROL ROOM</div><h1>AI 에이전트 관제 <span>실행을 증거로 확인하다</span></h1></div><div class="header-actions"><span id="sync" role="status">기록 연결 중</span><button id="pause" aria-pressed="false">자동 갱신 켜짐</button><button id="integration">관제 AI 연동</button><a class="button" href="/?floor=4F">4F 배치도 ↗</a></div></header>
+<main class="control-main">
+<div class="collection-error" id="error" role="alert" hidden></div>
+<section class="overview" aria-label="수집 범위와 실행 현황"><div class="metric"><span>조회 범위 실행</span><strong id="stat-runs">—</strong><small id="stat-scope">최근 24시간 · 모든 에이전트</small></div><div class="metric"><span>실행 중 / 대기</span><strong id="stat-active">—</strong><small id="engine">실행기 상태 확인 중</small></div><div class="metric"><span>실행기 검토 대상</span><strong id="stat-review">—</strong><small>실패 · 근거 부족 · 종료 미확인</small></div><div class="metric tokens"><span>작업별 관측 토큰</span><strong id="stat-tokens">—</strong><small id="stat-coverage">CLI 사용량 · 구독 차감액 아님</small></div></section>
+<section class="crew-strip" id="crew-strip" aria-label="에이전트별 기록"></section>
+<details class="monitor-policy" id="monitor-policy" hidden><summary id="monitor-summary">점검 정책 확인 중</summary><p>평시에는 코드로 상태를 확인합니다. 변화·이상 또는 지속 장애의 재검토가 필요할 때 AI를 호출합니다. 긴급 경보는 바로 처리하며, 정기 감사·백업 검증 등은 별도 일정으로 수행합니다.</p><div id="monitor-loops"></div></details>
+<form class="filters" id="filters"><label class="search"><span class="sr-only">작업 검색</span><input id="search" type="search" placeholder="작업·루프·결과 검색" autocomplete="off"></label><label><span class="sr-only">에이전트</span><select id="worker"><option value="">모든 에이전트</option></select></label><label><span class="sr-only">트리거 종류</span><select id="trigger"><option value="">모든 트리거</option><option value="periodic">정기 점검</option><option value="event">이슈 발생</option><option value="approval">승인 요청</option><option value="delegation">위임 작업</option><option value="review">조치 후 검증</option><option value="manual">개별 실행</option></select></label><label><span class="sr-only">실행 상태</span><select id="status"><option value="">모든 상태</option><option value="attention">실행기 검토 대상</option><option value="running">실행 중</option><option value="completed">완료</option><option value="failed">실패</option><option value="retry">재시도 대기</option><option value="waiting_capacity">한도 회복 대기</option></select></label><label><span class="sr-only">조회 기간</span><select id="hours"><option value="24">최근 24시간</option><option value="168">최근 7일</option><option value="0">전체 기간</option></select></label><button type="button" id="refresh" title="지금 새로고침">갱신 ↻</button></form>
+<div class="investigation">
+<section class="case-list" id="cases" aria-label="실행 기록"><div class="panel-head"><h2>실행 기록 <span id="case-count">—</span></h2><span>최근 시작순</span></div><div id="run-list" class="run-list" role="list"><p class="empty">실제 작업 기록을 수집하고 있습니다…</p></div><button class="load-more" id="more" hidden>이전 실행 더 보기 ↓</button></section>
+<section class="case-detail" id="detail" aria-label="선택한 실행 조사"><div class="empty detail-empty"><span class="empty-mark">◎</span><h2>에이전트가 한 일을 따라가세요.</h2><p>실행을 선택하면 요청·판단·도구·결과가 하나의 기록으로 연결됩니다.</p></div></section>
+</div>
+<div class="control-foot"><span><i></i> 증거 기반 관제 · 조회만으로 모델을 호출하지 않습니다</span><span id="source-count">실행기 DB + 세션 증거</span></div>
+</main>
+<dialog id="evidence-dialog"><div class="dialog-head"><h2 id="evidence-title">증거 파일</h2><button data-close="evidence-dialog" aria-label="증거 닫기">닫기 ×</button></div><div id="evidence-meta" class="muted"></div><pre id="evidence-content"></pre></dialog>
+<dialog id="integration-dialog"><div class="dialog-head"><div><div class="eyebrow">OBSERVER INTERFACE / V1</div><h2>관제 에이전트를 위한 증거 인터페이스</h2></div><button data-close="integration-dialog">닫기 ×</button></div><p>사람과 관제 AI가 같은 실행 ID, 타임라인, 증거를 조회합니다. 현재 화면의 탐지는 명시된 규칙으로 동작하며 추가 모델 호출이 없습니다.</p><div class="info-block"><b>관찰 → 조사 → 근거를 붙인 보고 → 기존 승인 체계</b><p><code>agent_activity</code> 도구로 실행을 조회하고, <code>ticket_create</code>로 근거를 포함한 검토 결과를 남길 수 있습니다. 관측 기록이 실행 권한이나 승인을 부여하지 않습니다.</p></div><dl class="facts"><dt>목록 / 변경분</dt><dd><a href="/api/agent-control/runs?limit=5" target="_blank" rel="noopener">GET /api/agent-control/runs ↗</a><br>worker · trigger · status · hours · cursor · updated_since</dd><dt>한 건의 조사</dt><dd><code>GET /api/agent-control/runs/{id}?compact=true</code></dd><dt>계약 및 정책</dt><dd><a href="/api/agent-control/schema" target="_blank" rel="noopener">kt66.activity.v1 스키마 ↗</a></dd><dt>수집 원칙</dt><dd>에이전트의 판단 요약과 도구 영수증을 구분합니다. 비공개 내부 추론은 수집하지 않습니다. 미수집값은 정상·0건으로 간주하지 않습니다.</dd><dt>운영 경계</dt><dd>관제 AI의 자동 주기 실행은 아직 활성화하지 않았습니다. 활성화 시 담당자·관제 범위·호출 예산을 별도로 지정하고, 관제 조회를 다시 감시하는 순환 호출을 제외해야 합니다.</dd></dl></dialog>
+<script src="/ui/console.js"></script><script src="/agent-sprites.js?v=pixel-staff-3"></script><script src="/agent-control.js?v=adaptive-5"></script>
+</body></html>

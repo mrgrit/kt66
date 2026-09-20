@@ -167,7 +167,7 @@ levers:
   - "ops-lead 에게 실행 권한을 주면? — 승인이 형식이 되고 감사가 무너진다"
   - "ratchet 을 지우면? — 같은 사고를 다시 겪는다. 지우고 재현해 보는 것이 실습이다"
 
-# Persistent orchestration; original loop cadence remains the source of scheduling.
+# Calendar work uses cadence; frequent monitoring uses persisted adaptive checks.
 execution:
   enabled: true
   timezone: Asia/Seoul
@@ -179,3 +179,9 @@ execution:
   max_catchup_minutes: 30
   daily_session_limit: null  # optional configured cap; subscription limits still apply
   dispatcher: service-desk
+  adaptive:
+    enabled: true
+    intervals_sec: [600, 300, 120, 60]
+    stable_samples: 2
+    model_cooldown_sec: 60
+    incident_review_sec: 1800

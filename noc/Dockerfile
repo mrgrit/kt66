@@ -11,6 +11,8 @@ COPY noc/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY noc/app.py ./
+COPY noc/agent_control.py ./
+COPY agents/activity_audit.py ./
 COPY noc/static ./static
 
 COPY ui/ /app/ui/

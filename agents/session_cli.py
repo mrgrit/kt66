@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from activity_audit import record, scrub
 
 
 class SessionError(RuntimeError):
@@ -60,6 +61,25 @@ def authenticated(runtime, cli, env):
 
 
 def run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidence_dir=None):
+    record(evidence_dir, "request", {"runtime": runtime, "model": model, "prompt": prompt,
+                                    "timeout_seconds": timeout, "source": "session_cli"})
+    try:
+        result = _run(runtime, model, prompt, timeout, schema, harness, evidence_dir)
+    except Exception as exc:
+        failure = {"status":"failed", "runtime":runtime, "error":str(exc) if isinstance(exc, SessionError) else type(exc).__name__}
+        record(evidence_dir, "session.failed", failure)
+        if evidence_dir is not None:
+            (pathlib.Path(evidence_dir) / "failure.json").write_text(json.dumps(failure))
+        raise
+    record(evidence_dir, "session.completed", {"session_id": result["session_id"],
+           "usage": result.get("usage", {}), "outcome": result["body"]})
+    if evidence_dir is not None:
+        # Also covers cc-runner sessions, whose previous log only stored usage.
+        (pathlib.Path(evidence_dir) / "session-result.json").write_text(json.dumps(scrub(result), ensure_ascii=False))
+    return result
+
+
+def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidence_dir=None):
     cli, env = executable(runtime), clean_env()
     auth = authenticated(runtime, cli, env)
     with tempfile.TemporaryDirectory(prefix="kt66-worker-session-") as td:
@@ -71,6 +91,7 @@ def run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidence
             evidence_dir.mkdir(parents=True, exist_ok=True)
             session_cwd = str(harness)
             instructions = (harness / "HARNESS.md").read_text()
+            (evidence_dir / "manifest-snapshot.json").write_text(json.dumps(scrub(manifest), ensure_ascii=False))
             mcp = {"mcpServers": {"kt66": {"command": "/usr/bin/python3", "args": [
                 str(pathlib.Path(__file__).with_name("harness_tools.py")),
                 str(harness / "manifest.json"), str(evidence_dir)]}}}
