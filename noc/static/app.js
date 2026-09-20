@@ -634,7 +634,8 @@ function openAsset(id) {
     ${kv('위치', `${a.floor} · ${a.rack || '랙 외'}${a.u ? ` · ${a.u}U` : ''}`)}
     ${kv('존', `${a.zone} (${zn?.trust || '-'}) ${zn?.cidr || ''}`)}
     ${a.logical_zone ? kv('권한 경계', `${a.logical_zone} — 망 경계와 다르다`) : ''}
-    ${kv('주소', a.ip)} ${kv('실체', a.container || (a.remote ? `원격 ${a.remote}` : '-'))}
+    ${kv('주소', a.ip)} ${kv('실체', a.container || (a.remote ? `원격 ${a.remote}`
+      : a.host || '-'))}
     ${ct ? kv('컨테이너', ct.status) : ''}
     <div class="kv"><span class="k">수집 기반 사용률</span><span class="v">${(st.util * 100).toFixed(0)}%</span></div>
     <div class="bar"><i style="width:${Math.min(st.util * 100, 100)}%;background:${

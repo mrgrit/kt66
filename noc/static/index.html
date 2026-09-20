@@ -15,6 +15,13 @@
   <div class="page-heading"><div class="eyebrow">WORKSPACE <span>/</span> OVERVIEW</div><h1>데이터센터 관제<span class="page-tag">NOC</span></h1></div>
   <div class="hud-right">
     <div class="header-time"><span id="today"></span><time id="clock">--:--:--</time></div>
+    <!-- 관제 화면은 "지금 랩이 어떤 상태인가"만 말한다. 무엇을 공격하고 무엇을 지킬지,
+         그래서 몇 점인지는 tubewar 가 정한다 — 그 다음 걸음을 여기서도 닿게 둔다.
+         랜딩에만 두면 관제 화면으로 바로 들어온 학생은 그 존재를 모른다.
+         랜딩과 달리 이 화면에는 base target 이 없으므로 직접 새 탭으로 연다. -->
+    <a class="btn ghost sm hud-link" href="https://tubewar.dawnofagi.cloud/"
+       target="_blank" rel="noopener"
+       title="tubewar — 사이버 공방전 플랫폼 (시나리오 · 미션 · 채점)">tubewar ↗</a>
     <button class="btn key" id="btn-instructor"><span aria-hidden="true">⚙</span> 강사 패널</button>
   </div>
 </header>

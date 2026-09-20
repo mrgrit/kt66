@@ -545,6 +545,26 @@ it_assets:
   - { id: envsim,   name: 시설 관제,   floor: "4F", rack: R-4F-01, zone: ot,  logical_zone: mgmt, ip: 10.20.60.10,  container: kt66-envsim,  shed_group: security-mgmt, idle_kw: 0.1, rated_kw: 0.3, u: 1, web: "http://${INT_HOST}:8010/" }
   - { id: attacker, name: 공격자 단말, floor: "4F", rack: R-4F-01, zone: ext, ip: 10.20.30.202, container: kt66-attacker, shed_group: business, idle_kw: 0.2, rated_kw: 1.0, u: 1, ssh: "ssh ccc@${WEB_HOST} -p 2202" }
 
+  # 아래 둘은 **컨테이너가 아니다.** 그래서 zone 이 mgmt 다 — 이 존만 cidr 이 없는
+  # 논리 존이고, 붙어 있는 세그먼트가 없다는 사실을 그대로 적은 것이다. docker 에
+  # 없으므로 사용률은 0 으로 남고(수집 대상이 아니다) 생사도 화면이 판정하지 않는다.
+  #
+  # agent-runner 는 이 VM 의 **호스트 프로세스**다(kt66-runner.service →
+  # agents/loop_engine.py). 근무자 루프를 깨우고 세션을 돌리는 쪽이라 관제 화면과
+  # 같은 컨테이너가 아니다 — 화면(/agent-control)만 noc 이 내준다.
+  #
+  # tubewar 는 아예 **다른 인프라의 플랫폼**이다(el34). 랙에 넣는 것은 물리 사실이
+  # 아니라 운영 사실이다: 4F 가 쓰는 시스템이므로 자산 대장에 있어야 찾을 수 있다.
+  # 3F 의 dgx-spark-01 도 같은 이유로 랙 안에 있다(실물은 터널 너머에 있다).
+  - { id: agent-runner, name: "AI 에이전트 관제 (근무자 루프)", floor: "4F", rack: R-4F-01, zone: mgmt, ip: "${INT_HOST}", host: "호스트 프로세스 — kt66-runner.service", shed_group: security-mgmt, idle_kw: 0.15, rated_kw: 0.6, u: 1, web: "http://${INT_HOST}:8020/agent-control" }
+  - { id: tubewar,      name: "공방전 플랫폼 (tubewar)",        floor: "4F", rack: R-4F-01, zone: mgmt, ip: tubewar.dawnofagi.cloud, host: "외부 플랫폼 — el34 인프라", shed_group: security-mgmt, idle_kw: 0.1, rated_kw: 0.4, u: 1, web: "https://tubewar.dawnofagi.cloud/" }
+
+  # 강의 진행 도구 둘. 이 VM 의 호스트에서 node 로 돌고(:3000/:3001) 같은 classroom
+  # 터널로 공개된다. 랩 자산은 아니지만 수업이 이것들 위에서 돌아간다 — 대장에 없으면
+  # "이 서버가 무엇을 지고 있는가"를 물었을 때 답이 틀린다.
+  - { id: cork,   name: "코르크 (협업 보드)", floor: "4F", rack: R-4F-01, zone: mgmt, ip: cork.dawnofagi.cloud,   host: "호스트 node — :3000",   shed_group: business, idle_kw: 0.05, rated_kw: 0.2, u: 1, web: "https://cork.dawnofagi.cloud/" }
+  - { id: buzzer, name: "버저 (퀴즈·응답)",   floor: "4F", rack: R-4F-01, zone: mgmt, ip: buzzer.dawnofagi.cloud, host: "호스트 node — :3001", shed_group: business, idle_kw: 0.05, rated_kw: 0.2, u: 1, web: "https://buzzer.dawnofagi.cloud/" }
+
 # ── 경보 규칙 ─────────────────────────────────────────────────────
 # level 은 Wazuh 로 넘어가는 심각도다. 온도 임계는 ASHRAE 권고(18~27°C) 기준.
 alarms:

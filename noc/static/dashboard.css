@@ -36,5 +36,9 @@ html,body{height:auto;min-height:100%}body[data-console=noc]{overflow:auto;font-
 .agent-state-legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .agent-state-legend i{display:inline-block;width:15px;height:7px;border:1.5px solid;border-radius:50%}
 #legend{max-height:calc(100% - 75px);overflow:auto;overscroll-behavior:contain}
+/* 헤더의 바깥 링크. 버튼들 사이에 섞이므로 밑줄을 빼고 줄바꿈을 막는다 —
+   좁은 화면에서 "tubewar" 와 "↗" 가 갈라지면 버튼처럼 안 보인다. */
+.hud-link{display:inline-flex;align-items:center;text-decoration:none;color:#d3dce2;white-space:nowrap}
+.hud-link:hover{border-color:#92b86b;color:#d0f79e}
 .agent-control-link{display:inline-flex;align-items:center;text-decoration:none;color:#c6f582!important;border:1px solid #516642!important;background:#243128!important;white-space:nowrap;gap:6px}
 #dr-body>.agent-control-link{margin-bottom:16px;white-space:normal}
