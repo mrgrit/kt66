@@ -606,6 +606,47 @@ function renderTicker() {
 }
 function renderLegend() { renderRoomLegend(); }
 
+/* ══ 복사 ══════════════════════════════════════════════════════
+ * 이 화면은 평문 http(:8020) 로 연다. navigator.clipboard 는 **보안 컨텍스트에서만**
+ * 존재하므로 여기서는 대개 undefined 다. 예전 코드는 `navigator.clipboard?.writeText(…)`
+ * 로 조용히 아무것도 하지 않고 바로 다음 줄에서 "복사했습니다"를 띄웠다 — 화면이
+ * 거짓말을 했다. 학생은 붙여넣기가 안 되는 이유를 알 길이 없었다.
+ *
+ * 그래서 ① 쓸 수 있으면 표준 API 를 쓰고, ② 아니면 execCommand 로 떨어지고,
+ * ③ 둘 다 안 되면 **성공했다고 말하지 않는다.**
+ */
+async function copyText(text) {
+  try {
+    if (window.isSecureContext && navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* 권한 거부·정책 차단 — 아래 폴백으로 */ }
+  try {
+    // 낡았지만 평문 http 에서도 동작하는 유일한 길이다.
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);      // iOS 는 select() 만으로 부족하다
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch { return false; }
+}
+
+function selectNode(n) {
+  try {
+    const r = document.createRange();
+    r.selectNodeContents(n);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } catch { /* 선택도 안 되면 할 수 있는 게 없다 */ }
+}
+
 /* ══ 상세 패널 ══════════════════════════════════════════════════ */
 function showDrawer(name, zoneId, html) {
   $('#dr-name').textContent = name;
@@ -614,9 +655,19 @@ function showDrawer(name, zoneId, html) {
   else z.hidden = true;
   $('#dr-body').innerHTML = html;
   $('#drawer').hidden = false;
-  $$('#dr-body .cmd').forEach(n => n.onclick = () => {
-    navigator.clipboard?.writeText(n.textContent.replace(/^\$ /, ''));
-    const t = n.textContent; n.textContent = '복사했습니다'; setTimeout(() => n.textContent = t, 900);
+  $$('#dr-body .cmd').forEach(n => n.onclick = async () => {
+    const text = n.textContent.replace(/^\$ /, '');
+    if (await copyText(text)) {
+      const t = n.textContent;
+      n.textContent = '복사했습니다';
+      setTimeout(() => n.textContent = t, 900);
+    } else {
+      // 글자를 바꾸면 선택이 풀린다. 실패했을 때 쓸모 있는 건 메시지가 아니라
+      // **골라 둔 텍스트**다 — 그대로 두고 선택한 뒤, 안내는 CSS 로 겹쳐 띄운다.
+      selectNode(n);
+      n.classList.add('copy-fail');
+      setTimeout(() => n.classList.remove('copy-fail'), 2400);
+    }
   });
 }
 const kv = (k, v) => v == null || v === '' ? ''

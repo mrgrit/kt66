@@ -322,6 +322,13 @@ main{display:flex;height:calc(100vh - 56px - 32px)}
 .dsec{margin:15px 0 6px;font-size:10px;letter-spacing:.1em;color:var(--dimmer);text-transform:uppercase}
 .access{margin-top:14px;display:flex;flex-direction:column;gap:7px}
 .access a.btn{text-decoration:none;text-align:center;display:block}
+/* 복사 실패 — 평문 http 라 클립보드 API 가 없고 execCommand 도 막힌 경우.
+   글자를 바꾸면 선택이 풀리므로 안내는 겹쳐 띄우고 텍스트는 그대로 둔다. */
+.cmd{position:relative}
+.cmd.copy-fail{border-color:var(--amber);color:#ffd7a1}
+.cmd.copy-fail::after{content:"Ctrl+C";position:absolute;right:6px;top:50%;
+  transform:translateY(-50%);font-size:9px;color:var(--amber);background:#04090f;
+  padding:1px 4px;border-radius:3px;pointer-events:none}
 .cmd{font-family:var(--mono);font-size:11px;background:#04090f;border:1px solid var(--line2);
   border-radius:8px;padding:8px 10px;color:var(--cyan);cursor:copy;word-break:break-all;transition:.14s}
 .cmd:hover{border-color:var(--cyan);background:#061019}
