@@ -76,3 +76,10 @@ agents/tickets/cycle-state/
 agents/tickets/20*.md
 agents/tickets/session-work-*.md
 agents/tickets/*.jsonl
+
+# 사용자 요청과 산출물은 배포 환경별 실행 자료입니다.
+agents/tickets/requests/
+agents/tickets/.request-change.lock
+agents/native/.edit.lock
+web/landing/projects/
+web/request-rules/*.conf

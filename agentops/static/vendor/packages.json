@@ -1,0 +1,24 @@
+[
+  {
+    "name": "marked",
+    "version": "18.0.13",
+    "source": "https://registry.npmjs.org/marked/-/marked-18.0.13.tgz",
+    "integrity": "sha512-xTxVzZsBFwunP6HDmtBkabUQEYArnP7/rMDGmPj9SlrKlQ4i8MdYVow+nJL0eOqwpUqhzBoTBRADGN6uYwPyOw==",
+    "files": [
+      "marked-18.0.13/LICENSE",
+      "marked-18.0.13/marked.umd.js"
+    ]
+  },
+  {
+    "name": "dompurify",
+    "version": "3.4.15",
+    "source": "https://registry.npmjs.org/dompurify/-/dompurify-3.4.15.tgz",
+    "integrity": "sha512-EUBjM+B+lkDE41iE82DDSCfkoPGfXx8IxFxPMjNzm/Uk4xDet77rTN9wqlxlVg71kK7XGuUMv6wUxJUwwv+Xyw==",
+    "files": [
+      "dompurify-3.4.15/LICENSE-MPL",
+      "dompurify-3.4.15/license_header",
+      "dompurify-3.4.15/LICENSE",
+      "dompurify-3.4.15/purify.min.js"
+    ]
+  }
+]

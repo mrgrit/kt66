@@ -195,10 +195,11 @@ def _backup(p: Path) -> None:
     if not p.exists():
         return
     BAK.mkdir(parents=True, exist_ok=True)
-    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(p, BAK / f"{p.name}.{stamp}")
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    name = "__".join(p.relative_to(AGENTS).parts)
+    shutil.copy2(p, BAK / f"{name}.{stamp}")
     # 무한히 쌓이면 디스크를 먹는다. 파일당 최근 20개만 남긴다.
-    keep = sorted(BAK.glob(f"{p.name}.*"))[:-20]
+    keep = sorted(BAK.glob(f"{name}.*"))[:-20]
     for old in keep:
         old.unlink(missing_ok=True)
 
@@ -557,3 +558,7 @@ def loop_status():
     result = json.loads(path.read_text())
     result["heartbeat_recent"] = __import__("time").time() - result.get("at", 0) < 60
     return result
+
+# 사용자 업무는 기존 조직 파일 편집과 같은 백업 경로를 사용한다.
+from requests_api import install as install_requests
+install_requests(app, AGENTS, API_KEY, tpl, _write_text)

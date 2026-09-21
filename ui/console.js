@@ -13,6 +13,7 @@
   };
   window.dcIcon = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] || paths.server}"/></svg>`;
   window.dcURL = (name) => {
+    if(name==='requests')return window.dcURL('agentops')+'requests';
     if(name==='agentcontrol')return window.dcURL('noc')+'agent-control';
     const ports = {noc:8020, portal:8000, agentops:8050, modelops:8060, infraops:8070, siem:5601, landing:80};
     const host = location.hostname;
@@ -31,6 +32,7 @@
     <nav aria-label="콘솔 이동">
       ${nav('noc','통합 관제','Overview','overview')}
       ${nav('agentcontrol','AI 에이전트 관제','4F · Agent control','activity')}
+      ${nav('requests','업무 요청','Requests & projects','book')}
       ${nav('portal','인프라 자산','Infrastructure','server')}
       ${nav('agentops','근무자 운영','Agent operations','crew')}
       ${nav('modelops','모델 운영','Model operations','model')}

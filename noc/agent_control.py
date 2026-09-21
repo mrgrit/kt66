@@ -66,7 +66,7 @@ def usage_of(result):
 def trigger_of(kind):
     if kind.startswith("periodic:"):
         return "periodic"
-    return {"event":"event", "approval":"approval", "post_action_review":"review", "delegated":"delegation"}.get(kind, "manual")
+    return {"user_request":"user_request", "event":"event", "approval":"approval", "post_action_review":"review", "delegated":"delegation"}.get(kind, "manual")
 
 
 class Observatory:

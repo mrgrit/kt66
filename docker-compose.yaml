@@ -259,6 +259,8 @@ services:
       #   추가하면 이미지를 다시 구워야 활성화된다).
       - ./web/landing:/var/www/landing:ro
       - ./web/vhosts:/etc/apache2/sites-available:ro
+      - ./web/request-rules:/etc/modsecurity/kt66-requests:ro
+      - ./web/request-rules.conf:/etc/modsecurity/kt66-requests.conf:ro
     depends_on:
       - ips
       - juiceshop

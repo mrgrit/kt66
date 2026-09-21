@@ -2,7 +2,7 @@
 import concurrent.futures, datetime, fcntl, hashlib, json, os, pathlib, signal, sqlite3, time, uuid
 from zoneinfo import ZoneInfo
 import yaml
-import harness_compiler, session_cli, adaptive_monitor
+import harness_compiler, session_cli, adaptive_monitor, work_requests
 from harness_tools import atomic
 ROOT=pathlib.Path(__file__).resolve().parent
 STOP=False
@@ -41,6 +41,7 @@ def db_open():
     adaptive_monitor.install(db)
     # Interrupted jobs retain attempts and evidence; they are eligible for bounded retry.
     db.execute("UPDATE jobs SET status='retry',not_before=? WHERE status='running'",(time.time()+5,))
+    db.execute("UPDATE jobs SET status='failed',result=? WHERE kind='user_request' AND status='retry'", (json.dumps({"error":"러너가 실행 중 중단되었습니다. 저장된 산출물을 확인하고 후속 요청으로 재개하세요."}),))
     db.commit();return db
 
 def enqueue(db,jid,worker,kind,payload):
@@ -114,6 +115,8 @@ def poll(db,cfg):
                           notified_workers=notified_workers)
 
 def execute(job):
+    if job["kind"] == "user_request":
+        return work_requests.execute(ROOT, job)
     wid=job["worker"]
     previous=ROOT/"tickets"/"worker-memory"/(wid+".json")
     if previous.exists():
@@ -174,15 +177,17 @@ def run():
                 attempts=job["attempts"]+1
                 capacity=result.get("error")=="subscription_usage_limit"
                 delay=int(cfg.get("quota_backoff_sec",900)) if capacity else int(cfg.get("retry_backoff_sec",30))
-                if capacity:
+                if capacity and job["kind"] != "user_request":
                     status="waiting_capacity"
                     db.execute("INSERT OR REPLACE INTO metadata VALUES(?,?)",("cooldown:"+result["runtime"],str(time.time()+delay)))
-                elif status=="failed" and attempts<int(cfg.get("max_attempts",2)):status="retry"
+                elif status=="failed" and job["kind"] != "user_request" and attempts<int(cfg.get("max_attempts",2)):status="retry"
                 db.execute("UPDATE jobs SET status=?,updated=?,not_before=?,evidence=?,result=? WHERE id=?",
                   (status,time.time(),time.time()+delay,result.get("evidence"),json.dumps(result),job["id"]))
                 db.commit();del futures[future]
             error=None
             if cfg.get("enabled",True):
+                try:work_requests.poll(ROOT,db,enqueue)
+                except Exception as e:error="업무 요청: "+type(e).__name__+": "+str(e)[:200]
                 try:poll(db,cfg)
                 except Exception as e:error=type(e).__name__+": "+str(e)[:200]
                 busy={j["worker"] for j in futures.values()}
@@ -220,7 +225,7 @@ def run_once():
     except BlockingIOError:
         print((ROOT/"tickets"/"loop-engine-status.json").read_text())
         return 0
-    db=db_open();poll(db,config())
+    db=db_open();work_requests.poll(ROOT,db,enqueue);poll(db,config())
     row=db.execute("SELECT * FROM jobs WHERE status IN ('queued','retry','waiting_capacity') AND not_before<=? ORDER BY created LIMIT 1",(time.time(),)).fetchone()
     if row:
         job=dict(row);db.execute("UPDATE jobs SET status='running',attempts=attempts+1 WHERE id=?",(job["id"],));db.commit()

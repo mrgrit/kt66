@@ -779,6 +779,7 @@ function openCrew(id) {
     L3: '무인 실행 — 런북이 등록된 작업에만 허용된다',
     approver: '승인 전담 — 스스로 실행하지 않고 L2 요청을 판정한다' }[w.autonomy] || '';
   showDrawer(w.name, w.zone, `
+    <a class="btn agent-control-link" href="${dcURL('requests')}?worker=${encodeURIComponent(w.id)}">${safeText(w.name)}에게 말 걸기 ↗</a>
     <a class="btn agent-control-link" href="/agent-control?worker=${encodeURIComponent(w.id)}">이 에이전트의 실행·판단·증거 조사 ↗</a>
     <div data-crew-activity="${safeText(w.id)}">${workerActivityMarkup(w.id)}</div>
     ${kv('페르소나 ID', w.id)} ${kv('배치', `${w.floor} · ${w.zone} 존`)}

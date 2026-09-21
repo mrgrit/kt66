@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+import yaml
 from activity_audit import record, scrub
 
 
@@ -90,7 +91,7 @@ def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidenc
             evidence_dir = pathlib.Path(evidence_dir)
             evidence_dir.mkdir(parents=True, exist_ok=True)
             session_cwd = str(harness)
-            instructions = (harness / "HARNESS.md").read_text()
+            instructions = (harness / ("AGENTS.md" if manifest.get("native") else "HARNESS.md")).read_text()
             (evidence_dir / "manifest-snapshot.json").write_text(json.dumps(scrub(manifest), ensure_ascii=False))
             mcp = {"mcpServers": {"kt66": {"command": "/usr/bin/python3", "args": [
                 str(pathlib.Path(__file__).with_name("harness_tools.py")),
@@ -101,7 +102,7 @@ def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidenc
                 "version": manifest["version"], "manifest": str(harness / "manifest.json"),
                 "cwd": session_cwd, "instructions_sha256": __import__("hashlib").sha256(instructions.encode()).hexdigest(),
                 "instruction_delivery": "generated instructions via CLI system/developer config",
-                "mcp_server": "kt66"}))
+                "native": manifest.get("native"), "mcp_server": "kt66"}))
 
         if runtime == "claude":
             sid = str(uuid.uuid4())
@@ -110,8 +111,15 @@ def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidenc
                    "--settings", '{"disableAllHooks":true}',
                    "--no-session-persistence", "--output-format", "json"]
             if harness is not None:
-                cmd += ["--append-system-prompt", instructions, "--mcp-config", str(mcp_file),
-                        "--allowedTools", "mcp__kt66__*"]
+                cmd += ["--mcp-config", str(mcp_file), "--allowedTools", "mcp__kt66__*"]
+                if not manifest.get("native"):
+                    cmd += ["--append-system-prompt", instructions]
+            if harness is not None and manifest.get("native"):
+                name = manifest["native"]["agent"]
+                _, header, body = (harness / ".claude" / "agents" / (name + ".md")).read_text().split('---', 2)
+                role = yaml.safe_load(header)
+                cmd += ["--agents", json.dumps({name: {"description": role["description"], "prompt": body,
+                         "tools": role["tools"], "model": role["model"]}}, ensure_ascii=False), "--agent", name]
             if schema is not None:
                 cmd += ["--json-schema", json.dumps(schema)]
             p = subprocess.run(cmd, input=prompt, cwd=session_cwd, env=env,
@@ -148,7 +156,7 @@ def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidenc
                         "-c", "mcp_servers.kt66.args=" + json.dumps(mcp["mcpServers"]["kt66"]["args"]),
                         "-c", 'mcp_servers.kt66.default_tools_approval_mode="approve"',
                         "-c", "mcp_servers.kt66.startup_timeout_sec=15",
-                        "-c", "mcp_servers.kt66.tool_timeout_sec=30"]
+                        "-c", "mcp_servers.kt66.tool_timeout_sec=90"]
             if schema is not None:
                 schema_file = pathlib.Path(td) / "output-schema.json"
                 schema_file.write_text(json.dumps(schema))

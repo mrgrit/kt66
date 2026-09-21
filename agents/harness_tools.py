@@ -1,6 +1,7 @@
 """Policy-enforced MCP stdio tools. No shell or arbitrary URL tool is exposed."""
 import datetime, hashlib, json, os, pathlib, sys, time, urllib.parse, urllib.request, uuid
 from activity_audit import record
+import request_tools
 ROOT = pathlib.Path(__file__).resolve().parent
 
 def schema(properties, required=()):
@@ -26,6 +27,8 @@ def atomic(path,data):
     path.parent.mkdir(parents=True,exist_ok=True)
     temp=path.with_name("."+path.name+"-"+uuid.uuid4().hex)
     temp.write_text(json.dumps(data,ensure_ascii=False,indent=2)); os.replace(temp,path)
+
+TOOLS += [(n, d, spec, "user_request") for n, d, spec in request_tools.TOOLS]
 
 class Broker:
     def __init__(self, manifest_path, session_dir):
@@ -61,6 +64,9 @@ class Broker:
         if not hasattr(self,"_accesses"):self._accesses=[]
         self._accesses.append({"path":str(path),"operation":operation})
     def current(self):
+        if self.m.get("request"):
+            r = self.m["request"]
+            request_tools.Store(ROOT).check(r["id"], r["task_id"], r["revision"])
         # Revoke stale tools immediately when source policy changes.
         for name,expected in self.m["source_hashes"].items():
             content=(ROOT/name).read_bytes();self.access(ROOT/name,"read")
@@ -83,7 +89,7 @@ class Broker:
         self.current()
         calls=self.session/"tools.jsonl"
         budgets=[lp.get("budget",{}).get("max_tool_calls",30) for lp in getattr(self,"active_loops",self.m["loops"])]
-        limit=min(budgets) if budgets else 30
+        limit=self.m.get("request", {}).get("max_tool_calls", min(budgets) if budgets else 30)
         if calls.exists() and len(calls.read_text().splitlines())>=limit:
             raise ValueError("configured tool-call budget exhausted; escalate")
         definition=next((t for t in TOOLS if t[0]==name),None)
@@ -101,6 +107,8 @@ class Broker:
             return self.receipt(name,args,{"status":"denied","permission":permitted})
         if permitted and self.permissions.get(permitted)=="ask" and name!="simulator_control":
             return self.receipt(name,args,{"status":"approval_required","permission":permitted})
+        if name in {t[0] for t in request_tools.TOOLS}:
+            return self.receipt(name,args,request_tools.call(self,ROOT,name,args))
         if name=="activity_note":
             if args["stage"] not in ("situation","plan","decision","review") or not args["summary"].strip():
                 raise ValueError("valid stage and nonempty summary required")

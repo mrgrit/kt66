@@ -8,7 +8,7 @@
   const short=n=>n==null?'—':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1000?(n/1000).toFixed(1)+'K':num(n);
   const date=v=>v?new Date(typeof v==='number'?v*1000:v).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}):'시각 미수집';
   const statuses={completed:'완료',failed:'실패',needs_review:'근거 검토',running:'실행 중',queued:'대기',retry:'재시도 대기',waiting_capacity:'한도 대기',superseded:'점검 정책 전환',unknown:'종료 미확인'};
-  const triggers={periodic:'정기 점검',event:'이슈 발생',approval:'승인 요청',delegation:'위임 작업',review:'조치 후 검증',manual:'개별 실행'};
+  const triggers={user_request:'사용자 업무',periodic:'정기 점검',event:'이슈 발생',approval:'승인 요청',delegation:'위임 작업',review:'조치 후 검증',manual:'개별 실행'};
   const stages={'request':'요청 수신','agent.situation':'상황 인식','agent.plan':'작업 계획','agent.decision':'판단 요약','agent.review':'결과 검토','session.completed':'세션 종료','session.failed':'세션 실패'};
   const badge=(value,label)=>`<span class="badge ${esc(value)}">${esc(label||statuses[value]||value)}</span>`;
   const raw=(label,value)=>`<details><summary>${esc(label)}</summary><pre>${typeof value==='string'?esc(value):json(value)}</pre></details>`;
@@ -78,7 +78,7 @@
   function notices(data){return data.run.findings.length?`<div class="notice-list">${data.run.findings.map(f=>`<button class="notice" data-evidence-ref="${esc(f.evidence_refs[0])}">${badge(f.severity,{high:'우선 검토',medium:'검토',info:'수집 안내'}[f.severity])}${esc(f.title)}<span>근거 ↗</span></button>`).join('')}</div>`:'';}
   function overview(data){
     const r=data.run,request=data.request,p=request.trigger_payload||{};
-    return notices(data)+section('01 · 요청과 트리거',`<dl class="facts"><dt>실행 이유</dt><dd>${esc(triggers[r.trigger])} · ${esc(r.kind)}</dd><dt>요청 시각</dt><dd>${esc(date(request.requested_at))}</dd><dt>실행 시작</dt><dd>${esc(date(r.started))}</dd><dt>작업 ID</dt><dd>${esc(r.job_id||'개별 CLI 세션')}</dd><dt>실행 주체</dt><dd>${esc(r.runtime||'미수집')} / ${esc(r.model||'미수집')} · ${r.attempt}번째 시도</dd></dl>${raw('트리거 원본 · '+request.source,p)}${request.captured?raw('에이전트에 전달된 요청 원문',request.record.prompt):empty('이전 실행은 요청 원문이 저장되지 않았습니다. 당시 트리거 데이터와 로드된 정책을 근거로 확인할 수 있습니다.')}`)
+    return (r.kind==='user_request'&&/^req-[a-f0-9]{16}$/.test(p.request_id||'')?`<p><a href="${dcURL('requests')}#${esc(p.request_id)}">연결된 업무 요청 열기 ↗</a></p>`:'')+notices(data)+section('01 · 요청과 트리거',`<dl class="facts"><dt>실행 이유</dt><dd>${esc(triggers[r.trigger])} · ${esc(r.kind)}</dd><dt>요청 시각</dt><dd>${esc(date(request.requested_at))}</dd><dt>실행 시작</dt><dd>${esc(date(r.started))}</dd><dt>작업 ID</dt><dd>${esc(r.job_id||'개별 CLI 세션')}</dd><dt>실행 주체</dt><dd>${esc(r.runtime||'미수집')} / ${esc(r.model||'미수집')} · ${r.attempt}번째 시도</dd></dl>${raw('트리거 원본 · '+request.source,p)}${request.captured?raw('에이전트에 전달된 요청 원문',request.record.prompt):empty('이전 실행은 요청 원문이 저장되지 않았습니다. 당시 트리거 데이터와 로드된 정책을 근거로 확인할 수 있습니다.')}`)
       +(data.relations?.length?section('연관 승인 요청',data.relations.map(r=>raw(r.id+' · '+(r.record.status||'미수집'),r.record)+r.runs.map(x=>`<button class="related-run" data-run="${esc(x.id)}">${esc(workerName(x.worker))} · ${esc(x.kind)} ↗</button>`).join('')).join('')):'')
       +section('02 · 인식한 상황과 작업 계획',notes(data,['agent.situation','agent.plan']))
       +section('03 · 판단 근거와 검토',notes(data,['agent.decision','agent.review']))
