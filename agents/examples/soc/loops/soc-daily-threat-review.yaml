@@ -1,0 +1,19 @@
+# 교육용 기본 예시. 현재 외부 위협정보 수집·범용 규칙 등록 도구는 구현되어 있지 않다.
+# examples에서 제공되며 자동 실행 명단에는 포함되지 않는다.
+id: soc-daily-threat-review
+owner: soc-analyst
+autonomy: L1
+# execution.timezone=Asia/Seoul 기준 매일 09:30.
+cadence: "30 9 * * *"
+budget: { max_tool_calls: 40 }
+state: [last_threat_review]
+steps:
+  - prepare: "skill_read로 security-rule-lifecycle을 읽고 이전 확인 시점·새 자료·실제 제공된 도구를 확인한다."
+  - assess: "신규 취약점·공격기법이 우리 자산·버전·노출 경로에 적용되는지 검토한다. 외부 수집 미수행이면 명시한다."
+  - propose: "관련 항목의 탐지·방어 규칙 변경안, 정상 예외, 시험 계획과 담당자 요청안을 작성한다."
+  - report: "실제 도달한 단계·미검증·미등록 상태를 보고하고 last_threat_review에 기준 시각·근거·후속 작업을 남긴다."
+gates:
+  - name: 직무분리
+    rule: "SOC는 자기 변경안을 승인하거나 보안장비에 등록하지 않는다. 등록은 해당 직무·도구·승인 경로가 필요하다."
+  - name: 실제검증
+    rule: "예상 탐지 결과와 실제 시험·활성화 결과를 구분한다. 새 규칙 작성 자체를 일일 성과로 삼지 않는다."

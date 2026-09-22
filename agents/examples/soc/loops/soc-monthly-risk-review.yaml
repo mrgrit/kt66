@@ -1,0 +1,19 @@
+# 교육용 기본 예시. examples 경로와 미등록 roster 상태에서는 실행되지 않는다.
+# 연결 절차와 현재 기능 범위는 저장소 README의 SOC 실습 안내를 따른다.
+id: soc-monthly-risk-review
+owner: soc-analyst
+autonomy: L1
+# execution.timezone=Asia/Seoul 기준 매월 1일 10:00, 지난 달 분석.
+cadence: "0 10 1 * *"
+budget: { max_tool_calls: 50 }
+state: [last_monthly_review]
+steps:
+  - prepare: "skill_read로 soc-monthly-review를 읽고 due_at 기준의 지난 달과 실제 조회 가능한 범위를 확인한다."
+  - analyze: "고위험 IP·이벤트·시간대·국내 전용 서비스의 해외 접근·블랙리스트 공격 패턴을 근거로 연결한다."
+  - report: "보고서와 탐지 개선 후보, 미산정 항목, 필요한 자료를 기록한다. 규칙 등록 완료로 표현하지 않는다."
+  - remember: "허용된 cycle_state에 보고 기준 월·실제 분석 범위·보고 경로·후속 작업을 last_monthly_review로 저장한다."
+gates:
+  - name: 조회범위
+    rule: "한 달 전체를 조회/계산하지 못했으면 부분 분석이다. 미수집을 정상이나 0으로 바꾸지 않는다."
+  - name: 근거와종결
+    rule: "위험 시간대·지역·IP 평판만으로 악성을 확정하지 않는다. 근거와 한계를 명시한다."
