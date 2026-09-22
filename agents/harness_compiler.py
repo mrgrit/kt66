@@ -70,7 +70,7 @@ def _compile_worker(wid, root=ROOT):
                "team": team, "worker": worker, "policy": policy, "persona": persona,
                "loops": loops, "model": model}
     hashes = {p: digest(b) for p, b in sources.items()}
-    implementation = {f: digest((ROOT / f).read_bytes()) for f in ("harness_compiler.py", "harness_tools.py", "activity_audit.py") if (ROOT / f).exists()}
+    implementation = {f: digest((ROOT / f).read_bytes()) for f in ("harness_compiler.py", "harness_tools.py", "activity_audit.py", "storage_probe.py", "tool_approvals.py") if (ROOT / f).exists()}
     version = digest(json.dumps({"sources": hashes, "implementation": implementation, "worker": wid}, sort_keys=True).encode())
     payload.update(version=version, source_hashes=hashes, implementation_hashes=implementation)
     instructions = (

@@ -46,3 +46,8 @@ body[data-console="requests"] .request-item{background:transparent}body[data-con
 @media(max-width:800px){.toolbar{flex-wrap:wrap;gap:12px}.toolbar #runner{margin-left:0;order:3;width:100%}.chat-messages{max-height:58vh}.chat-messages .message{padding:12px;max-width:100%}.chat-messages .from-user{max-width:92%}.chat-card>h2{font-size:20px}}
 
 .chat-messages .message{flex-shrink:0}
+
+.permission-card{border:1px solid #a78b49;background:#2b2a20;border-radius:10px;padding:18px;margin:18px 0}.permission-card p{font-size:12px;color:#d4cfb8;line-height:1.7}.permission-actions{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.permission-card .hint{margin-bottom:0}.permission-grant{padding:15px 0;border-top:1px solid #34433d;font-size:12px}.permission-grant p{margin:5px 0}.permission-grant small{color:var(--dc-dim)}
+
+.toolbar{flex-wrap:wrap}.toolbar #runner{min-width:150px}
+body[data-console="requests"] .permission-actions [data-decision="once"]{background:var(--dc-accent);color:#172112;border-color:var(--dc-accent)}

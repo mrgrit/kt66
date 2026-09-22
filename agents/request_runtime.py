@@ -43,6 +43,8 @@ def compile_request(root, request, task, evidence):
         phase=task['phase'], capabilities=caps, scope=request['scope'], max_tool_calls=60,
         source_permissions=base['policy']['constrain']['permission'])
     skills = sorted({SKILLS[c] for c in caps} | ({'request-coordination'} if task['phase'] in ('plan', 'review') else set()))
+    if permissions.get('metrics_read') != 'deny':
+        skills.append('system-diagnostics')
     library = root / 'native'
     skill_sources = {}
     for name in skills:

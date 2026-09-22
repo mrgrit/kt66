@@ -147,7 +147,8 @@ def call(broker, root, name, args):
         broker.access(path, 'write')
         return {'recorded': True, 'status': args['status']}
     if name == 'request_context':
-        return {**store.context(rid), 'current_time': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'artifacts': store.artifacts(rid)}
+        return {**store.context(rid), 'available_tools': broker.m.get('available_tools', []),
+                'current_time': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'artifacts': store.artifacts(rid)}
     if name == 'skill_read':
         if args['name'] not in context['skills']:
             raise ValueError('이 작업에 배치된 스킬 이름을 사용하세요: ' + ', '.join(context['skills']))

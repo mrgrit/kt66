@@ -15,7 +15,9 @@ def install(app, root, key, templates, backup_write):
     from work_requests import Store
     from request_tools import safe_file
     from request_changes import authorize
+    from tool_approvals import Permissions
     store = Store(root)
+    permissions = Permissions(root)
 
     def auth(request):
         if not key or not hmac.compare_digest(request.headers.get('x-api-key', ''), key):
@@ -46,6 +48,21 @@ def install(app, root, key, templates, backup_write):
     def workers(request: Request):
         auth(request)
         return {'workers': perform(store.workers)}
+
+    @app.get('/api/tool-permissions')
+    def permission_list(request: Request):
+        auth(request)
+        return {'grants': perform(permissions.list)}
+
+    @app.delete('/api/tool-permissions/{gid}')
+    def permission_revoke(gid: str, request: Request):
+        auth(request)
+        return perform(permissions.revoke, gid)
+
+    @app.post('/api/requests/{rid}/permissions/{pid}')
+    def permission_decide(rid: str, pid: str, request: Request, body: dict = Body(...)):
+        auth(request)
+        return perform(permissions.decide, rid, pid, body.get('decision'))
 
     @app.post('/api/requests')
     def create(request: Request, body: dict = Body(...)):

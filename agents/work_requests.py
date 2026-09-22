@@ -141,6 +141,9 @@ class Store:
             for change in d['changes']:
                 if change['status'] == 'proposed':
                     change['status'] = 'superseded'
+            for permission in d.get('permission_requests', []):
+                if permission['status'] in ('pending', 'deferred', 'allowed_once'):
+                    permission['status'] = 'superseded'
             for agent in d['agents']:
                 agent['state'] = 'active'
             self._coordinator(d, 'plan')
@@ -156,6 +159,9 @@ class Store:
                     task['status'] = 'cancelled'
             for agent in d['agents']:
                 agent['state'] = 'archived'
+            for permission in d.get('permission_requests', []):
+                if permission['status'] in ('pending', 'deferred', 'allowed_once'):
+                    permission['status'] = 'cancelled'
             d['events'].append(dict(at=time.time(), kind='cancelled', detail='사용자가 중지했습니다'))
         return self.get(rid)
 
@@ -335,7 +341,7 @@ def poll(root, db, enqueue):
                                           verification=task['verification'], at=time.time()))
             if d['status'] not in OPEN:
                 continue
-            current = [t for t in d['tasks'] if t['revision'] == d['revision']]
+            current = [t for t in d['tasks'] if t['revision'] == d['revision'] and t['status'] != 'superseded']
             running = [t for t in current if t['status'] == 'running']
             failed = [t for t in current if t['status'] in ('blocked', 'waiting_input')]
             if failed and not running:
@@ -346,7 +352,7 @@ def poll(root, db, enqueue):
             review = [t for t in current if t['phase'] == 'review']
             if work and all(t['status'] == 'completed' for t in work) and not review and not running:
                 store._coordinator(d, 'review')
-                current = [t for t in d['tasks'] if t['revision'] == d['revision']]
+                current = [t for t in d['tasks'] if t['revision'] == d['revision'] and t['status'] != 'superseded']
             if current and all(t['status'] == 'completed' for t in current):
                 pending_changes = any(c['status'] == 'proposed' for c in d['changes'])
                 d['status'] = 'waiting_approval' if pending_changes else 'completed'
@@ -429,16 +435,28 @@ def execute(root, job):
             raise ValueError('작업 결과 형식이 잘못됐습니다')
         receipts = [json.loads(line) for line in (evidence / 'tools.jsonl').read_text().splitlines()] if (evidence / 'tools.jsonl').exists() else []
         meaningful = {'inventory_query', 'siem_search', 'workspace_read', 'workspace_write', 'website_validate', 'website_prepare', 'waf_prepare', 'request_plan',
-                      'env_read', 'log_read', 'infrastructure_read', 'firewall_read', 'agent_activity'}
+                      'env_read', 'log_read', 'infrastructure_read', 'firewall_read', 'agent_activity', 'disk_usage'}
         if task['phase'] == 'review':
             meaningful.add('request_context')
-        observed = any(r['tool'] in meaningful and r.get('result', {}).get('status') not in ('denied', 'approval_required') for r in receipts)
+        def observed_receipt(r):
+            res = r.get('result', {})
+            if r['tool'] not in meaningful or res.get('status') in ('denied', 'approval_required', 'failed', 'unavailable'):
+                return False
+            if r['tool'] == 'disk_usage':
+                return res.get('measured_targets', 0) > 0
+            if r['tool'] in ('infrastructure_read', 'firewall_read'):
+                return any(row.get('returncode') == 0 and row.get('output') for row in res.get('records', []))
+            return True
+        observed = any(observed_receipt(r) for r in receipts)
+        pending = [p for p in store.get(rid).get('permission_requests', []) if p['task_id'] == tid and p['revision'] == revision and p['status'] in ('pending', 'deferred')]
+        if pending:
+            outcome.update(status='waiting_input', question='대화의 권한 요청에서 이번만 허용·항상 허용·요청 보류 중 선택해 주세요.')
         conversational_reply = task['phase'] == 'conversation' and outcome.get('response_kind') == 'reply'
         if outcome['status'] == 'completed' and not observed and not conversational_reply:
             outcome.update(status='blocked', summary='실행 근거가 없어 완료 판정을 보류했습니다. ' + outcome['summary'])
         store.check(rid, tid, revision)
         result['verification'] = dict(tool_calls=len(receipts), observed_live_evidence=observed,
-            tools=list(dict.fromkeys(r['tool'] for r in receipts if r['tool'] in meaningful and r.get('result', {}).get('status') not in ('denied', 'approval_required'))),
+            tools=list(dict.fromkeys(r['tool'] for r in receipts if observed_receipt(r))),
             queries=[r['arguments'] for r in receipts if r['tool'] == 'siem_search'])
         result['request_outcome'] = outcome
         write_json(evidence / 'result.json', result)

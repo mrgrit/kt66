@@ -13,6 +13,7 @@
 | `.agents/skills/request-coordination/SKILL.md` | 작업 분해와 담당자 선정·최종 검토 | 별도 검토자가 있는 계획 만들기 |
 | `.agents/skills/siem-period-analysis/SKILL.md` | 기간별 보안 경보 분석 절차 | 규칙별 분석을 자산별 분석으로 변경 |
 | `.agents/skills/inventory-report/SKILL.md` | 설정 IP와 실제 인터페이스 비교 | 용도별 표를 네트워크별 표로 변경 |
+| `.agents/skills/system-diagnostics/SKILL.md` | 실제 디스크·서비스 상태 점검 | 디스크 임계치와 용량 표의 단위를 바꾸기 |
 | `.agents/skills/project-development/SKILL.md` | 파일 작성과 정적 홈페이지 검증 | 접근성·모바일 확인 기준 추가 |
 | `.agents/skills/waf-change/SKILL.md` | 지정 페이로드 차단 규칙 검토 | 오탐 가능성을 보고서에 포함 |
 

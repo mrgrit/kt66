@@ -138,6 +138,30 @@ class Requests(unittest.TestCase):
         self.assertEqual(d['messages'][-1]['verification']['tools'],['siem_search'])
         self.assertTrue(d['messages'][-1]['verification']['observed_live_evidence'])
 
+    def test_disk_probe_counts_only_actual_measurements_as_completion_evidence(self):
+        self.chat();self.poll();job=dict(self.db.execute('SELECT * FROM jobs').fetchone())
+        for status,count,expected in [('partial',1,'completed'),('unavailable',0,'blocked')]:
+            def session(*args,**kwargs):
+                (kwargs['evidence_dir']/'tools.jsonl').write_text(json.dumps(dict(tool='disk_usage',arguments={},result={'status':status,'measured_targets':count}))+'\n')
+                return dict(body=json.dumps(dict(status='completed',summary='점검 결과',question='',artifacts=[],response_kind='investigation')),session_id='fake')
+            with patch.object(session_cli,'run',side_effect=session):result=wr.execute(self.root,job)
+            self.assertEqual(result['request_outcome']['status'],expected)
+            self.assertEqual(result['verification']['observed_live_evidence'],bool(count))
+
+    def test_pending_tool_permission_keeps_request_waiting_even_if_model_says_completed(self):
+        import harness_tools
+        self.chat();self.poll();job=dict(self.db.execute('SELECT * FROM jobs').fetchone())
+        def session(*args,**kwargs):
+            with patch.object(harness_tools,'ROOT',self.root):
+                b=harness_tools.Broker(kwargs['harness']/'manifest.json',kwargs['evidence_dir'])
+                b.permissions['metrics_read']='ask'
+                self.assertEqual(b.call('disk_usage',{})['status'],'approval_required')
+            return dict(body=json.dumps(dict(status='completed',summary='권한 안내',question='',artifacts=[],response_kind='reply')),session_id='fake')
+        with patch.object(session_cli,'run',side_effect=session):result=wr.execute(self.root,job)
+        self.assertEqual(result['request_outcome']['status'],'waiting_input')
+        self.assertTrue(result['request_outcome']['question'])
+        self.assertFalse(result['verification']['observed_live_evidence'])
+
     def test_runtime_listing_includes_requests_beyond_ui_limit(self):
         for i in range(3):self.store.create('요청 '+str(i))
         self.assertEqual(len(self.store.list(limit=2)),2)

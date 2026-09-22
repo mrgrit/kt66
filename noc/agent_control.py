@@ -22,7 +22,7 @@ from activity_audit import VERSION, scrub
 SLUG = re.compile(r"(?:loop|session)-[a-zA-Z0-9_-]{1,170}\Z")
 ACTIVE = {"running", "queued", "retry", "waiting_capacity"}
 FILES = re.compile(r"(?:job|result|session-result|failure|loaded-harness|manifest-snapshot)\.json|(?:activity|tools)\.jsonl|finding-[a-f0-9]+\.md|(?:infrastructure-[a-f0-9]+\.txt|siem-[a-f0-9]+\.jsonl)")
-TOOL_PERMISSIONS = {"env_read":"env_read", "log_read":"log_read", "infrastructure_read":"metrics_read", "firewall_read":"metrics_read", "work_status":"cmdb_read", "agent_activity":"cmdb_read", "cycle_state":"ticket_update", "ticket_create":"ticket_create", "delegate_work":"delegate_work", "simulator_control":"simulation_control", "approve_request":"approve_request", "approval_inbox":"approve_request"}
+TOOL_PERMISSIONS = {"disk_usage":"metrics_read", "env_read":"env_read", "log_read":"log_read", "infrastructure_read":"metrics_read", "firewall_read":"metrics_read", "work_status":"cmdb_read", "agent_activity":"cmdb_read", "cycle_state":"ticket_update", "ticket_create":"ticket_create", "delegate_work":"delegate_work", "simulator_control":"simulation_control", "approve_request":"approve_request", "approval_inbox":"approve_request"}
 
 
 def parsed(text, default=None):

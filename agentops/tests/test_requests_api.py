@@ -11,6 +11,7 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'agentops'))
 sys.path.insert(0,str(ROOT/'agents'))
 from requests_api import install
+from work_requests import Store
 
 
 class Api(unittest.TestCase):
@@ -80,5 +81,27 @@ class Api(unittest.TestCase):
         for name in ('%2e%2e%2f.env','%2fetc%2fpasswd','missing.md'):
             r=self.client.get('/api/request-guides/'+name,headers=self.headers)
             self.assertEqual(r.status_code,404)
+
+    def test_permission_decisions_and_revocation_require_auth_and_preserve_scope(self):
+        d=self.client.post('/api/requests',headers=self.headers,json={'mode':'conversation','worker':'systems-engineer','prompt':'디스크 확인'}).json()
+        rid=d['id'];store=Store(self.root)
+        with store.edit(rid) as row:
+            row['status']='waiting_input';row['tasks'][0]['status']='waiting_input'
+            row['permission_requests']=[dict(id='permission-test',worker='systems-engineer',tool='disk_usage',permission='metrics_read',arguments={'threshold_pct':80},fingerprint='test',task_id=row['tasks'][0]['id'],revision=1,status='pending')]
+        path=f'/api/requests/{rid}/permissions/permission-test'
+        self.assertEqual(self.client.get('/api/tool-permissions').status_code,401)
+        self.assertEqual(self.client.post(path,json={'decision':'always'}).status_code,401)
+        self.assertEqual(self.client.post(path,headers=self.headers,json={'decision':'invalid'}).status_code,400)
+        self.assertEqual(self.client.post(path,headers=self.headers,json={'decision':'defer'}).status_code,200)
+        self.assertEqual(store.get(rid)['status'],'waiting_input')
+        self.assertEqual(self.client.post(path,headers=self.headers,json={'decision':'always'}).status_code,200)
+        self.assertEqual(self.client.post(path,headers=self.headers,json={'decision':'always'}).status_code,400)
+        grants=self.client.get('/api/tool-permissions',headers=self.headers).json()['grants']
+        self.assertEqual(len(grants),1);self.assertEqual(grants[0]['worker'],'systems-engineer')
+        self.assertEqual(grants[0]['scope'],'user_requests')
+        revoke='/api/tool-permissions/'+grants[0]['id']
+        self.assertEqual(self.client.delete(revoke).status_code,401)
+        self.assertEqual(self.client.delete(revoke,headers=self.headers).status_code,200)
+        self.assertEqual(self.client.get('/api/tool-permissions',headers=self.headers).json()['grants'],[])
 
 if __name__=='__main__':unittest.main()

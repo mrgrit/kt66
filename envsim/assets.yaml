@@ -556,14 +556,14 @@ it_assets:
   # tubewar 는 아예 **다른 인프라의 플랫폼**이다(el34). 랙에 넣는 것은 물리 사실이
   # 아니라 운영 사실이다: 4F 가 쓰는 시스템이므로 자산 대장에 있어야 찾을 수 있다.
   # 3F 의 dgx-spark-01 도 같은 이유로 랙 안에 있다(실물은 터널 너머에 있다).
-  - { id: agent-runner, name: "AI 에이전트 관제 (근무자 루프)", floor: "4F", rack: R-4F-01, zone: mgmt, ip: "${INT_HOST}", host: "호스트 프로세스 — kt66-runner.service", shed_group: security-mgmt, idle_kw: 0.15, rated_kw: 0.6, u: 1, web: "http://${INT_HOST}:8020/agent-control" }
+  - { id: agent-runner, storage_source: host, name: "AI 에이전트 관제 (근무자 루프)", floor: "4F", rack: R-4F-01, zone: mgmt, ip: "${INT_HOST}", host: "호스트 프로세스 — kt66-runner.service", shed_group: security-mgmt, idle_kw: 0.15, rated_kw: 0.6, u: 1, web: "http://${INT_HOST}:8020/agent-control" }
   - { id: tubewar,      name: "공방전 플랫폼 (tubewar)",        floor: "4F", rack: R-4F-01, zone: mgmt, ip: tubewar.dawnofagi.cloud, host: "외부 플랫폼 — el34 인프라", shed_group: security-mgmt, idle_kw: 0.1, rated_kw: 0.4, u: 1, web: "https://tubewar.dawnofagi.cloud/" }
 
   # 강의 진행 도구 둘. 이 VM 의 호스트에서 node 로 돌고(:3000/:3001) 같은 classroom
   # 터널로 공개된다. 랩 자산은 아니지만 수업이 이것들 위에서 돌아간다 — 대장에 없으면
   # "이 서버가 무엇을 지고 있는가"를 물었을 때 답이 틀린다.
-  - { id: cork,   name: "코르크 (협업 보드)", floor: "4F", rack: R-4F-01, zone: mgmt, ip: cork.dawnofagi.cloud,   host: "호스트 node — :3000",   shed_group: business, idle_kw: 0.05, rated_kw: 0.2, u: 1, web: "https://cork.dawnofagi.cloud/" }
-  - { id: buzzer, name: "버저 (퀴즈·응답)",   floor: "4F", rack: R-4F-01, zone: mgmt, ip: buzzer.dawnofagi.cloud, host: "호스트 node — :3001", shed_group: business, idle_kw: 0.05, rated_kw: 0.2, u: 1, web: "https://buzzer.dawnofagi.cloud/" }
+  - { id: cork, storage_source: host, name: "코르크 (협업 보드)", floor: "4F", rack: R-4F-01, zone: mgmt, ip: cork.dawnofagi.cloud,   host: "호스트 node — :3000",   shed_group: business, idle_kw: 0.05, rated_kw: 0.2, u: 1, web: "https://cork.dawnofagi.cloud/" }
+  - { id: buzzer, storage_source: host, name: "버저 (퀴즈·응답)",   floor: "4F", rack: R-4F-01, zone: mgmt, ip: buzzer.dawnofagi.cloud, host: "호스트 node — :3001", shed_group: business, idle_kw: 0.05, rated_kw: 0.2, u: 1, web: "https://buzzer.dawnofagi.cloud/" }
 
 # ── 경보 규칙 ─────────────────────────────────────────────────────
 # level 은 Wazuh 로 넘어가는 심각도다. 온도 임계는 ASHRAE 권고(18~27°C) 기준.
