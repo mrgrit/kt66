@@ -1,0 +1,36 @@
+# execution.timezone=Asia/Seoul 기준 하루 두 번. monitor.mode=adaptive를 붙이지 않는다.
+# 이 예약은 자료 변화가 없어도 정기 보고를 수행한다. 평시 변화 감시는 별도 루프다.
+id: soc-daily-risk-review
+owner: soc-analyst
+autonomy: L1
+cadence: "0 9,18 * * *"
+budget: { max_tokens: 60000, max_tool_calls: 50 }
+state:
+  - analysis_checkpoint
+  - ip_risk_cases
+  - capability_gaps
+  - triaged_alert_ids
+  - known_false_positives
+  - active_campaigns
+  - last_risk_review
+steps:
+  - prepare: |
+      ip-risk-investigation을 skill_read로 읽는다. observation.due_at을 보고 기준 시각으로
+      고정하고 직전 종합 보고와 중복 여부를 확인한다. 처음 실행하면 최근 24시간을 기본 범위로
+      삼고 이후에는 직전 보고부터 기준 시각까지를 중심으로 일간·장기 맥락을 비교한다.
+  - assess: |
+      제공된 자료·집계·정책으로 IP별 지표와 위험도를 확인하고 높은 위협 후보를 정밀 조사한다.
+      현재 전체 집계·평판·정식 점수 계산 도구는 없다. 가능한 경보 조사부터 수행하고
+      미산정 지표·보관 부족·미제공 도구를 명시한다. 전체 30일 분석을 완료했다고 주장하지 않는다.
+  - report: |
+      보고 기준 시각·실제 관측 범위·직전 대비 변화·IP별 주요 발견·정밀 조사 결과·미해결 사건·
+      미산정 항목·후속 요청을 보고한다. 신규 사건이 없어도 자료 범위와 미해결 사항을 포함한
+      짧은 정기 보고를 남긴다. ticket_create로 보고서를 증거에 보존하되 실제 발송으로 표현하지 않는다.
+      last_risk_review에는 기준 시각·보고서 경로·정책/지침 버전·범위/한계·다음 작업만 저장한다.
+gates:
+  - name: 재현가능한평가
+    rule: "정식 점수에는 실제 계산 결과·정책 버전·기여도가 필요하다. 없으면 미산정이며 증거 기반 우선순위를 설명한다."
+  - name: 보고범위
+    rule: "예약 회차 완료와 전체 데이터 분석 완료를 구분하고 수집 범위와 누락을 명시한다."
+  - name: 종결과직무
+    rule: "정상·종결에 확인 근거가 필요하며 SOC는 운영 변경을 실행하지 않는다."

@@ -1,23 +1,34 @@
-# SOC 트리아지. autonomy L1 — 관찰만 한다. 차단은 network-engineer 에게 요청으로 넘긴다.
+# 평시 경량 점검과 특이 사건 조사. 종합 분석은 soc-daily-risk-review의 별도 예약이다.
+# steps/gates는 모델 지침이며 단계별 완료를 강제하는 실행 코드가 아니다.
 id: siem-alert-triage
 owner: soc-analyst
 autonomy: L1
 cadence: "*/10 * * * *"
 monitor: { mode: adaptive, probe: security }
+# 무변화 점검은 코드만 실행한다. max_tokens는 CLI 강제 중단 한도가 아니다.
 budget: { max_tokens: 60000, max_tool_calls: 50 }
-state: [triaged_alert_ids, known_false_positives, active_campaigns]
+state:
+  - triaged_alert_ids
+  - known_false_positives
+  - active_campaigns
+  - analysis_checkpoint
+  - ip_risk_cases
+  - capability_gaps
 steps:
-  - read: [wazuh_alerts, suricata_eve, modsec_audit]
-  - dedupe: triaged_alert_ids
-  - correlate: |
-      세 계층 교차 확인이 필수다 — fw 카운터(경로) / Suricata alert(패킷) / CRS 룰+403(요청).
-      하나만 보고 단정하지 않는다. 출발지 IP 는 NAT 되지 않으므로 그대로 신뢰한다.
-  - classify: [실제, 오탐, 보류]
-  - on_real:
-      - create_ticket: { co_owner: service-desk }
-      - request_block: network-engineer     # 실행은 L2 담당자 몫
+  - check_change: |
+      트리거·직전 상태와 최근 증거를 비교한다. log_read는 최근 일부 경보이므로 전체
+      기간의 집계라고 표현하지 않는다. 같은 증거·창 만료에 따른 변화뿐이면 간단히 기록하고 종료한다.
+      모든 회차에 IP 30개 지표와 종합 위험 분석을 수행하지 않는다.
+  - investigate_if_needed: |
+      새 공격 징후·상충 증거·영향 확대가 있을 때만 soc-incident-investigation을
+      skill_read로 읽고 관련 IP·자산·기간을 조사한다. 종합 분석 스킬은 읽지 않는다.
+  - record: |
+      판정·근거·한계·다음 확인 조건을 해당 사건과 선언된 상태에 기록한다.
+      새로운 근거 없이 티켓이나 조사 범위를 반복 생성하지 않는다. 미해결 사건은 보류한다.
 gates:
-  - name: 근거인용
-    rule: "'실제'로 분류하려면 로그 원문을 인용해야 한다. 인용 없으면 '보류'"
-  - name: 오탐도근거
-    rule: "'오탐' 판정에도 근거를 남긴다"
+  - name: 범위유지
+    rule: "평시·사건 조사를 예약 종합 분석으로 확대하지 않는다. 필요한 스킬만 읽는다."
+  - name: 판정근거
+    rule: "미수집·부분 조회를 정상으로 바꾸지 않는다. 정상 판정에도 확인 근거가 필요하다."
+  - name: 직무분리
+    rule: "SOC는 변경하지 않는다. 요청 기록·실제 이관·승인·실행·검증 상태를 구분한다."

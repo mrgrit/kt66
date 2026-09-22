@@ -12,7 +12,8 @@ class HarnessTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory()
         self.root=pathlib.Path(self.temp.name)/"agents";self.root.mkdir()
         for f in compiler.SOURCES:shutil.copy2(ROOT/f,self.root/f)
-        for d in ("personas","loops"):shutil.copytree(ROOT/d,self.root/d)
+        for d in ("personas","loops","native"):shutil.copytree(ROOT/d,self.root/d)
+        (self.root.parent/'.env').write_text('API_KEY=test\n')
     def tearDown(self):self.temp.cleanup()
     def test_actual_organization_and_permissions_propagate(self):
         dest,before=compiler.compile_worker("facility-engineer",self.root)
@@ -42,6 +43,52 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(link.resolve(),dest.resolve())
         text=(dest/"AGENTS.md").read_text()
         self.assertIn(m["team"]["id"],text);self.assertIn("firewall-drift-check",text)
+
+    def test_routine_skill_is_loaded_on_demand_with_receipt_and_hash(self):
+        dest,m=compiler.compile_worker('soc-analyst',self.root)
+        skill='ip-risk-investigation'
+        source=self.root/'native/.agents/skills'/skill/'SKILL.md'
+        self.assertIn('skill_read',m['available_tools'])
+        self.assertNotIn('siem_search',m['available_tools'])
+        self.assertNotIn(source.read_text(),(dest/'HARNESS.md').read_text())
+        self.assertEqual(set(m['role_skills'][skill]),{'description','sha256'})
+        with patch.object(tools,'ROOT',self.root):
+            b=tools.Broker(dest/'manifest.json',self.root/'evidence'/'routine')
+            result=b.call('skill_read',{'name':skill})
+            self.assertEqual(result['content'],source.read_text())
+            self.assertEqual(result['sha256'],m['role_skills'][skill]['sha256'])
+            receipt=json.loads((b.session/'tools.jsonl').read_text())
+            self.assertEqual(receipt['tool'],'skill_read')
+            self.assertTrue(any(a['path']==result['source'] and a['operation']=='read' for a in receipt['accesses']))
+            for invalid in ('../soc-analyst','inventory-report'):
+                with self.assertRaises(ValueError):b.call('skill_read',{'name':invalid})
+            path=dest/'.agents/skills'/skill/'SKILL.md';path.write_text('tampered')
+            with self.assertRaisesRegex(ValueError,'실행 사본'):b.call('skill_read',{'name':skill})
+
+    def test_role_skill_edit_versions_snapshot_and_revokes_old_session(self):
+        dest,m=compiler.compile_worker('soc-analyst',self.root)
+        relative='native/.agents/skills/ip-risk-investigation/SKILL.md'
+        original=(self.root/relative).read_text()
+        self.assertIn(relative,m['source_hashes'])
+        (self.root/relative).write_text(original+'\n추가 증거를 확인하세요.\n')
+        new,m2=compiler.compile_worker('soc-analyst',self.root)
+        self.assertNotEqual(m['version'],m2['version'])
+        self.assertEqual((dest/'.agents/skills/ip-risk-investigation/SKILL.md').read_text(),original)
+        with patch.object(tools,'ROOT',self.root):
+            b=tools.Broker(dest/'manifest.json',self.root/'evidence'/'stale')
+            with self.assertRaisesRegex(ValueError,'configuration changed'):b.call('skill_read',{'name':'ip-risk-investigation'})
+
+    def test_missing_invalid_or_unassigned_role_skill_cannot_be_used(self):
+        for declaration in ('skills: [../outside]','skills: ip-risk-investigation'):
+            with self.assertRaises(ValueError):compiler.persona_skills('---\n'+declaration+'\n---\n')
+        dest,m=compiler.compile_worker('network-engineer',self.root)
+        self.assertEqual(m['role_skills'],{})
+        self.assertNotIn('skill_read',m['available_tools'])
+        with patch.object(tools,'ROOT',self.root):
+            b=tools.Broker(dest/'manifest.json',self.root/'evidence'/'network')
+            self.assertEqual(b.call('skill_read',{'name':'ip-risk-investigation'})['code'],'role_boundary')
+        (self.root/'native/.agents/skills/ip-risk-investigation/SKILL.md').unlink()
+        with self.assertRaisesRegex(ValueError,'스킬을 읽을 수 없습니다'):compiler.compile_worker('soc-analyst',self.root)
 
 class BrokerTests(unittest.TestCase):
     def setUp(self):

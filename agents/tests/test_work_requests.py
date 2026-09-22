@@ -251,6 +251,24 @@ class Requests(unittest.TestCase):
         self.assertIn('교육용 비교 표',(new/'.claude/skills/inventory-report/SKILL.md').read_text())
         self.assertIn('inventory_query',m2['available_tools'])
 
+    def test_soc_request_and_routine_share_skill_without_inlining_body(self):
+        import harness_compiler, harness_tools
+        self.chat();self.poll();dest,m=self.compile()
+        skill='ip-risk-investigation'
+        routine,base=harness_compiler.compile_worker('soc-analyst',self.root)
+        relative=Path('.agents/skills')/skill/'SKILL.md'
+        body=(routine/relative).read_text()
+        self.assertEqual((dest/relative).read_text(),body)
+        self.assertEqual(m['role_skills'],base['role_skills'])
+        self.assertIn(skill,m['request']['skills'])
+        for name in ('AGENTS.md','HARNESS.md','.claude/agents/kt66-request-worker.md'):
+            self.assertNotIn(body,(dest/name).read_text())
+        with patch.object(harness_tools,'ROOT',self.root):
+            b=harness_tools.Broker(dest/'manifest.json',dest.parent)
+            self.assertEqual(b.call('skill_read',{'name':skill})['content'],body)
+            self.assertEqual(b.call('skill_read',{'name':'siem-period-analysis'})['name'],'siem-period-analysis')
+            with self.assertRaises(ValueError):b.call('skill_read',{'name':'project-development'})
+
     def test_common_role_edit_changes_both_runtimes(self):
         dest,m=self.compile()
         source=self.root/'native/.claude/agents/kt66-request-worker.md'

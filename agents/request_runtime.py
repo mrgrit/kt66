@@ -17,7 +17,7 @@ def compile_request(root, request, task, evidence):
     root = Path(root)
     project_agent = next((a for a in request['agents'] if a['id'] == task['worker']), None)
     template = project_agent['template'] if project_agent else task['worker']
-    _, base = harness_compiler.compile_worker(template, root)
+    base_dest, base = harness_compiler.compile_worker(template, root)
     manifest = copy.deepcopy(base)
     import authorization
     manifest['authorization'] = authorization.task_profile(root, request, task)
@@ -44,7 +44,8 @@ def compile_request(root, request, task, evidence):
         mode=request.get('mode', 'request'), worker=request.get('worker'), timezone=request.get('timezone', 'UTC'),
         phase=task['phase'], capabilities=caps, scope=request['scope'], max_tool_calls=60,
         source_permissions=base['policy']['constrain']['permission'])
-    skills = sorted({SKILLS[c] for c in caps} | ({'request-coordination'} if task['phase'] in ('plan', 'review') else set()))
+    role_skills = manifest.get('role_skills', {})
+    skills = sorted(set(role_skills) | {SKILLS[c] for c in caps} | ({'request-coordination'} if task['phase'] in ('plan', 'review') else set()))
     if authorization.allowed(manifest, 'disk_usage') and permissions.get('metrics_read') != 'deny':
         skills.append('system-diagnostics')
     library = root / 'native'
@@ -53,7 +54,7 @@ def compile_request(root, request, task, evidence):
         p = library / '.agents' / 'skills' / name / 'SKILL.md'
         if not p.is_file():
             raise ValueError('필수 스킬 파일이 없습니다: ' + name)
-        skill_sources[name] = p.read_text()
+        skill_sources[name] = (base_dest / '.agents' / 'skills' / name / 'SKILL.md').read_text() if name in role_skills else p.read_text()
     manifest['request']['skills'] = skills
     common = (library / 'AGENTS.md').read_text()
     role_source = (library / '.claude' / 'agents' / 'kt66-request-worker.md').read_text()
@@ -66,6 +67,9 @@ def compile_request(root, request, task, evidence):
             + '## 현재 실행 범위와 정책\n' + json.dumps(dict(
                 request=manifest['request'], company=manifest['company'],
                 policy=manifest['policy'], authorization=manifest['authorization'], task=task), ensure_ascii=False, indent=2))
+    if role_skills:
+        role += '\n\n## 배정된 역할 스킬\n실제 해당 업무를 시작할 때 skill_read로 본문을 한 번 읽고 적용하세요. 인사·설명에는 불필요한 스킬 조회를 생략하세요.\n'
+        role += json.dumps(role_skills, ensure_ascii=False, indent=2)
     (dest / 'AGENTS.md').write_text(role_source.split('---', 2)[2] + '\n' + common + '\n\n' + role)
     (dest / 'CLAUDE.md').write_text('@AGENTS.md\n')
     # The launch adapter reads these native files, not a second persona format.

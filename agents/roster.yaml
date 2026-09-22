@@ -148,7 +148,7 @@ workers:
     autonomy: L1
     team: soc-team
     model: cc-sonnet          # 흩어진 로그에서 인과를 잇는 일이다
-    loops: [siem-alert-triage]
+    loops: [siem-alert-triage, soc-daily-risk-review]
     assets: [kt66-siem, kt66-wazuh-indexer, kt66-wazuh-dashboard]
     curriculum: [W11, W12, W14]
 

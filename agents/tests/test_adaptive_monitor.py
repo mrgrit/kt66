@@ -1,10 +1,13 @@
 import copy
+import datetime
 import json
 import pathlib
 import sqlite3
 import sys
 import tempfile
 import unittest
+from zoneinfo import ZoneInfo
+import yaml
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import adaptive_monitor as monitor
@@ -136,6 +139,36 @@ class QueueTests(unittest.TestCase):
             self.assertCountEqual(kinds,['periodic:audit','event'])
             engine.poll(self.db,CFG)
             self.assertEqual(self.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],2)
+
+    def test_soc_day_has_two_scheduled_reviews_and_no_healthy_routine_sessions(self):
+        source=pathlib.Path(__file__).resolve().parents[1]
+        (self.root/'loops').mkdir()
+        (self.root.parent/'.env').write_text('INT_HOST_IP=127.0.0.1\n')
+        ids=['siem-alert-triage','soc-daily-risk-review']
+        (self.root/'roster.yaml').write_text(json.dumps({'workers':[{'id':'soc-analyst','loops':ids}]}))
+        for name in ids:
+            (self.root/'loops'/(name+'.yaml')).write_text((source/'loops'/(name+'.yaml')).read_text())
+        cfg=yaml.safe_load((source/'harness.yaml').read_text())['execution']
+        self.assertEqual(cfg['timezone'],'Asia/Seoul')
+        real_datetime=datetime.datetime
+        zone=ZoneInfo(cfg['timezone'])
+        start=real_datetime(2026,9,23,tzinfo=zone).timestamp()
+        class Clock(real_datetime):
+            at=start
+            @classmethod
+            def now(cls,tz=None):return real_datetime.fromtimestamp(cls.at,tz)
+        with patch.object(engine.datetime,'datetime',Clock), patch.object(engine,'observe',return_value={'active':[]}), \
+             patch.object(monitor.Probes,'collect',return_value=GOOD), patch.object(engine.time,'time') as now:
+            for minutes in range(0,24*60,10):
+                Clock.at=start+minutes*60;now.return_value=Clock.at
+                engine.poll(self.db,cfg)
+                self.db.execute("UPDATE jobs SET status='completed' WHERE status='queued'");self.db.commit()
+        jobs=self.db.execute('SELECT kind,payload FROM jobs').fetchall()
+        self.assertEqual([r['kind'] for r in jobs],['periodic:soc-daily-risk-review']*2)
+        due=[real_datetime.fromisoformat(json.loads(r['payload'])['due_at']) for r in jobs]
+        self.assertEqual([d.hour for d in due],[9,18])
+        self.assertTrue(all(d.utcoffset()==datetime.timedelta(hours=9) for d in due))
+        self.assertEqual(monitor.load(self.db,'siem-alert-triage')['skipped_model_calls'],144)
 
 class ProbeTests(unittest.TestCase):
     def test_collection_failure_is_not_reported_healthy(self):

@@ -22,7 +22,6 @@ def schema(properties, required=()):
 TOOLS = [
     ('request_finish', '최종 상태와 결과를 기록합니다. 종료 전 필수. 근무자 대화에서는 response_kind를 reply(설명·기존 자료 답변) 또는 investigation(이번 조사)로 지정하세요. 조사 완료는 실제 조회 근거가 필요합니다.', schema({'status': {'type': 'string', 'enum': ['completed', 'waiting_input', 'blocked']}, 'summary': S, 'question': S, 'response_kind': {'type': 'string', 'enum': ['reply', 'investigation']}, 'artifacts': {'type': 'array', 'items': S}}, ['status', 'summary', 'question', 'artifacts'])),
     ('request_context', 'Read the user conversation, assigned tasks, project workers, real capabilities and budget.', schema({})),
-    ('skill_read', 'Load an available standard SKILL.md by name for this task.', schema({'name': S}, ['name'])),
     ('request_plan', 'Coordinator only: register a bounded dependency plan using existing or created worker IDs.',
      schema({'tasks': {'type': 'array', 'items': {'type': 'object', 'properties': {
          'id': S, 'title': S, 'instructions': S, 'worker': S,
@@ -166,12 +165,6 @@ def call(broker, root, name, args):
         return {**result, 'available_tools': broker.m.get('available_tools', []),
                 'authorization':broker.m['authorization'],
                 'current_time': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'artifacts': result['request']['artifacts']}
-    if name == 'skill_read':
-        if args['name'] not in context['skills']:
-            raise ValueError('이 작업에 배치된 스킬 이름을 사용하세요: ' + ', '.join(context['skills']))
-        p = broker.path.parent / '.agents' / 'skills' / args['name'] / 'SKILL.md'
-        broker.access(p, 'read')
-        return {'name': args['name'], 'content': p.read_text(), 'source': str(p)}
     if name in ('request_agent_create', 'request_plan'):
         if task['phase'] != 'plan':
             raise ValueError('요청 계획 담당자만 역할·작업을 구성할 수 있습니다')

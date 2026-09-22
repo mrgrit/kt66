@@ -8,7 +8,7 @@ import yaml
 
 COMMON = {'activity_note', 'harness_identity', 'work_status', 'cycle_state', 'ticket_create',
           'request_context', 'skill_read', 'request_finish'}
-REQUEST = {'request_context', 'skill_read', 'request_finish', 'request_plan', 'request_agent_create',
+REQUEST = {'request_context', 'request_finish', 'request_plan', 'request_agent_create',
            'inventory_query', 'siem_search', 'workspace_list', 'workspace_read', 'workspace_write',
            'website_validate', 'website_prepare', 'waf_prepare'}
 CAPS = {'inventory_query': 'inventory', 'siem_search': 'siem', 'workspace_write': 'workspace',
@@ -95,6 +95,8 @@ def allowed(manifest, name):
     if not p or name not in COMMON | set(p.get('tools', [])):
         return False
     context = manifest.get('request')
+    if name == 'skill_read' and not (manifest.get('role_skills') or (context or {}).get('skills')):
+        return False
     if name in REQUEST and not context:
         return False
     if context:
