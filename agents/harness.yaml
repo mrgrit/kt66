@@ -25,7 +25,7 @@ version: 1
 defaults:
   constrain:
     permission:
-      # 읽기는 언제나 허용한다. 읽지 못하는 에이전트는 추측하기 시작한다.
+      # 읽기도 아래 security.roles의 직무·자산 상한 안에서만 허용한다.
       env_read: allow
       metrics_read: allow
       log_read: allow
@@ -163,9 +163,85 @@ workers:
       to: human                  # 최상위. 여기서 막히면 사람이다
 
 levers:
-  - "permission 을 전부 allow 로 바꾸면? — 빨라지지만 되돌릴 수 없는 조치가 나간다"
-  - "ops-lead 에게 실행 권한을 주면? — 승인이 형식이 되고 감사가 무너진다"
+  - "permission을 allow로 바꾸어도 직무 밖 도구는 열리지 않는다. 역할 상한과 실행 승인은 별개다"
+  - "검토 직무에 실행 도구를 넣으면 저장·컴파일 검증이 거절한다. 승인과 실행을 분리한다"
   - "ratchet 을 지우면? — 같은 사고를 다시 겪는다. 지우고 재현해 보는 것이 실습이다"
+
+# 직무 정책은 강사가 관리한다. 페르소나·스킬·대화 승인으로 수정할 수 없다.
+# roster.security_role이 없거나 정의되지 않은 역할이면 기본 거절한다.
+# tools: 호출 상한 / capabilities: 업무 배정 상한 / inventory_assets: 대장 ID
+# disk_targets의 *는 저장 용량만 의미한다. 파일 내용·SIEM·방화벽 권한은 아니다.
+security:
+  roles:
+    facility:
+      label: 설비 상태·가상 설비 조치
+      duty: operate
+      temporary: true
+      tools: [env_read, simulator_control]
+      capabilities: []
+      env_sections: [floors, aisles, power, plant, battery, fuel, efficiency, weather, building]
+      env_assets: ['ups-*', 'pdu-*', 'crac-*', 'chiller-*', 'fm200-*', 'ct-*', 'pump-*', 'hx-*', 'cdu-*', 'cp-*', 'ats-*', 'gen-*', 'batt-*', 'sub-*', 'xfmr-*', 'bus-*', 'tank-*', 'eco-*', 'vesda-*', 'fcu-*', 'cont-*', 'rf-*', 'wx-*', '1F', '2F', '3F', '4F']
+    physical:
+      label: 출입·CCTV 상태
+      duty: operate
+      temporary: true
+      tools: [env_read]
+      capabilities: []
+      env_sections: [security]
+      env_assets: ['door-*', 'cctv-*', 'mantrap-*', 'mdet-*', 'guard-*', 'badge-*']
+    network:
+      label: 네트워크 자산·방화벽·WAF 변경안
+      duty: operate
+      temporary: true
+      tools: [infrastructure_read, firewall_read, inventory_query, waf_prepare]
+      capabilities: [inventory, waf]
+      inventory_assets: [fw, ips, web]
+    systems:
+      label: 서버 상태·전체 저장 계층 용량
+      duty: operate
+      temporary: true
+      tools: [infrastructure_read, disk_usage, inventory_query]
+      capabilities: [inventory]
+      inventory_assets: [juiceshop, dvwa, neobank, govportal, mediforum, adminconsole, aicompanion, noc, portal, bastion, agent-runner, cork, buzzer]
+      disk_targets: ['*']
+    gpu:
+      label: GPU 플랫폼 자산·서비스 상태
+      duty: operate
+      temporary: true
+      tools: [infrastructure_read, inventory_query]
+      capabilities: [inventory]
+      inventory_assets: [dgx-spark-01, gpu-gw]
+    soc:
+      label: 보안 자산 대장·SIEM 경보 분석
+      duty: operate
+      temporary: true
+      tools: [log_read, siem_search, inventory_query]
+      capabilities: [inventory, siem]
+      inventory_assets: [fw, ips, web, siem, indexer, dashboard]
+    coordinator:
+      label: 요청 분류·담당자 배정
+      duty: coordinate
+      temporary: false
+      tools: [delegate_work, request_plan, request_agent_create]
+      capabilities: []
+    reviewer:
+      label: 결과 검토·독립 승인
+      duty: review
+      temporary: false
+      tools: [approval_inbox, approve_request, agent_activity, workspace_list, workspace_read]
+      capabilities: []
+    auditor:
+      label: 실행 증거 감사
+      duty: audit
+      temporary: false
+      tools: [agent_activity]
+      capabilities: []
+    developer:
+      label: 요청 작업 공간의 정적 홈페이지 개발
+      duty: develop
+      temporary: true
+      tools: [workspace_list, workspace_read, workspace_write, website_validate, website_prepare]
+      capabilities: [workspace, website]
 
 # Calendar work uses cadence; frequent monitoring uses persisted adaptive checks.
 execution:

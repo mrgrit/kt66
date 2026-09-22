@@ -187,6 +187,8 @@ def validate_all(over: dict | None = None) -> list[str]:
             err.append(f"근무자 {w['id']} 가 L3(무인)인데 등록된 루프가 없다")
     for m in worker_ids - {m for t in team_list for m in t.get("members", [])}:
         err.append(f"근무자 {m} 가 어느 팀에도 속하지 않는다")
+    import authorization, harness_tools
+    err.extend(authorization.validate(g('harness'), workers, [t[0] for t in harness_tools.TOOLS]))
     return err
 
 
@@ -213,7 +215,7 @@ def _write_text(p: Path, text: str) -> None:
 
 
 def _auth(key: str | None) -> None:
-    if key != API_KEY:
+    if not API_KEY or key != API_KEY:
         raise HTTPException(401, "API 키가 필요하다 — 화면 우측 상단에 서버 .env 의 API_KEY 값을 넣는다"
                             ". LLM API 키가 아니다.")
 
@@ -357,6 +359,7 @@ def add_worker(key: str = "", w: dict = Body(...)):
     entry = {
         "id": wid,
         "name": w.get("name") or wid,
+        "security_role": w.get("security_role") or "",
         "floor": w.get("floor") or "4F",
         "zone": w.get("zone") or "mgmt",
         "runtime": w.get("runtime") or "bastion",
@@ -441,7 +444,7 @@ def patch_worker(wid: str, key: str = "", patch: dict = Body(...)):
     w = next((x for x in roster.get("workers", []) if x["id"] == wid), None)
     if not w:
         raise HTTPException(404, f"없는 근무자다: {wid}")
-    allowed = {"name", "runtime", "model", "autonomy", "team", "floor", "zone", "loops", "assets"}
+    allowed = {"name", "runtime", "model", "autonomy", "team", "floor", "zone", "loops", "assets", "security_role"}
     bad = set(patch) - allowed
     if bad:
         raise HTTPException(400, f"바꿀 수 없는 필드다: {', '.join(sorted(bad))}")

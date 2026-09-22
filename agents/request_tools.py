@@ -60,16 +60,27 @@ def safe_file(directory, name):
     return dest
 
 
-def inventory(root, kind='all'):
+def container_names(root, allowed_assets):
+    assets = yaml.safe_load((Path(root).parent/'envsim/assets.yaml').read_text())['it_assets']
+    names = sorted({a['container'] for a in assets if a['id'] in allowed_assets and a.get('container')})
+    from storage_probe import CONTAINER
+    if any(not CONTAINER.fullmatch(n) for n in names):
+        raise ValueError('자산 대장의 컨테이너 이름이 올바르지 않습니다')
+    return names
+
+
+def inventory(root, kind='all', allowed_assets=None):
     if kind not in ('security', 'all'):
         raise ValueError('kind는 security 또는 all입니다')
     root = Path(root)
     path = root.parent / 'envsim' / 'assets.yaml'
     assets = yaml.safe_load(path.read_text())['it_assets']
+    if allowed_assets is not None:
+        assets = [a for a in assets if a['id'] in allowed_assets]
     security = {'fw', 'ips', 'web', 'siem', 'indexer', 'dashboard'}
     if kind == 'security':
         assets = [a for a in assets if a['id'] in security]
-    names = [a['container'] for a in assets if a.get('container')]
+    names = container_names(root,[a['id'] for a in assets])
     observations, errors = {}, []
     if names:
         p = subprocess.run(['docker', 'inspect', '--format', '{{json .Name}} {{json .NetworkSettings.Networks}}', *names],
@@ -115,6 +126,10 @@ def siem_search(root, start, end, cursor='', limit=100):
 
 
 def call(broker, root, name, args):
+    import authorization
+    denied = authorization.require(broker.m,name,args)
+    if denied:
+        raise ValueError(denied['reason'])
     context = broker.m.get('request')
     if not context:
         raise ValueError('사용자 요청에 배정된 세션만 사용할 수 있습니다')
@@ -147,8 +162,10 @@ def call(broker, root, name, args):
         broker.access(path, 'write')
         return {'recorded': True, 'status': args['status']}
     if name == 'request_context':
-        return {**store.context(rid), 'available_tools': broker.m.get('available_tools', []),
-                'current_time': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'artifacts': store.artifacts(rid)}
+        result = store.context(rid, task, broker.m['authorization'])
+        return {**result, 'available_tools': broker.m.get('available_tools', []),
+                'authorization':broker.m['authorization'],
+                'current_time': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'artifacts': result['request']['artifacts']}
     if name == 'skill_read':
         if args['name'] not in context['skills']:
             raise ValueError('이 작업에 배치된 스킬 이름을 사용하세요: ' + ', '.join(context['skills']))
@@ -162,7 +179,7 @@ def call(broker, root, name, args):
             return store.agent(rid, context['revision'], **args)
         return {'tasks': store.plan(rid, context['revision'], args['tasks'])}
     if name in ('inventory_query', 'siem_search'):
-        result = inventory(root, **args) if name == 'inventory_query' else siem_search(root, **args)
+        result = inventory(root, allowed_assets=broker.m['authorization'].get('inventory_assets', []), **args) if name == 'inventory_query' else siem_search(root, **args)
         artifact = broker.session / (name + '-' + str(time.time_ns()) + '.json')
         artifact.write_text(json.dumps(result, ensure_ascii=False))
         broker.access(artifact, 'write')
@@ -191,5 +208,9 @@ def call(broker, root, name, args):
         return {'path': args['path'], 'sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'bytes': p.stat().st_size}
     if name in ('website_validate', 'website_prepare', 'waf_prepare'):
         import request_changes
-        return getattr(request_changes, name)(root, rid, **args)
+        if name == 'website_validate':
+            return request_changes.website_validate(root,rid)
+        return getattr(request_changes, name)(root, rid, author=dict(worker=broker.worker,
+            template=broker.m['authorization']['template'], role=broker.m['authorization']['role'],
+            fingerprint=broker.m['authorization']['fingerprint'], task_id=task['id']), **args)
     raise ValueError('알 수 없는 요청 도구')

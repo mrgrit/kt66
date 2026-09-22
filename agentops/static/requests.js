@@ -31,7 +31,7 @@ function renderList(){
  if(html===listMarkup)return;listMarkup=html;$('list').innerHTML=html;
  $('list').querySelectorAll('[data-request]').forEach(b=>b.onclick=()=>openRequest(b.dataset.request));
 }
-function workerDescription(){const w=workers.find(w=>w.id===$('chat-worker').value);$('worker-description').textContent=w?`${w.floor} · 담당 자산: ${(w.assets||[]).join(', ')||'운영 판단과 검토'}`:''}
+function workerDescription(){const w=workers.find(w=>w.id===$('chat-worker').value);$('worker-description').textContent=w?`${w.floor} · ${w.security?.label||'담당 자산: '+(w.assets||[]).join(', ')} · 직무 밖 요청은 담당자를 안내합니다. 승인은 직무 안에서만 유효합니다.`:''}
 function newRequest(mode=view){current=null;signature='';location.hash='';showWork(mode);action(refresh)}
 function openRequest(id){current=id;signature='';$('detail').innerHTML='';showWork();$('compose').hidden=true;$('detail').hidden=false;location.hash=id;action(refresh);}
 async function refresh(){
@@ -89,7 +89,7 @@ $('new-request').onclick=()=>newRequest();
 $('chat-tab').onclick=()=>{if(view==='conversation')showWork();else newRequest('conversation')};
 async function loadPermissions(){
  const data=await api('tool-permissions');
- $('permission-grants').innerHTML=data.grants.length?data.grants.map(g=>`<div class="permission-grant section-head"><div><b>${esc(workerName(g.worker))}</b><p>${esc(toolLabels[g.tool]||g.tool)}</p><small>${esc(time(g.created))}부터 허용</small></div><button class="quiet" data-revoke="${esc(g.id)}">허용 철회</button></div>`).join(''):'<p class="empty">항상 허용한 기능이 없습니다.</p>';
+ $('permission-grants').innerHTML=data.grants.length?data.grants.map(g=>`<div class="permission-grant section-head"><div><b>${esc(workerName(g.worker))}</b><p>${esc(toolLabels[g.tool]||g.tool)}</p><small>${g.policy_current===false?'직무 정책 변경으로 효력 없음':esc(time(g.created))+'부터 현재 직무 범위에서 허용'}</small></div><button class="quiet" data-revoke="${esc(g.id)}">허용 철회</button></div>`).join(''):'<p class="empty">항상 허용한 기능이 없습니다.</p>';
  $('permission-grants').querySelectorAll('[data-revoke]').forEach(b=>b.onclick=()=>action(async()=>{await api('tool-permissions/'+b.dataset.revoke,'DELETE');await loadPermissions();notify('항상 허용을 철회했습니다. 다음 호출부터 다시 승인이 필요합니다.')},b));
 }
 $('permission-manage').onclick=()=>action(async()=>{await loadPermissions();$('permission-settings').hidden=false;$('permission-settings').scrollIntoView({block:'nearest'})});

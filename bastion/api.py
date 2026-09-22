@@ -20,7 +20,7 @@ app = FastAPI(title="kt66 Bastion API", version="0.1.0")
 
 
 def _check_api_key(x_api_key: str | None) -> None:
-    if x_api_key != API_KEY:
+    if not API_KEY or x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="invalid X-API-Key")
 
 

@@ -50,6 +50,7 @@ runtimes:
 workers:
   # ── 1F 시설·보안층 ────────────────────────────────────────────
   - id: facility-engineer
+    security_role: facility
     name: 시설 담당(전기/기계)
     floor: 1F
     zone: ot
@@ -66,6 +67,7 @@ workers:
     curriculum: [W1, W5, W13]
 
   - id: physical-security
+    security_role: physical
     name: 물리보안(출입/CCTV)
     floor: 1F
     zone: ot
@@ -81,6 +83,7 @@ workers:
 
   # ── 2F 일반 전산실 ────────────────────────────────────────────
   - id: network-engineer
+    security_role: network
     name: 네트워크 엔지니어
     floor: 2F
     zone: dmz
@@ -93,6 +96,7 @@ workers:
     curriculum: [W2, W9, W11]
 
   - id: systems-engineer
+    security_role: systems
     name: 시스템/스토리지 엔지니어
     floor: 2F
     zone: int
@@ -106,6 +110,7 @@ workers:
 
   # ── 3F AI 전산실 ──────────────────────────────────────────────
   - id: gpu-platform-engineer
+    security_role: gpu
     name: GPU/플랫폼 엔지니어
     floor: 3F
     zone: app
@@ -119,6 +124,7 @@ workers:
 
   # ── 4F 운영층 (NOC/SOC) ───────────────────────────────────────
   - id: service-desk
+    security_role: coordinator
     name: 서비스데스크
     floor: 4F
     zone: mgmt
@@ -134,6 +140,7 @@ workers:
     curriculum: [W6, W8, W9]
 
   - id: soc-analyst
+    security_role: soc
     name: SOC 분석가
     floor: 4F
     zone: mgmt
@@ -146,6 +153,7 @@ workers:
     curriculum: [W11, W12, W14]
 
   - id: ops-lead
+    security_role: reviewer
     name: 운영 리드
     floor: 4F
     zone: mgmt
@@ -158,6 +166,7 @@ workers:
     curriculum: [W6, W8, W9, W15]
 
   - id: compliance-auditor
+    security_role: auditor
     name: 컴플라이언스 감사인
     floor: 4F
     zone: mgmt
@@ -168,3 +177,17 @@ workers:
     loops: [evidence-collection]
     assets: [audit-log, cmdb]
     curriculum: [W14]
+
+  # 개발자는 운영 시스템 접근 없이 요청 산출물만 제작한다.
+  - id: application-developer
+    security_role: developer
+    name: 애플리케이션 개발자
+    floor: 4F
+    zone: mgmt
+    runtime: codex
+    autonomy: L1
+    team: systems-team
+    model: codex-default
+    loops: []
+    assets: [request-workspace]
+    curriculum: [W8, W10, W14]

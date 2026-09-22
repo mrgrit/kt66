@@ -31,7 +31,7 @@ class AuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             b=harness_tools.Broker.__new__(harness_tools.Broker)
             b.session=pathlib.Path(td);b.worker='w';b.autonomy='L1';b.permissions={}
-            b.current=lambda:None;b.m={'version':'v','loops':[{'budget':{'max_tool_calls':1}}]}
+            b.current=lambda:None;b.m={'version':'v','loops':[{'budget':{'max_tool_calls':1}}], 'authorization':{'role':'test','duty':'operate','tools':[]}}
             args={'stage':'plan','summary':'Check alarms','evidence':['job.json'],'steps':['read','review']}
             self.assertEqual(b.call('activity_note',args)['assertion'],'agent_declared')
             event=json.loads((b.session/'activity.jsonl').read_text())

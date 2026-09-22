@@ -76,8 +76,8 @@ class Store:
         return sorted(rows, key=lambda r: r['updated'], reverse=True)[:limit]
 
     def workers(self):
-        roster = yaml.safe_load((self.root / 'roster.yaml').read_text())
-        return [{k: w.get(k) for k in ('id', 'name', 'floor', 'zone', 'assets')} for w in roster['workers']]
+        import authorization
+        return authorization.directory(self.root)
 
     def create(self, prompt, title='', scope=None, budget=8, max_agents=None,
                mode='request', worker=None, timezone='UTC'):
@@ -119,11 +119,14 @@ class Store:
         tid = f'{phase}-{data["revision"]}'
         if any(t['id'] == tid for t in data['tasks']):
             return
+        import authorization
+        worker = data['worker'] if phase == 'conversation' else ('service-desk' if phase == 'plan' else 'ops-lead')
+        caps = authorization.load(self.root, worker).get('capabilities', [])
         data['tasks'].append(dict(id=tid, phase=phase, revision=data['revision'],
             title='대화 답변·조사' if phase == 'conversation' else ('요청 검토·계획' if phase == 'plan' else '결과 통합·검증'),
-            worker=data['worker'] if phase == 'conversation' else ('service-desk' if phase == 'plan' else 'ops-lead'),
+            worker=worker,
             instructions='사용자 요청과 실제 도구에 근거하여 처리하고 결과를 반환하세요.',
-            depends_on=[], capabilities=['inventory', 'siem'] if phase == 'conversation' else list(CAPABILITIES), status='queued'))
+            depends_on=[], capabilities=[c for c in caps if c in ('inventory', 'siem')] if phase == 'conversation' else [], status='queued'))
 
     def reply(self, rid, message):
         with self.edit(rid) as d:
@@ -179,6 +182,10 @@ class Store:
             raise ValueError('등록된 근무자를 실행 템플릿으로 지정하세요')
         if not isinstance(capabilities, list) or not capabilities or set(capabilities) - CAPABILITIES.keys():
             raise ValueError('지원하지 않는 실행 기능입니다. 도구 구현이 먼저 필요합니다')
+        import authorization
+        p = authorization.load(self.root, template)
+        if not p.get('temporary') or set(capabilities) - set(p.get('capabilities', [])):
+            raise ValueError('임시 역할은 실행 직무의 허용된 기능만 상속할 수 있습니다')
         name, mission = text(name, 100), text(mission, 5000)
         with self.edit(rid) as d:
             if d['revision'] != revision or d['status'] not in OPEN:
@@ -226,6 +233,8 @@ class Store:
                 project = next((a for a in d['agents'] if a['id'] == t['worker']), None)
                 if project and set(caps) - set(project['capabilities']):
                     raise ValueError('담당 프로젝트 역할에 없는 실행 기능입니다')
+                import authorization
+                authorization.task_profile(self.root, d, dict(worker=t['worker'], capabilities=caps, phase='work'))
                 normalized.append(dict(id=f'v{revision}-{t["id"]}', revision=revision, phase='work',
                     title=text(t.get('title'), 180), instructions=text(t.get('instructions'), 6000),
                     worker=t['worker'], capabilities=caps,
@@ -269,15 +278,28 @@ class Store:
         data['artifacts'] = self.artifacts(rid)
         return data
 
-    def context(self, rid):
+    def context(self, rid, task=None, authorization=None):
         d = self.detail(rid)
-        roster = yaml.safe_load((self.root / 'roster.yaml').read_text())
+        if task and authorization:
+            # 검토자만 요청 전체 결과를 통합한다. 실행자는 자기 기록과 명시적 선행 결과만 받는다.
+            visible = {task['id'], *task.get('depends_on', [])}
+            visible.update(t['id'] for t in d['tasks'] if t['worker'] == task['worker'])
+            if authorization['duty'] != 'review':
+                d['messages'] = [m for m in d['messages'] if m['role'] == 'user' or m.get('task') in visible]
+                d['tasks'] = [t if t['id'] in visible else {k: t[k] for k in ('id','worker','phase','title','status','depends_on')}
+                              for t in d['tasks']]
+                d['changes'] = []
+                d['events'] = []
+                d['result'] = None
+                d['permission_requests'] = [p for p in d.get('permission_requests', []) if p['worker'] == task['worker']]
+                if not set(task['capabilities']) & {'workspace','website','waf'}:
+                    d['artifacts'] = []
         sent = next(m['at'] for m in reversed(d['messages']) if m['role'] == 'user')
         at = datetime.datetime.fromtimestamp(sent, datetime.timezone.utc)
         turn = dict(sent_at=at.isoformat(), timezone=d.get('timezone', 'UTC'),
                     local_sent_at=at.astimezone(ZoneInfo(d.get('timezone', 'UTC'))).isoformat(),
                     last_hour={'start': (at - datetime.timedelta(hours=1)).isoformat(), 'end': at.isoformat()})
-        return dict(request=d, workers=[{k: w.get(k) for k in ('id', 'name', 'runtime', 'assets')} for w in roster['workers']],
+        return dict(request=d, workers=self.workers(),
                     turn=turn,
                     capabilities=CAPABILITIES,
                     limitations=['website: 정적 HTML/CSS/JS 사이트만 배포 지원; 결제·DB·서버 애플리케이션은 별도 실행 환경 필요',

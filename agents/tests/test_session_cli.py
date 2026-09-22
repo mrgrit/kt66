@@ -149,11 +149,11 @@ class SessionTests(unittest.TestCase):
              patch.object(m.subprocess,"run",side_effect=process):
             m.run("codex","default","task",schema={"type":"object"})
 
-    def test_roster_retains_nine_workers_and_only_session_endpoints(self):
+    def test_roster_retains_operational_workers_and_separate_developer_and_only_session_endpoints(self):
         import yaml
         data=yaml.safe_load((pathlib.Path(__file__).resolve().parents[1]/"roster.yaml").read_text())
-        self.assertEqual(len(data["workers"]),9)
-        self.assertEqual(len({w["id"] for w in data["workers"]}),9)
+        self.assertEqual(len(data["workers"]),10)
+        self.assertEqual(len({w["id"] for w in data["workers"]}),10)
         self.assertEqual(sum(len(w.get("loops",[])) for w in data["workers"]),11)
         for w in data["workers"]:
             self.assertIn(w["runtime"],("claude","codex"))

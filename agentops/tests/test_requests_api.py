@@ -12,6 +12,7 @@ sys.path.insert(0,str(ROOT/'agentops'))
 sys.path.insert(0,str(ROOT/'agents'))
 from requests_api import install
 from work_requests import Store
+import authorization
 
 
 class Api(unittest.TestCase):
@@ -19,7 +20,10 @@ class Api(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)/'agents';self.root.mkdir()
         shutil.copytree(ROOT/'agents/native',self.root/'native')
-        shutil.copy2(ROOT/'agents/roster.yaml',self.root/'roster.yaml')
+        for name in ('roster.yaml','harness.yaml','company.yaml','departments.yaml','teams.yaml'):
+            shutil.copy2(ROOT/'agents'/name,self.root/name)
+        for name in ('personas','loops'):
+            shutil.copytree(ROOT/'agents'/name,self.root/name)
         app=FastAPI()
         install(app,self.root,'test-key',None,lambda p,t:p.write_text(t))
         self.client=TestClient(app)
@@ -87,7 +91,7 @@ class Api(unittest.TestCase):
         rid=d['id'];store=Store(self.root)
         with store.edit(rid) as row:
             row['status']='waiting_input';row['tasks'][0]['status']='waiting_input'
-            row['permission_requests']=[dict(id='permission-test',worker='systems-engineer',tool='disk_usage',permission='metrics_read',arguments={'threshold_pct':80},fingerprint='test',task_id=row['tasks'][0]['id'],revision=1,status='pending')]
+            row['permission_requests']=[dict(id='permission-test',worker='systems-engineer',tool='disk_usage',permission='metrics_read',arguments={'threshold_pct':80},boundary=authorization.load(self.root,'systems-engineer')['fingerprint'],role='systems',fingerprint='test',task_id=row['tasks'][0]['id'],revision=1,status='pending')]
         path=f'/api/requests/{rid}/permissions/permission-test'
         self.assertEqual(self.client.get('/api/tool-permissions').status_code,401)
         self.assertEqual(self.client.post(path,json={'decision':'always'}).status_code,401)

@@ -72,7 +72,7 @@ teams:
   - id: systems-team
     name: 시스템팀
     department: infra
-    members: [systems-engineer]
+    members: [systems-engineer, application-developer]
     kpi:
       - {id: K-SYS-1, metric: backup_verify_success_ratio, target: "= 1.0", weight: 3, why: 백업 존재가 아니라 **복구 검증** 성공률이다}
       - {id: K-SYS-2, metric: disk_capacity_headroom_pct, target: ">= 20", weight: 2}

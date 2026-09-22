@@ -9,6 +9,7 @@ import time
 import uuid
 
 from work_requests import Store, OPEN, write_json
+import authorization
 
 
 def digest(data):
@@ -33,7 +34,17 @@ class Permissions:
 
     def list(self):
         with self.edit() as data:
-            return [g for g in data['grants'] if g['active']]
+            result = []
+            for g in data['grants']:
+                if not g['active']:
+                    continue
+                try:
+                    current = authorization.load(self.store.root,g.get('template',g['worker']))
+                    valid = g.get('boundary') == current['fingerprint']
+                except (ValueError,OSError):
+                    valid = False
+                result.append({**g,'policy_current':valid})
+            return result
 
     def revoke(self, gid):
         with self.edit() as data:
@@ -47,16 +58,20 @@ class Permissions:
     def check(self, broker, tool, arguments, permission):
         """상위 정책의 ask일 때만 호출한다. deny는 이 경로로 들어오지 않는다."""
         context = broker.m.get('request')
+        denied = authorization.require(broker.m,tool,arguments)
+        if denied:
+            return denied
         if not context:
             return {'status': 'approval_required', 'permission': permission}
         defaults = {'disk_usage': {'target': 'all', 'threshold_pct': 80},
                     'inventory_query': {'kind': 'all'}, 'siem_search': {'cursor': '', 'limit': 100},
                     'log_read': {'limit': 30}}
         arguments = {**defaults.get(tool, {}), **arguments}
-        fingerprint = digest(dict(worker=broker.worker, tool=tool, arguments=arguments, permission=permission))
+        boundary = broker.m['authorization']['fingerprint']
+        fingerprint = digest(dict(worker=broker.worker, tool=tool, arguments=arguments, permission=permission, boundary=boundary))
         with self.edit() as grants:
             grant = next((g for g in grants['grants'] if g['active'] and g['worker'] == broker.worker
-                          and g['tool'] == tool and g['permission'] == permission), None)
+                          and g['tool'] == tool and g['permission'] == permission and g.get('boundary') == boundary), None)
             if grant:
                 broker._grant_checks.append(dict(grant=grant['id'], decision='always', permission=permission))
                 broker.access(self.path, 'read')
@@ -73,6 +88,7 @@ class Permissions:
                 return None
             if row is None:
                 row = dict(id='permission-'+uuid.uuid4().hex[:16], worker=broker.worker,
+                           boundary=boundary, role=broker.m['authorization']['role'],
                            tool=tool, permission=permission, arguments=arguments,
                            fingerprint=fingerprint, task_id=context['task_id'], revision=context['revision'],
                            status='pending', created=time.time())
@@ -116,6 +132,17 @@ class Permissions:
             if decision == 'defer':
                 row['status'] = 'deferred'
                 return {'status': 'deferred'}
+            p = authorization.task_profile(self.store.root,data,task)
+            if row['worker'] != task['worker'] or row.get('boundary') != p['fingerprint']:
+                raise ValueError('직무 정책이 변경되었습니다. 현재 담당자에게 다시 요청하세요')
+            manifest = dict(authorization=p,request=dict(phase=task['phase'],capabilities=task['capabilities']))
+            if authorization.require(manifest,row['tool'],row['arguments']):
+                raise ValueError('직무 범위 밖의 도구는 이번만/항상 허용할 수 없습니다')
+            # 오래된 요청으로 현재 deny를 승인하지 않는다. 전역·부서·팀의 deny도 포함한다.
+            import harness_compiler
+            _, current = harness_compiler.compile_worker(p['template'],self.store.root)
+            if current['policy']['constrain']['permission'].get(row['permission'],'deny') == 'deny':
+                raise ValueError('현재 정책에서 금지한 권한입니다')
             # 이전 답변·실행 증거는 보존하고 같은 회차의 해당 작업만 이어서 실행한다.
             resumed = {k: copy.deepcopy(task[k]) for k in ('phase', 'revision', 'title', 'worker', 'instructions', 'depends_on', 'capabilities')}
             resumed.update(id=task['id']+'-r'+uuid.uuid4().hex[:6], status='queued')
@@ -131,11 +158,13 @@ class Permissions:
             if decision == 'always':
                 with self.edit() as grants:
                     existing = next((g for g in grants['grants'] if g['active'] and g['worker'] == row['worker']
-                                     and g['tool'] == row['tool'] and g['permission'] == row['permission']), None)
+                                     and g['tool'] == row['tool'] and g['permission'] == row['permission']
+                                     and g.get('boundary') == row['boundary']), None)
                     gid = existing['id'] if existing else 'grant-'+uuid.uuid4().hex[:16]
                     if not existing:
                         grants['grants'].append(dict(id=gid, active=True, worker=row['worker'], tool=row['tool'],
-                            permission=row['permission'], scope='user_requests', created=time.time(), actor='instructor', source_request=rid))
+                            permission=row['permission'], boundary=row['boundary'], role=row['role'], template=p['template'],
+                            scope='user_requests', created=time.time(), actor='instructor', source_request=rid))
                     grants['events'].append(dict(at=time.time(), actor='instructor', kind='allowed_always', grant=gid, request=rid))
             data.update(status='queued', result=None)
         return {'status': 'queued'}

@@ -141,6 +141,8 @@ function renderWorkers() {
       <div class="row"><label>자율성</label>
         <select data-f="autonomy">${['L1', 'L2', 'L3', 'approver'].map(a =>
           `<option ${a === w.autonomy ? 'selected' : ''}>${a}</option>`).join('')}</select></div>
+      <div class="row"><label>보안 직무</label><select data-f="security_role">${Object.entries(ORG.harness.security?.roles||{}).map(([id,p])=>`<option value="${esc(id)}" ${id===w.security_role?'selected':''}>${esc(p.label)}</option>`).join('')}</select></div>
+      <details class="s"><summary>직무 권한 상한</summary><p>대화의 허용 버튼은 이 범위를 넓히지 않습니다.</p><p>${esc((ORG.harness.security?.roles?.[w.security_role]?.tools||[]).join(', '))}</p></details>
       <div class="row"><label>팀</label>
         <select data-f="team">${teams.map(t =>
           `<option value="${esc(t.id)}" ${t.id === w.team ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>
@@ -258,6 +260,7 @@ $$('[data-save]').forEach(b => b.onclick = async () => {
 /* ── 근무자 추가 ────────────────────────────────────────── */
 $('#add-worker').onclick = () => {
   const r = ORG.roster;
+  $('#nw-security-role').innerHTML=Object.entries(ORG.harness.security?.roles||{}).map(([id,p])=>`<option value="${esc(id)}">${esc(p.label)}</option>`).join('');
   $('#nw-team').innerHTML = (ORG.teams.teams || []).map(t =>
     `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
   $('#nw-runtime').innerHTML = Object.entries(r.runtimes || {}).map(([k, v]) =>
@@ -271,7 +274,7 @@ $('#nw-ok').onclick = async (e) => {
   const body = { id: $('#nw-id').value.trim(), name: $('#nw-name').value.trim(),
     floor: $('#nw-floor').value, zone: $('#nw-zone').value.trim(),
     team: $('#nw-team').value, runtime: $('#nw-runtime').value,
-    model: $('#nw-model').value, autonomy: $('#nw-autonomy').value };
+    model: $('#nw-model').value, autonomy: $('#nw-autonomy').value, security_role: $('#nw-security-role').value };
   try {
     const r = await api(withKey('/api/worker'), { method: 'POST', body });
     $('#dlg-worker').close();

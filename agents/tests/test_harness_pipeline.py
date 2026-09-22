@@ -49,6 +49,7 @@ class BrokerTests(unittest.TestCase):
         self.b=tools.Broker.__new__(tools.Broker);self.b.worker="worker";self.b.session=self.root/"session";self.b.session.mkdir()
         self.b.path=self.root/"manifest.json"
         self.b.m={"worker":{"assets":["crac"]},"version":"v1","loops":[]}
+        self.b.m["authorization"]={"role":"facility","duty":"operate","tools":["simulator_control"]}
         self.b.policy={"escalate":{"to":"approver"}}
         self.b.permissions={"simulation_control":"ask","ticket_create":"allow"}
         self.b.autonomy="L1";self.b.current=lambda:None

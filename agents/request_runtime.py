@@ -19,6 +19,8 @@ def compile_request(root, request, task, evidence):
     template = project_agent['template'] if project_agent else task['worker']
     _, base = harness_compiler.compile_worker(template, root)
     manifest = copy.deepcopy(base)
+    import authorization
+    manifest['authorization'] = authorization.task_profile(root, request, task)
     if project_agent:
         manifest['worker'].update(id=project_agent['id'], name=project_agent['name'],
                                   runtime=project_agent['runtime'], model=project_agent['model'])
@@ -43,7 +45,7 @@ def compile_request(root, request, task, evidence):
         phase=task['phase'], capabilities=caps, scope=request['scope'], max_tool_calls=60,
         source_permissions=base['policy']['constrain']['permission'])
     skills = sorted({SKILLS[c] for c in caps} | ({'request-coordination'} if task['phase'] in ('plan', 'review') else set()))
-    if permissions.get('metrics_read') != 'deny':
+    if authorization.allowed(manifest, 'disk_usage') and permissions.get('metrics_read') != 'deny':
         skills.append('system-diagnostics')
     library = root / 'native'
     skill_sources = {}
@@ -63,7 +65,7 @@ def compile_request(root, request, task, evidence):
             + '## 이번에 배정된 작업\n' + task['instructions'] + '\n\n'
             + '## 현재 실행 범위와 정책\n' + json.dumps(dict(
                 request=manifest['request'], company=manifest['company'],
-                policy=manifest['policy'], task=task), ensure_ascii=False, indent=2))
+                policy=manifest['policy'], authorization=manifest['authorization'], task=task), ensure_ascii=False, indent=2))
     (dest / 'AGENTS.md').write_text(role_source.split('---', 2)[2] + '\n' + common + '\n\n' + role)
     (dest / 'CLAUDE.md').write_text('@AGENTS.md\n')
     # The launch adapter reads these native files, not a second persona format.
@@ -86,7 +88,7 @@ def compile_request(root, request, task, evidence):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(body)
     import harness_tools
-    manifest['available_tools'] = [n for n, _, _, perm in harness_tools.TOOLS if perm is None or permissions.get(perm, 'deny') != 'deny']
+    manifest['available_tools'] = authorization.visible(manifest, harness_tools.TOOLS)
     manifest['native'] = dict(agent=name, skills=skills, source_hashes={
         'AGENTS.md': hashlib.sha256(common.encode()).hexdigest(),
         '.claude/agents/kt66-request-worker.md': hashlib.sha256(role_source.encode()).hexdigest(),

@@ -113,7 +113,7 @@ class Requests(unittest.TestCase):
         with patch.object(harness_tools,'ROOT',self.root):
             broker=harness_tools.Broker(dest/'manifest.json',dest.parent)
             for name,args in [('request_plan',{'tasks':[self.task('a')]}),('workspace_write',{'path':'test.txt','content':'내용'})]:
-                with self.assertRaises(ValueError):broker.call(name,args)
+                self.assertEqual(broker.call(name,args)['status'],'denied')
             with self.assertRaisesRegex(ValueError,'response_kind'):
                 broker.call('request_finish',dict(status='completed',summary='설명',question='',artifacts=[]))
 
@@ -150,7 +150,9 @@ class Requests(unittest.TestCase):
 
     def test_pending_tool_permission_keeps_request_waiting_even_if_model_says_completed(self):
         import harness_tools
-        self.chat();self.poll();job=dict(self.db.execute('SELECT * FROM jobs').fetchone())
+        self.store.cancel(self.rid)
+        self.rid=self.store.create('디스크 조회',mode='conversation',worker='systems-engineer')['id']
+        self.poll();job=dict(self.db.execute('SELECT * FROM jobs').fetchone())
         def session(*args,**kwargs):
             with patch.object(harness_tools,'ROOT',self.root):
                 b=harness_tools.Broker(kwargs['harness']/'manifest.json',kwargs['evidence_dir'])
@@ -225,8 +227,8 @@ class Requests(unittest.TestCase):
 
     def test_new_agent_reuses_template_and_does_not_change_roster(self):
         before=(self.root/'roster.yaml').read_bytes()
-        a=self.store.agent(self.rid,1,'개발자','정적 홈페이지 담당','service-desk',['workspace','website'])
-        b=self.store.agent(self.rid,1,'개발자','정적 홈페이지 담당','service-desk',['workspace','website'])
+        a=self.store.agent(self.rid,1,'개발자','정적 홈페이지 담당','application-developer',['workspace','website'])
+        b=self.store.agent(self.rid,1,'개발자','정적 홈페이지 담당','application-developer',['workspace','website'])
         self.assertEqual(a['id'],b['id'])
         self.assertEqual(before,(self.root/'roster.yaml').read_bytes())
         with self.assertRaises(ValueError):self.store.agent(self.rid,1,'임의 실행','임의 셸','service-desk',['shell'])
@@ -238,6 +240,7 @@ class Requests(unittest.TestCase):
         return request_runtime.compile_request(self.root,d,d['tasks'][0],self.root/'evidence'/str(len(list((self.root/'evidence').glob('*')))))
 
     def test_korean_skill_edit_changes_next_harness_not_previous_snapshot(self):
+        self.chat()
         dest,m=self.compile()
         source=self.root/'native/.agents/skills/inventory-report/SKILL.md'
         original=(dest/'.agents/skills/inventory-report/SKILL.md').read_text()
@@ -258,6 +261,7 @@ class Requests(unittest.TestCase):
             self.assertIn('재현 절차를 두 줄', (new/name).read_text())
 
     def test_read_only_scope_and_parent_deny_enforced(self):
+        self.chat()
         with self.store.edit(self.rid) as d:d['scope']='read'
         dest,m=self.compile()
         self.assertEqual(set(m['request']['capabilities']),{'inventory','siem'})
@@ -330,7 +334,12 @@ class Requests(unittest.TestCase):
         self.assertTrue(request_changes.website_validate(self.root,self.rid)['ok'])
 
     def test_approved_change_requires_final_review_and_exact_hash(self):
-        c=dict(id='change-test',kind='waf',status='proposed',revision=1,sha256='fixed')
+        import authorization
+        task=self.task('rule',worker='network-engineer');task['capabilities']=['waf']
+        task=self.store.plan(self.rid,1,[task])[0]
+        p=authorization.load(self.root,'network-engineer')
+        author=dict(worker=task['worker'],task_id=task['id'],template=p['template'],fingerprint=p['fingerprint'])
+        c=dict(id='change-test',kind='waf',status='proposed',revision=1,sha256='fixed',author=author)
         with self.store.edit(self.rid) as d:d['changes']=[c]
         with self.assertRaises(ValueError):request_changes.authorize(self.root,self.rid,c['id'],'fixed')
         with self.store.edit(self.rid) as d:d['status']='waiting_approval'
@@ -339,14 +348,15 @@ class Requests(unittest.TestCase):
         self.assertEqual(r['status'],'applying')
 
     def test_project_agent_compiles_with_own_identity_and_inherited_denials(self):
-        agent=self.store.agent(self.rid,1,'웹 개발','정적 홈페이지 개발','soc-analyst',['workspace','website'])
+        agent=self.store.agent(self.rid,1,'웹 개발','정적 홈페이지 개발','application-developer',['workspace','website'])
         self.poll()
         task=self.task('build',worker=agent['id']);task['capabilities']=['workspace','website']
         self.store.plan(self.rid,1,[task]);d=self.store.get(self.rid)
         _,m=request_runtime.compile_request(self.root,d,d['tasks'][1],self.root/'evidence/project')
         self.assertEqual(m['worker']['id'],agent['id'])
         self.assertEqual(m['persona'],'정적 홈페이지 개발')
-        self.assertEqual(m['request']['source_permissions']['firewall_rule_change'],'deny')
+        self.assertNotIn('waf_prepare',m['available_tools'])
+        self.assertEqual(m['authorization']['role'],'developer')
         self.assertEqual(set(m['request']['capabilities']),{'workspace','website'})
 
     def test_read_only_plan_cannot_assign_write_capability(self):

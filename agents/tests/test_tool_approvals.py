@@ -97,7 +97,8 @@ class Approvals(unittest.TestCase):
 
     def test_always_does_not_authorize_another_worker(self):
         b=self.broker();a=b.call('disk_usage',{});self.approve(a,'always')
-        b=self.new('soc-analyst');self.assertEqual(b.call('disk_usage',{})['status'],'approval_required')
+        b=self.new('soc-analyst');self.assertEqual(b.call('disk_usage',{})['status'],'denied')
+        self.assertEqual(self.store.get(self.rid).get('permission_requests',[]),[])
 
     def test_defer_does_not_start_sessions_and_reply_invalidates_old_approval(self):
         b=self.broker();a=b.call('disk_usage',{});self.finish()
@@ -124,5 +125,26 @@ class Approvals(unittest.TestCase):
     def test_cancelled_request_cannot_be_authorized(self):
         b=self.broker();a=b.call('disk_usage',{});self.finish();self.store.cancel(self.rid)
         with self.assertRaises(ValueError):self.permissions.decide(self.rid,a['permission_request'],'once')
+
+    def test_changed_asset_boundary_invalidates_persistent_grant(self):
+        b=self.broker();a=b.call('disk_usage',{});self.approve(a,'always');self.finish('completed')
+        p=self.root/'harness.yaml';config=yaml.safe_load(p.read_text())
+        config['security']['roles']['systems']['disk_targets']=['host']
+        p.write_text(yaml.safe_dump(config))
+        self.assertFalse(self.permissions.list()[0]['policy_current'])
+        b=self.new()
+        with patch.object(storage_probe,'collect') as collect:
+            self.assertEqual(b.call('disk_usage',{})['status'],'approval_required')
+            self.assertEqual(b.call('disk_usage',{'target':'kt66-fw'})['code'],'asset_boundary')
+            collect.assert_not_called()
+
+    def test_changed_role_or_parent_deny_blocks_pending_approval(self):
+        b=self.broker();a=b.call('disk_usage',{});self.finish()
+        p=self.root/'harness.yaml';original=p.read_text();config=yaml.safe_load(original)
+        config['defaults']['constrain']['permission']['metrics_read']='deny';p.write_text(yaml.safe_dump(config))
+        with self.assertRaisesRegex(ValueError,'금지'):self.permissions.decide(self.rid,a['permission_request'],'always')
+        config=yaml.safe_load(original);config['security']['roles']['systems']['disk_targets']=['host'];p.write_text(yaml.safe_dump(config))
+        with self.assertRaisesRegex(ValueError,'직무 정책'):self.permissions.decide(self.rid,a['permission_request'],'once')
+        self.assertEqual(self.permissions.list(),[])
 
 if __name__=='__main__':unittest.main()

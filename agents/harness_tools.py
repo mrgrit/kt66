@@ -2,6 +2,7 @@
 import datetime, hashlib, json, os, pathlib, sys, time, urllib.parse, urllib.request, uuid
 from activity_audit import record
 import request_tools
+import authorization
 ROOT = pathlib.Path(__file__).resolve().parent
 
 def schema(properties, required=()):
@@ -73,6 +74,16 @@ class Broker:
             content=(ROOT/name).read_bytes();self.access(ROOT/name,"read")
             if hashlib.sha256(content).hexdigest()!=expected:
                 raise ValueError("configuration changed; a fresh harness/session is required")
+        # 스냅샷의 직무와 원본 정책을 대조한다. 오래되거나 임의로 확대한 사본은 차단한다.
+        if self.m.get('request'):
+            data, task = request_tools.Store(ROOT).check(r['id'], r['task_id'], r['revision'])
+            effective = authorization.task_profile(ROOT, data, task)
+            if task['worker'] != self.worker or set(r['capabilities']) - set(task['capabilities']):
+                raise ValueError('배정된 담당자·기능과 실행 사본이 다릅니다')
+        else:
+            effective = authorization.load(ROOT, self.worker)
+        if self.m.get('authorization') != effective:
+            raise ValueError('직무 정책이 변경되었거나 유효한 직무 사본이 아닙니다')
     def get(self,path):
         with urllib.request.urlopen(self.url+path,timeout=8) as r:return json.load(r)
     def receipt(self,name,args,result):
@@ -83,6 +94,8 @@ class Broker:
              "authorization":{"autonomy":self.autonomy,"permission":next((t[3] for t in TOOLS if t[0]==name.removeprefix("error:")),None)}}
         permission=row["authorization"]["permission"]
         row["authorization"]["mode"]=self.permissions.get(permission,"deny") if permission else "audit_only"
+        row['authorization'].update(role=self.m.get('authorization', {}).get('role'),
+                                    boundary=self.m.get('authorization', {}).get('fingerprint'))
         if getattr(self,"_grant_checks",None):row['authorization']['user_decisions']=self._grant_checks
         with (self.session/"tools.jsonl").open("a") as f:f.write(json.dumps(row,ensure_ascii=False)+"\n")
         self._accesses=[]
@@ -105,6 +118,9 @@ class Broker:
             expected=specification["properties"][key].get("type")
             if expected and (not isinstance(value,types[expected]) or expected=="integer" and isinstance(value,bool)):raise ValueError("argument type mismatch")
         if len(json.dumps(args))>50000:raise ValueError("tool argument budget exceeded")
+        denied = authorization.require(self.m, name, args)
+        if denied:
+            return self.receipt(name, args, denied)
         permitted=definition[3]
         if permitted and self.permissions.get(permitted,"deny")=="deny":
             return self.receipt(name,args,{"status":"denied","permission":permitted})
@@ -149,14 +165,17 @@ class Broker:
             jobs=[]
             if path.exists():
                 db=sqlite3.connect("file:"+str(path)+"?mode=ro",uri=True);db.row_factory=sqlite3.Row
-                jobs=[dict(r) for r in db.execute("SELECT id,worker,kind,status,updated,evidence FROM jobs ORDER BY updated DESC LIMIT 40")];db.close()
-            files=sorted((ROOT/"evidence").glob("*/finding-*.md"),key=lambda p:p.stat().st_mtime,reverse=True)[:20]
+                oversight = self.m['authorization']['duty'] in ('coordinate','review','audit')
+                query = "SELECT id,worker,kind,status,updated FROM jobs"
+                jobs=[dict(r) for r in db.execute(query + ("" if oversight else " WHERE worker=?") + " ORDER BY updated DESC LIMIT 40", () if oversight else (self.worker,))];db.close()
+            # 원문 finding은 다른 직무의 자료를 포함할 수 있다. 자기 세션만 제공한다.
+            files=sorted(self.session.glob("finding-*.md"),key=lambda p:p.stat().st_mtime,reverse=True)[:20]
             return self.receipt(name,args,{"jobs":jobs,"recent_findings":[{"path":str(p),"text":p.read_text()[:1000]} for p in files],
                 "pending_approvals":[{"id":r["id"],"worker":r["worker"],"approver":r["approver"],"status":r["status"]} for r in
-                    [json.loads(p.read_text()) for p in (ROOT/"tickets"/"approvals").glob("*.json")] if r["status"]=="pending"]})
+                    [json.loads(p.read_text()) for p in (ROOT/"tickets"/"approvals").glob("*.json")] if r["status"]=="pending" and self.worker in (r['worker'],r['approver'])]})
         if name=="disk_usage":
             import storage_probe
-            result=storage_probe.collect(ROOT,**args)
+            result=storage_probe.collect(ROOT,allowed_targets=self.m['authorization'].get('disk_targets', []),**args)
             dest=self.session/("disk-usage-"+uuid.uuid4().hex+".json")
             content=json.dumps(result,ensure_ascii=False,indent=2);dest.write_text(content)
             self.access(ROOT.parent/"envsim/assets.yaml","read")
@@ -170,8 +189,15 @@ class Broker:
             return self.receipt(name,args,result)
         if name in ("infrastructure_read","firewall_read"):
             import subprocess
-            commands=([["docker","ps","--format","{{json .}}"],["docker","stats","--no-stream","--format","{{json .}}"]]
-                      if name=="infrastructure_read" else [["docker","exec","kt66-fw","nft","-j","list","ruleset"]])
+            if name=='infrastructure_read':
+                names=request_tools.container_names(ROOT,self.m['authorization'].get('inventory_assets', []))
+                if not names:
+                    return self.receipt(name,args,{'status':'unavailable','reason':'담당 범위에 연결된 컨테이너가 없습니다','records':[]})
+                # ps의 이름 필터는 부분 일치할 수 있다. 고정된 명시적 컨테이너 인자로 조회한다.
+                commands=[["docker","inspect","--format",'{{json .Name}} {{json .State.Status}}',*names],
+                          ["docker","stats","--no-stream","--format","{{json .}}",*names]]
+            else:
+                commands=[["docker","exec","kt66-fw","nft","-j","list","ruleset"]]
             records=[]
             for command in commands:
                 process=subprocess.run(command,capture_output=True,text=True,timeout=15)
@@ -200,13 +226,10 @@ class Broker:
             return self.receipt(name,args,{"status":"queued","delegation_id":rid})
         if name=="harness_identity":
             return self.receipt(name,args,{"version":self.m["version"],"worker":self.worker,
-                  "company":self.m["company"],"team":self.m["team"],"policy":self.policy})
+                  "company":self.m["company"],"team":self.m["team"],"policy":self.policy,'authorization':self.m['authorization']})
         if name=="env_read":
             state=self.get("/state")
-            result={k:v for k,v in state.items() if k not in ("building","floors","aisles","assets")}
-            result["floors"]={f:{k:v for k,v in data.items() if k in ("temp_c","humidity_pct","it_kw","cooling_kw")} for f,data in state.get("floors",{}).items()}
-            result["assets"]=[a for a in state.get("assets",[]) if any(str(a.get("id","")).startswith(x) for x in self.m["worker"].get("assets",[]))] if isinstance(state.get("assets"),list) else state.get("assets",{})
-            result["events"]=self.get("/events?limit=12")
+            result=authorization.environment(state, self.get('/events?limit=12'), self.m['authorization'])
             result["interpretation_limits"]="Instantaneous readings and bounded logs cannot prove historical uptime or absence of all unauthorized access. Instructor inject/clear records describe deliberate simulations."
             return self.receipt(name,args,result)
         if name=="log_read":
@@ -263,6 +286,8 @@ class Broker:
                         actor=Broker(req["manifest"],req["session_dir"]);actor.current()
                         if actor.autonomy not in ("L2","L3") or actor.permissions.get("simulation_control","deny")=="deny":
                             raise ValueError("requester no longer authorized")
+                        if authorization.require(actor.m,'simulator_control',req['arguments']):
+                            raise ValueError('요청자의 직무에서 허용하지 않는 조치입니다')
                         req["execution"]=actor.clear_fault(req["arguments"])
                         req["execution"].update(executor_worker=actor.worker, authorization_request=rid,
                                                 executor_harness_version=actor.m["version"])
@@ -310,7 +335,10 @@ def main():
             if rid is None:continue
             if method=="initialize":result={"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"kt66-harness","version":"1.0"}}
             elif method=="ping":result={}
-            elif method=="tools/list":result={"tools":[{"name":n,"description":d,"inputSchema":s} for n,d,s,p in TOOLS if p is None or broker.permissions.get(p,"deny")!="deny"]}
+            elif method=="tools/list":
+                broker.current()
+                visible=authorization.visible(broker.m,TOOLS)
+                result={"tools":[{"name":n,"description":d,"inputSchema":s} for n,d,s,p in TOOLS if n in visible]}
             elif method=="tools/call":
                 try:
                     out=broker.call(request["params"]["name"],request["params"].get("arguments",{}))

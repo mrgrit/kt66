@@ -116,10 +116,13 @@ def measure(target, threshold):
     return result
 
 
-def collect(root, target='all', threshold_pct=80):
+def collect(root, target='all', threshold_pct=80, allowed_targets=None):
     if type(threshold_pct) is not int or not 1 <= threshold_pct <= 100:
         raise ValueError('사용률 기준은 1~100의 정수입니다')
     catalog = targets(root)
+    if allowed_targets is not None:
+        from authorization import matches
+        catalog = [t for t in catalog if any(matches(v,allowed_targets) for v in [t['id'],t.get('container'),*t['aliases']])]
     if not isinstance(target, str):
         raise ValueError('등록된 자산 ID 또는 all, host를 지정하세요')
     selected = catalog if target == 'all' else [t for t in catalog if target in [t['id'], t.get('container'), *t['aliases']]]

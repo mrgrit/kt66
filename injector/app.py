@@ -82,7 +82,7 @@ def _save_state():
 
 
 def _auth(key: str | None):
-    if API_KEY and key != API_KEY:
+    if not API_KEY or key != API_KEY:
         raise HTTPException(401, "API 키가 필요합니다")
 
 

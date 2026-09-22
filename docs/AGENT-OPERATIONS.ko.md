@@ -4,7 +4,7 @@
 서버 예시는 `ccc@192.168.12.100`, 저장소는 `/home/ccc/work/kt66`를 기준으로 한다.
 다른 서버에서는 주소와 계정·저장소 경로를 바꾼다. 아래 명령은 별도 표시가 없으면 이 서버에서 실행한다.
 
-현재 근무자는 **9명**, 연결된 평시 루프는 **11개**다. 각 회차는 로그인된 Claude Code 또는 Codex CLI의 새 세션으로 실행된다.
+현재 근무자는 **10명**, 연결된 평시 루프는 **11개**다. 각 회차는 로그인된 Claude Code 또는 Codex CLI의 새 세션으로 실행된다.
 회사는 판단 원칙을, 부서는 책임 범위를, 팀은 KPI를, 근무자는 역할·자산·권한을 제공한다.
 모델은 이 지침과 실제 관측을 읽고 필요한 일을 판단한다. 주기 YAML에 적힌 문장은 자동 실행 스크립트가 아니다.
 
@@ -76,7 +76,7 @@ flowchart TD
 - 운영 리드가 스스로 새 근무자를 만들거나 정책을 수정하는 기능은 없다.
 
 현재 실행 근거: [컴파일러](../agents/harness_compiler.py), [루프 엔진](../agents/loop_engine.py), [CLI 연결](../agents/session_cli.py), [도구 서버](../agents/harness_tools.py).
-[agents README](../agents/README.md)의 이전 Bastion/Hermes/GPU 어댑터 설명은 역사적 설계다. 현재 9명의 모델 실행은 구독 CLI 경로다.
+[agents README](../agents/README.md)의 이전 Bastion/Hermes/GPU 어댑터 설명은 역사적 설계다. 현재 10명의 모델 실행은 구독 CLI 경로다.
 GPU 서비스 자체의 주소·모델 설정과 근무자 추론 런타임은 별개의 설정이다.
 
 <a id="s2"></a>
@@ -142,7 +142,7 @@ GPU 서비스 자체의 주소·모델 설정과 근무자 추론 런타임은 �
 **실제 컴파일의 주 소속은 `roster.workers[].team` 하나**로 정한다. 해당 팀의 부서와 KPI를 로드하며, `teams.members`에 포함된 모든 팀의 정책·KPI를 합산하지 않는다.
 예를 들어 시설 담당의 현재 주 소속은 `cooling-team`이다.
 
-### 3.2 현재 9명
+### 3.2 현재 10명
 
 | 근무자 ID / 이름 | 런타임 / 모델 키 | 자율성 | 주 팀 |
 |---|---|---|---|
@@ -155,6 +155,7 @@ GPU 서비스 자체의 주소·모델 설정과 근무자 추론 런타임은 �
 | `soc-analyst` / SOC 분석가 | claude / cc-sonnet | L1 | soc-team |
 | `ops-lead` / 운영 리드 | claude / cc-opus | approver | ops-lead-team |
 | `compliance-auditor` / 컴플라이언스 감사인 | claude / cc-sonnet | L1 | audit-team |
+| `application-developer` / 애플리케이션 개발자 | codex / codex-default | L1 | systems-team |
 
 모델 키는 `roster.yaml`의 `models`에서 해석한다.
 
@@ -165,7 +166,7 @@ GPU 서비스 자체의 주소·모델 설정과 근무자 추론 런타임은 �
 | cc-opus | claude-code | opus |
 | codex-default | codex-cli | default: 별도 모델 옵션 없이 CLI 기본 모델 사용 |
 
-현재 Claude 6명, Codex 3명이다. `codex-default`가 특정 고정 모델 이름을 뜻하지는 않는다.
+현재 Claude 6명, Codex 4명이다. `codex-default`가 특정 고정 모델 이름을 뜻하지는 않는다.
 페르소나 앞부분의 `model: small` 또는 `reasoning`은 역할 설명용 계층값이며 실제 모델 선택은 명단의 `model` 키가 한다.
 
 ### 3.3 담당 자산
@@ -181,9 +182,12 @@ GPU 서비스 자체의 주소·모델 설정과 근무자 추론 런타임은 �
 | SOC | kt66-siem, kt66-wazuh-indexer, kt66-wazuh-dashboard |
 | 운영 리드 | 빈 목록 |
 | 감사인 | audit-log, cmdb |
+| 개발자 | request-workspace |
 
 가상 고장 조치에서는 대상이 자산명과 같거나 `자산명-`으로 시작해야 한다.
-예를 들어 `crac` 담당은 `crac-01`을 대상으로 요청할 수 있다. 자산 목록은 모든 조회 도구를 자산별로 격리하는 범용 접근통제 목록은 아니다.
+예를 들어 `crac` 담당은 `crac-01`을 대상으로 요청할 수 있다. 조회 도구의 강제 범위는 `harness.yaml`의 `security.roles`에서 별도로 정한다. 네트워크는 네트워크 자산, 시스템은 서버 상태와 저장 용량, SOC는 보안 로그, 개발자는 요청 작업 공간에 접근한다.
+
+직무 상한은 대화의 이번만·항상 허용보다 우선한다. 총괄은 검토·승인, 서비스데스크는 분배, 감사인은 증거 조회만 한다. 정책과 잔여 위험은 [직무 권한 분리·위험 평가](agent-security-design.ko.md)를 참고한다.
 
 <a id="s4"></a>
 ## 4. 평시의 11개 루프

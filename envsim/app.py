@@ -178,7 +178,7 @@ async def _start():
 
 # ── API ─────────────────────────────────────────────────────────────
 def _auth(key: str | None):
-    if API_KEY and key != API_KEY:
+    if not API_KEY or key != API_KEY:
         raise HTTPException(401, "API 키 불일치")
 
 

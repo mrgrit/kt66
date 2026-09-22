@@ -127,11 +127,12 @@ fi
                 checks=['isolated Apache syntax', 'normal HTTP 200'] + (['literal payload HTTP 403'] if payload is not None else []))
 
 
-def proposal(root, rid, kind, summary, build, metadata):
+def proposal(root, rid, kind, summary, build, metadata, author=None):
     store = Store(root)
     initial = store.get(rid)
     if initial['scope'] == 'read':
         raise ValueError('조회 전용 요청에서는 변경안을 만들 수 없습니다')
+    verify_author(root, initial, kind, author)
     cid = 'change-' + uuid.uuid4().hex[:16]
     directory = store.directory(rid) / 'changes' / cid
     directory.mkdir(parents=True)
@@ -140,15 +141,16 @@ def proposal(root, rid, kind, summary, build, metadata):
         raise ValueError('변경안 검증 실패: ' + json.dumps(tests, ensure_ascii=False))
     change = dict(id=cid, kind=kind, summary=summary, metadata=metadata, tests=tests,
                   sha256=digest(directory), revision=initial['revision'], created=time.time(),
-                  status='proposed')
+                  status='proposed', author=author)
     with store.edit(rid) as d:
         if d['revision'] != initial['revision'] or d['status'] not in ('running', 'queued', 'waiting_tasks'):
             raise ValueError('검증 중 요청이 변경됐습니다')
+        verify_author(root,d,kind,author)
         d['changes'].append(change)
     return change
 
 
-def website_prepare(root, rid, slug):
+def website_prepare(root, rid, slug, author=None):
     if not re.fullmatch(r'[a-z][a-z0-9-]{1,40}', slug):
         raise ValueError('사이트 경로는 영문 소문자·숫자·하이픈 2~41자입니다')
     validation = website_validate(root, rid)
@@ -157,10 +159,10 @@ def website_prepare(root, rid, slug):
     def build(directory):
         shutil.copytree(Store(root).directory(rid) / 'workspace' / 'site', directory / 'site')
         return {**isolated_test(directory), 'files': validation['files'], 'static_validation': validation}
-    return proposal(root, rid, 'website', f'/projects/{slug}/ 홈페이지 배포', build, {'slug': slug})
+    return proposal(root, rid, 'website', f'/projects/{slug}/ 홈페이지 배포', build, {'slug': slug}, author)
 
 
-def waf_prepare(root, rid, payload, parameter):
+def waf_prepare(root, rid, payload, parameter, author=None):
     if not isinstance(payload, str) or not 1 <= len(payload) <= 500 or any(ord(c) < 32 for c in payload) or '%{' in payload:
         raise ValueError('페이로드는 제어문자와 ModSecurity 매크로(%{) 없는 1~500자 문자열이어야 합니다')
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,50}', parameter):
@@ -174,7 +176,26 @@ def waf_prepare(root, rid, payload, parameter):
         (directory / 'rule.conf').write_text(rule)
         return isolated_test(directory, payload, parameter)
     return proposal(root, rid, 'waf', f'{parameter} 파라미터의 지정 페이로드 차단', build,
-                    {'parameter': parameter, 'payload': payload, 'rule_id': rule_id, 'rule': rule})
+                    {'parameter': parameter, 'payload': payload, 'rule_id': rule_id, 'rule': rule}, author)
+
+
+def verify_author(root, data, kind, author):
+    import authorization
+    if not isinstance(author,dict):
+        raise ValueError('작성 직무와 실행 근거가 없는 변경안은 다시 준비해야 합니다')
+    task = next((t for t in data['tasks'] if t['id'] == author.get('task_id')),None)
+    if not task or task['worker'] != author.get('worker') or task['revision'] != data['revision']:
+        raise ValueError('현재 회차의 변경안 작성자를 확인할 수 없습니다')
+    p = authorization.task_profile(root,data,task)
+    if author.get('fingerprint') != p['fingerprint'] or author.get('template') != p['template']:
+        raise ValueError('변경안 작성 직무 정책이 변경되었습니다. 다시 검토해야 합니다')
+    if authorization.require(dict(authorization=p,request=dict(phase=task['phase'],capabilities=task['capabilities'])),kind+'_prepare',{}):
+        raise ValueError('담당 직무에서 허용하지 않는 변경안입니다')
+    import harness_compiler
+    _, manifest = harness_compiler.compile_worker(p['template'],root)
+    permissions = manifest['policy']['constrain']['permission']
+    if permissions.get('user_request','allow') == 'deny' or (kind == 'waf' and permissions.get('firewall_rule_change','deny') == 'deny'):
+        raise ValueError('현재 상위 정책에서 금지한 변경안입니다')
 
 
 def authorize(root, rid, cid, expected_hash, action='apply'):
@@ -187,10 +208,13 @@ def authorize(root, rid, cid, expected_hash, action='apply'):
             raise ValueError('변경안이 없거나 확인한 버전과 다릅니다')
         if action == 'apply' and (c['status'] != 'proposed' or c['revision'] != d['revision'] or d['status'] != 'waiting_approval'):
             raise ValueError('현재 검토 대기 중인 변경안만 적용할 수 있습니다')
+        if action == 'apply':
+            verify_author(root,d,c['kind'],c.get('author'))
         if action == 'rollback' and (c['status'] != 'applied' or d['status'] in ('queued', 'running', 'waiting_tasks', 'applying')):
             raise ValueError('적용된 변경만 되돌릴 수 있습니다')
         c['status'] = 'approved' if action == 'apply' else 'rollback_approved'
         c['authorized_at'] = time.time()
+        c['authorized_by'] = 'instructor'
         d['status'] = 'applying'
     return store.get(rid)
 
@@ -210,6 +234,10 @@ def apply_pending(root, rid):
                 journal = json.loads(journal_path.read_text()) if journal_path.exists() else {}
                 action = 'rollback' if rollback else 'apply'
                 try:
+                    if c.get('authorized_by') != 'instructor':
+                        raise ValueError('사람의 적용 승인이 없습니다')
+                    if not rollback:
+                        verify_author(root,d,c['kind'],c.get('author'))
                     if digest(directory) != c['sha256']:
                         raise ValueError('검증 후 산출물이 변경됐습니다')
                     if c['kind'] == 'website':

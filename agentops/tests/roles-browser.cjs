@@ -1,0 +1,36 @@
+// 배포된 직무 표시와 담당자 안내를 읽기 전용으로 확인한다. 모델 호출 없음.
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+module.exports=async function(page){
+ const errors=[],writes=[];page.on('pageerror',e=>errors.push(String(e)));
+ await page.setCacheEnabled(false);await page.setRequestInterception(true);
+ page.on('request',r=>{if(!['GET','HEAD'].includes(r.method())){writes.push(r.method());return r.abort()}r.continue()});
+ await page.setViewport({width:1440,height:1000});
+ await page.goto('http://192.168.12.100:8050/',{waitUntil:'networkidle2'});
+ await page.click('[data-step="4"]');await page.waitForSelector('[data-w="network-engineer"]');
+ assert.equal(await page.$eval('[data-w="network-engineer"] [data-f="security_role"]',e=>e.value),'network');
+ assert.match(await page.$eval('[data-w="network-engineer"] details',e=>e.textContent),/firewall_read/);
+ assert.doesNotMatch(await page.$eval('[data-w="network-engineer"] details',e=>e.textContent),/disk_usage/);
+ assert.ok(await page.$('[data-w="application-developer"]'));
+ await page.click('#add-worker');await page.waitForSelector('#dlg-worker[open]');
+ assert.equal(await page.$$eval('#nw-security-role option',els=>els.length),10);
+ await page.keyboard.press('Escape');
+ await page.screenshot({path:'/tmp/kt66-inspect-ui/roles-admin.png',fullPage:true});
+ const key=fs.readFileSync('/home/ccc/work/kt66/.env','utf8').split('\n').find(l=>l.startsWith('API_KEY=')).split('=').slice(1).join('=').trim().replace(/^["']|["']$/g,'');
+ await page.goto('http://192.168.12.100:8050/requests?worker=network-engineer',{waitUntil:'networkidle2'});
+ await page.type('#key',key);await page.click('#login-form button');await page.waitForSelector('#chat-compose:not([hidden])');
+ assert.match(await page.$eval('#worker-description',e=>e.textContent),/네트워크.*직무 밖/);
+ const id=fs.readFileSync('/tmp/kt66-role-network-id','utf8').trim();
+ await page.click(`[data-request="${id}"]`);await page.waitForSelector('.from-agent');
+ const reply=await page.$eval('.from-agent',e=>e.textContent);
+ assert.match(reply,/시스템.*스토리지/);assert.match(reply,/권한|담당|직무/);
+ assert.equal(await page.$$('.permission-card').then(a=>a.length),0);
+ assert.match(await page.$eval('.message-evidence',e=>e.textContent),/새 조회 근거 없음/);
+ await page.screenshot({path:'/tmp/kt66-inspect-ui/roles-chat.png',fullPage:true});
+ await page.setViewport({width:390,height:900});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+ await page.goto('http://192.168.12.100:8020/?floor=4F',{waitUntil:'networkidle2'});
+ await page.waitForSelector('[data-agent-ring="application-developer"]');
+ assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
+ return {checks:'관리 화면 직무 상한·새 근무자 직무 선택·대화 담당 범위·디스크 질문 담당자 안내·승인 버튼 없음·개발자 캐릭터',errors,writes};
+};
