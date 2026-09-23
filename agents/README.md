@@ -1,6 +1,8 @@
-# 현재 실행 경로 (2026-09-15)
+# 에이전트 문서 안내
 
-**[SOC 예제로 배우는 지침 작성과 비교 실습](../README.md#agent-learning)** — 교육 목적,
+**[프로젝트 종합 안내](../README.md)** · **[교수·강사용 매뉴얼](../docs/INSTRUCTOR-GUIDE.ko.md)** · **[학생용 매뉴얼](../docs/STUDENT-GUIDE.ko.md)**
+
+**[SOC 예제로 배우는 지침 작성과 비교 실습](../docs/STUDENT-GUIDE.ko.md#agent-learning)** — 교육 목적,
 어떤 내용을 어느 파일에 쓰는지, 기본 설정과 월간 분석·규칙 관리 확장 예시, 수정 전후 비교 방법.
 
 **[한국어 상세 운영 매뉴얼](../docs/AGENT-OPERATIONS.ko.md)** — 처음 설정하는 운영자를 위한 개념·웹 절차·회차 실행·승인·증거·문제 해결 안내.
@@ -12,7 +14,7 @@
 
 조직 설정을 상속한 불변 하네스와 상시 평시/사건 루프를 사용합니다. 현재 동작·권한·운영 방법은 [RUNNER.md](RUNNER.md)를 따릅니다. 아래의 이전 분석 전용/GPU 어댑터 설명은 역사적 설명입니다.
 
-> **현재 실행 정책 (2026-09-15):** 근무자마다 Claude Code 또는 Codex의 새 구독 CLI 세션을 생성한다.
+> **현재 실행 정책:** 근무자마다 Claude Code 또는 Codex의 새 구독 CLI 세션을 생성한다.
 > 직접 모델 API·API 키 인증·API fallback은 금지한다. 아래의 GPU/Bastion/Hermes 설명은 이전 설계 기록이다.
 > 현재 운영 명령·세션 증적·제약은 [RUNNER.md](RUNNER.md)가 기준이다.
 

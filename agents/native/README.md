@@ -1,6 +1,6 @@
 # 문서를 고치며 배우는 에이전트 업무
 
-처음 배우면 **[저장소 README의 SOC 실습 안내](../../README.md#agent-learning)**에서
+처음 배우면 **[학생용 매뉴얼의 SOC 실습 안내](../../docs/STUDENT-GUIDE.ko.md#agent-learning)**에서
 교육 목적 → 작성 위치 → 기본값 → 작성 예시 → 수정 전후 비교 순서로 시작합니다.
 월간 분석과 신규 위협·규칙 관리의 확장 예시는 `agents/examples/soc/`에 기본 제공되며
 자동 실행에는 연결되어 있지 않습니다.
