@@ -247,6 +247,7 @@ function drawWorkstation(worker,x,y,z,detail) {
 function drawRoom(fid,detail) {
   if(fid==='B1')return drawFacilityFloor(detail);
   if(fid==='1F')return drawLobbyFloor(detail);
+  if(fid==='3F')return drawAIFloor(detail);
   if(fid==='5F'||fid==='XOC')return drawControlCenterRoom(fid,detail);
   const g=el('g'),z=.22, racks=racksOf(fid), fac=physicalFacilitiesOf(fid);
   g.appendChild(el('g',{filter:'url(#plateShadow)'},[prism(0,0,0,GW,GD,z,'#647c8b',{flat:true})]));

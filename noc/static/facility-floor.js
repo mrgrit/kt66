@@ -61,6 +61,7 @@ const LOBBY_FLOORPLAN = {
 };
 function facilityPlacement(item) {
   if(item.location==='outdoor')return null;
+  if(item.floor==='3F')return item.id==='door-3f'?{roomName:'AI 전산실 출입구',reason:'외벽의 출입문에서 전면 작업 통로까지 동선이 이어집니다. 문 개폐 범위에는 장비를 두지 않습니다.'}:AI_FLOORPLAN.equipment[item.id]||null;
   if(item.floor==='B1'){
     const plan=BASEMENT_FLOORPLAN.equipment[item.id];
     return plan?{...plan,roomName:BASEMENT_FLOORPLAN.rooms.find(r=>r.id===plan.room)?.name}:null;

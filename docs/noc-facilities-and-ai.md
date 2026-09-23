@@ -36,6 +36,12 @@ NOC에서 설비·장비를 선택하면 **설계값, 시뮬레이션 값, 실�
 
 시설 담당은 B1, 물리보안 담당은 1F에 배치됩니다. 위치를 바꾸어도 설비 ID와 전력·냉각 연결 관계는 유지하며, 권한은 담당 직무의 상한을 따릅니다. 모든 치수와 이격은 상대적인 화면 좌표입니다. 실제 건물의 시공·피난 도면이나 제조사 설치 치수로 사용할 수 없습니다.
 
+### 3F의 장비와 정비 동선
+
+NVIDIA 공랭 캐비닛은 후면 리턴 구간과 전면 정비 통로 사이에 둡니다. 출입문에서 전면 작업 구역까지 통로를 비우고 GPU 담당도 이 통로 안에서 선택할 수 있게 배치합니다. 항온항습기와 PDU는 측벽, 인로우 팬코일은 랙 열 끝, 부스바는 후면 상부에 표시합니다. 카드리더는 출입문 옆 벽, CCTV와 조기연기감지기는 벽면에 부착합니다.
+
+오른쪽의 CDU·침지 시험 설비는 별도 액체냉각 비교 실습 구역입니다. 배관은 그 구역 안에서만 연결합니다. 소화용기는 출입문과 정비 통로를 비켜 보호 구역에 둡니다. 3F 화면의 좌표·통로·배치 설명은 `ai-floor.js`의 `AI_FLOORPLAN`에서 관리하며, 이 화면 좌표는 자산 대장의 전력·냉각 연결 관계와 별개입니다.
+
 ### 외형 참고 자료
 
 일반 상자 대신 수랭식 냉동기의 수평 용기·압축기, 모터와 펌프 케이싱, 건식 변압기 외함·코일, 모듈형 UPS·배터리 캐비닛, 곡면 유리 인터록 포털을 구분했습니다. 대표적인 제품 구조는 아래 제조사 자료를 참고했습니다. 특정 제품의 성능·용량을 훈련 자산의 정격으로 가져온 것은 아닙니다.
@@ -56,6 +62,8 @@ NOC에서 설비·장비를 선택하면 **설계값, 시뮬레이션 값, 실�
 | [facility-guide.yaml](../envsim/facility-guide.yaml) | 역할, 배치 이유, 고장 영향, 점검 항목 | 시설 상세의 한국어 학습 설명 변경 |
 | [model.py](../envsim/model.py) | 전력·냉각·경보 계산 | 시뮬레이터 동작 변경 |
 | [facility-floor.js](../noc/static/facility-floor.js) | B1/1F 방 구획, 문, 점검 여유, 동선, 설비 크기와 배치 이유 | 층별 건축 배치와 설명 변경 |
+| [ai-floor.js](../noc/static/ai-floor.js) | 3F 공랭 랙·액냉 실습 구역, 출입문, 작업 통로, 벽부 설비 | AI 전산실 배치와 설명 변경 |
+| [building-layout.js](../noc/static/building-layout.js) | 층 분해도의 윤곽 간격과 화면 비율별 배치 | 전체 보기의 크기·여백·겹침 조정 |
 | [facility-scene.js](../noc/static/facility-scene.js) | 설비 종류별 SVG 형상 | 설비 그림 변경 |
 
 B1/1F의 방·문·동선을 바꿀 때는 `facility-floor.js`의 배치 좌표와 `assets.yaml`의 해당 설비 `pos`를 함께 맞춥니다. 새 설비는 방과 점검 여유를 정한 뒤 배치표에 등록합니다.
@@ -131,6 +139,6 @@ docker compose -f docker-compose.yaml up -d --build --no-deps envsim noc
 
 NOC의 자산 대장 캐시도 새로 시작하며, 기존 브라우저는 새로고침합니다. GPU 역할의 자산 범위를 바꾸면 역할별 권한 설정과 명단을 함께 수정하고 하네스를 다시 컴파일합니다.
 
-검증은 `noc/tests/test_ai_services.py`, `test_remote_hosts.py`와 브라우저 시나리오 `facility-ai-browser.cjs`, `facility-floor-browser.cjs`를 사용합니다. 층별 자산 누락, 장비·통로 간섭, 마우스·키보드 선택, 화면 크기별 맞춤을 함께 확인합니다. 시뮬레이터 객체 안에서 고장 연쇄를 검사하며 운영 장비에 고장이나 모델 작업을 주입하지 않습니다.
+검증은 `noc/tests/test_ai_services.py`, `test_remote_hosts.py`와 브라우저 시나리오 `facility-ai-browser.cjs`, `facility-floor-browser.cjs`, `compact-layout-browser.cjs`를 사용합니다. 층별 자산 누락, 장비·통로 간섭, 마우스·키보드 선택, 화면 크기별 맞춤을 함께 확인합니다. `compact-layout-browser.cjs`는 7개 화면 크기에서 층 그림의 실제 윤곽 겹침·잘림과 3F 장비 선택을 검사합니다. 시뮬레이터 객체 안에서 고장 연쇄를 검사하며 운영 장비에 고장이나 모델 작업을 주입하지 않습니다.
 
 API 의미의 기준: [Ollama 설치 모델](https://docs.ollama.com/api/tags), [Ollama 적재 모델](https://docs.ollama.com/api/ps), [vLLM 서버](https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/), [llama.cpp 서버](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).

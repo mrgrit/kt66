@@ -165,6 +165,12 @@ function drawRoomEquipment(item,x,y,z,compact=false,placement=null) {
   } else if(kind==='immersion') {
     box(x,y,z,w,d,.55,'#9dafb3');g.appendChild(quad(x+.09,y+.09,z+.56,w-.18,d-.18,{fill:'#679c95'}));
     for(let i=0;i<4;i++)box(x+.14+i*.2,y+.18,z+.48,.09,d-.36,.26,'#344e56');
+  } else if(kind==='badge_reader' && placement) {
+    box(x,y,z,w,d,h,'#334d54');
+    faceRect(w*.15,h*.27,w*.7,h*.5,'#a5c7c3');faceRect(w*.34,h*.12,w*.32,h*.05,'#aadd80');
+  } else if(kind==='busway' && placement?.mount_z) {
+    box(x,y,z,w,d,h,'#c6ba8a');
+    for(const dx of [.15,w-.35]){pipe([x+dx,y+d/2,z+h],[x+dx,y+d/2,z+h+.3],'#aebfc0',.8);box(x+dx,y,z-.25,.22,d+.08,.25,'#768d8d')}
   } else if(kind==='busway') {
     for(const dx of [.1,w-.15])box(x+dx,y+.15,z,.035,.05,1.5,'#7e949e');
     box(x,y+.1,z+1.4,w,.23,.13,'#c6ba8a');

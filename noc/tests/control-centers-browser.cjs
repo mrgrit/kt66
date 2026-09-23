@@ -34,11 +34,8 @@ module.exports=async page=>{
   await page.evaluate(()=>enterBuilding());
   await page.mouse.move(2,2);
   assert.equal(await page.$$eval('[data-building-floor]',e=>e.length),7);
-  const overlaps=await page.evaluate(()=>{
-   const rooms=[...document.querySelectorAll('[data-building-floor]')].map(e=>({id:e.dataset.buildingFloor,b:e.getBoundingClientRect()}));
-   return rooms.flatMap(a=>rooms.filter(b=>a.id!==b.id&&['5F','XOC'].includes(a.id)&&Math.min(a.b.right,b.b.right)-Math.max(a.b.left,b.b.left)>1&&Math.min(a.b.bottom,b.b.bottom)-Math.max(a.b.top,b.b.top)>1).map(b=>a.id+'/'+b.id));
-  });
-  assert.deepEqual(overlaps,[],'독립 공간 겹침 '+width);
+  // 등각도 그림의 빈 모서리는 겹칠 수 있다. 실제 윤곽의 겹침은 compact-layout-browser에서 픽셀로 검사한다.
+  assert.equal(await page.$$eval('[data-layout-outline]',e=>e.length),8);
   await page.screenshot({path:'/tmp/kt66-inspect-ui/center-building-'+width+'.png'});
  }
  const key=fs.readFileSync('/home/ccc/work/kt66/.env','utf8').split('\n').find(l=>l.startsWith('API_KEY=')).split('=').slice(1).join('=').trim().replace(/^['"]|['"]$/g,'');
