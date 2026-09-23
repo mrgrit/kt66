@@ -1,0 +1,80 @@
+[
+  {
+    "name": "요청 전체 타임라인 — 실제 요청 ID로 교체",
+    "index": "kt66-agent-events-*",
+    "query": {
+      "size": 200,
+      "track_total_hits": true,
+      "query": {"term": {"correlation.request_id": "REPLACE_REQUEST_ID"}},
+      "sort": [{"@timestamp": "asc"}, {"event_id": "asc"}],
+      "_source": ["@timestamp", "worker", "kind", "name", "outcome", "run_id", "correlation", "tool", "explanation", "quality", "evidence_ref", "approval_decisions"]
+    }
+  },
+  {
+    "name": "같은 파일의 write 기록 — 실제 절대 경로로 교체",
+    "index": "kt66-agent-events-*",
+    "query": {
+      "size": 50,
+      "query": {"bool": {"filter": [
+        {"term": {"kind": "tool"}},
+        {"nested": {"path": "resource", "query": {"bool": {"filter": [
+          {"term": {"resource.id": "REPLACE_ABSOLUTE_PATH"}},
+          {"term": {"resource.operation": "write"}}
+        ]}}, "inner_hits": {"size": 10}}}
+      ]}},
+      "sort": [{"@timestamp": "desc"}]
+    }
+  },
+  {
+    "name": "강사 상시 승인이 사용된 호출 — 동일 승인 객체 조건",
+    "index": "kt66-agent-events-*",
+    "query": {
+      "size": 50,
+      "query": {"bool": {"filter": [
+        {"term": {"kind": "tool"}},
+        {"nested": {"path": "approval", "query": {"bool": {"filter": [
+          {"term": {"approval.actor": "instructor"}},
+          {"term": {"approval.decision": "always"}}
+        ]}}, "inner_hits": {"size": 10}}}
+      ]}}
+    }
+  },
+  {
+    "name": "24시간 세션 비용·시간과 미측정 수",
+    "index": "kt66-agent-events-*",
+    "query": {
+      "size": 0,
+      "query": {"bool": {"filter": [{"term": {"kind": "session"}}, {"range": {"@timestamp": {"gte": "now-24h"}}}]}},
+      "aggs": {"workers": {"terms": {"field": "worker", "size": 50}, "aggs": {
+        "measured": {"filter": {"term": {"usage_known": true}}, "aggs": {"total_tokens": {"sum": {"field": "usage.total_tokens"}}}},
+        "unmeasured": {"filter": {"bool": {"must_not": [{"term": {"usage_known": true}}]}}},
+        "duration_measured": {"filter": {"exists": {"field": "execution.duration_ms"}}, "aggs": {"p95_ms": {"percentiles": {"field": "execution.duration_ms", "percents": [95]}}}}
+      }}}
+    }
+  },
+  {
+    "name": "설정 버전별 실행 결과 — 업무 정답 판정과 구분",
+    "index": "kt66-agent-events-*",
+    "query": {
+      "size": 0,
+      "query": {"term": {"kind": "session"}},
+      "aggs": {"versions": {"terms": {"field": "config.harness_version", "size": 20}, "aggs": {
+        "outcomes": {"terms": {"field": "outcome"}},
+        "evidence_missing": {"filter": {"term": {"quality.observed_live_evidence": false}}},
+        "verification_unknown": {"filter": {"bool": {"must_not": [{"exists": {"field": "quality.observed_live_evidence"}}]}}},
+        "tokens": {"sum": {"field": "usage.total_tokens"}}
+      }}}
+    }
+  },
+  {
+    "name": "현재 미종결 발견 — 시간 제한 없음",
+    "index": "kt66-agent-findings-v1",
+    "query": {
+      "size": 50,
+      "track_total_hits": true,
+      "query": {"terms": {"status": ["open", "acknowledged"]}},
+      "sort": [{"risk": "desc"}, {"@timestamp": "desc"}],
+      "aggs": {"rules": {"terms": {"field": "detection.rule_id", "size": 30}}}
+    }
+  }
+]

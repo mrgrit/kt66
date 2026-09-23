@@ -123,10 +123,12 @@ def document(relative, raw, meta, mtime, cfg, line=None, source_bytes=None):
         return None
     doc['event_id'] = digest(identity)
     doc['evidence_sha256'] = digest(source_bytes if source_bytes is not None else json.dumps(raw, sort_keys=True, ensure_ascii=False))
+    from enrichment import enrich
+    enrich(doc, record, meta)
     return index, doc['event_id'], doc
 
 
-def finding_document(row):
+def finding_document(row, meta=None):
     created = stamp(row.get('created_at'), 0)
     doc = {k: row.get(k) for k in ('worker', 'run_id', 'title', 'rule', 'status', 'risk', 'likelihood', 'impact', 'confidence')}
     doc.update(schema_version='kt66.siem.v1', event_id=text(row.get('id')), kind='finding', domain='xoc',
@@ -136,10 +138,18 @@ def finding_document(row):
     doc['@timestamp'] = iso(created)
     if row.get('reviewed_at'):
         doc['reviewed_at'] = iso(stamp(row['reviewed_at'], created))
+    from enrichment import common, clean, strings
+    common(doc, meta or {})
+    doc['correlation']['finding_id'] = text(row.get('id'))
+    doc['subject'] = clean(dict(worker=text(row.get('worker')), run_id=text(row.get('run_id'))))
+    doc['detection'] = clean(dict(rule_id=text(row.get('rule')), rule_version=str(row.get('rule_version', '')),
+        source=strings(row.get('source')) if isinstance(row.get('source'), list) else text(row.get('source')),
+        response=text(row.get('response')), risk=row.get('risk'), likelihood=row.get('likelihood'), impact=row.get('impact')))
+    doc['evidence_items'] = [dict(ref=text(k, 2048), sha256=text(v)) for k, v in list(obj(row.get('evidence')).items())[:100] if isinstance(v, str)]
     return FINDINGS, doc['event_id'], doc
 
 
-def control_document(row):
+def control_document(row, finding=None):
     """강사·관제원의 판정/보류 이력은 현재 사건 스냅샷과 별도 이벤트로 남긴다."""
     timestamp = stamp(row.get('at'), 0)
     action = text(row.get('action'))
@@ -149,6 +159,15 @@ def control_document(row):
            'outcome': 'recorded', 'status': text(row.get('status')), 'targets': [text(row.get('worker'))] if row.get('worker') else [],
            'review_reason': text(row.get('reason'), 3000), 'summary': 'xOC 판정·통제 기록 · ' + action,
            'evidence_ref': 'tickets/xoc/state.json#history', 'evidence_sha256': digest(json.dumps(row, sort_keys=True, ensure_ascii=False))}
+    from enrichment import clean
+    from schema import VERSION
+    finding = obj(finding)
+    doc['schema_version'] = VERSION
+    doc['actor'] = dict(id=doc['worker'], type='instructor' if doc['worker'] == 'instructor' else 'agent' if doc['worker'] != 'unknown' else 'unknown')
+    doc['subject'] = clean(dict(worker=text(row.get('worker') or finding.get('worker')), run_id=text(finding.get('run_id'))))
+    doc['correlation'] = clean(dict(finding_id=text(row.get('finding_id'))))
+    if finding.get('run_id'):
+        doc['run_id'] = text(finding['run_id'])
     return EVENTS + dt.datetime.fromtimestamp(timestamp, dt.timezone.utc).strftime('%Y.%m.%d'), doc['event_id'], doc
 
 

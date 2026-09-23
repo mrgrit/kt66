@@ -44,6 +44,9 @@ def compile_request(root, request, task, evidence):
         mode=request.get('mode', 'request'), worker=request.get('worker'), timezone=request.get('timezone', 'UTC'),
         phase=task['phase'], capabilities=caps, scope=request['scope'], max_tool_calls=60,
         source_permissions=base['policy']['constrain']['permission'])
+    manifest['request'].update(depends_on=task.get('depends_on', []),
+        resumed_from_task_id=task.get('resumed_from_task_id'),
+        parent_run_id=task.get('parent_run_id'), parent_call_id=task.get('parent_call_id'))
     role_skills = manifest.get('role_skills', {})
     skills = sorted(set(role_skills) | {SKILLS[c] for c in caps} | ({'request-coordination'} if task['phase'] in ('plan', 'review') else set()))
     if authorization.allowed(manifest, 'disk_usage') and permissions.get('metrics_read') != 'deny':

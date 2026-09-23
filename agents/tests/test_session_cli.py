@@ -62,6 +62,25 @@ class SessionTests(unittest.TestCase):
         self.assertNotIn("--model",cmd)
         self.assertEqual(data["session_id"],"new-thread")
 
+    def test_session_timing_is_measured_for_success_and_failure(self):
+        data, _ = self.run_ok('codex')
+        self.assertGreaterEqual(data['duration_ms'], 0)
+        self.assertLessEqual(data['started_at'], data['ended_at'])
+        import tempfile
+        with tempfile.TemporaryDirectory() as td, patch.object(m, '_run', side_effect=m.SessionError('test_failure')):
+            with self.assertRaises(m.SessionError):
+                m.run('codex', 'default', 'private prompt', evidence_dir=td)
+            failure = json.loads((pathlib.Path(td) / 'failure.json').read_text())
+            self.assertGreaterEqual(failure['duration_ms'], 0)
+            self.assertEqual(failure['error'], 'test_failure')
+            self.assertNotIn('prompt', failure)
+            (pathlib.Path(td)/'session-result.json').write_text(json.dumps({'usage':{'input_tokens':7},'session_id':'test','body':'private'}))
+            combined=m.failure_metadata(td,{'status':'failed','error':'post_validation'})
+            self.assertEqual(combined['error'],'post_validation')
+            self.assertEqual(combined['usage'],{'input_tokens':7})
+            self.assertGreaterEqual(combined['duration_ms'],0)
+            self.assertNotIn('body',combined)
+
     def test_environment_does_not_pass_api_keys_or_provider_redirects(self):
         leaked={"OPENAI_API_KEY":"test","CODEX_API_KEY":"test","ANTHROPIC_API_KEY":"test",
                 "ANTHROPIC_BASE_URL":"test","OPENAI_BASE_URL":"test","CLAUDE_CODE_OAUTH_TOKEN":"test",

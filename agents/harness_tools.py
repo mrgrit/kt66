@@ -100,6 +100,9 @@ class Broker:
              "id":uuid.uuid4().hex,"harness_version":self.m["version"],"tool":name,"arguments":args,"result":result,
              "accesses":getattr(self,"_accesses",[]),
              "authorization":{"autonomy":self.autonomy,"permission":next((t[3] for t in TOOLS if t[0]==name.removeprefix("error:")),None)}}
+        if getattr(self, '_call_id', None):
+            row.update(id=self._call_id, started_at=self._call_started_at,
+                       duration_ms=max(0, int((time.monotonic()-self._call_clock)*1000)))
         permission=row["authorization"]["permission"]
         row["authorization"]["mode"]=self.permissions.get(permission,"deny") if permission else "audit_only"
         row['authorization'].update(role=self.m.get('authorization', {}).get('role'),
@@ -109,6 +112,9 @@ class Broker:
         self._accesses=[]
         return result
     def call(self,name,args):
+        self._call_id=uuid.uuid4().hex
+        self._call_started_at=datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self._call_clock=time.monotonic()
         self._grant_checks=[]
         self.current()
         import xoc
@@ -217,7 +223,7 @@ class Broker:
                 raise ValueError("valid stage and nonempty summary required")
             if any(not isinstance(x,str) for k in ("evidence","steps") for x in args.get(k,[])):
                 raise ValueError("evidence and steps must contain text references")
-            event=record(self.session,"agent."+args["stage"],args)
+            event=record(self.session,"agent."+args["stage"],{**args,"tool_call_id":self._call_id})
             return self.receipt(name,args,{"status":"recorded","event_id":event["id"],"assertion":"agent_declared"})
         if name=="agent_activity":
             base=self.url.rsplit(":",1)[0]+":8020/api/agent-control/runs"
@@ -294,7 +300,11 @@ class Broker:
             import yaml
             known={w["id"] for w in yaml.safe_load((ROOT/"roster.yaml").read_text())["workers"]}
             if args["worker"] not in known or args["worker"]==self.worker:raise ValueError("invalid delegate")
-            rid=uuid.uuid4().hex;atomic(ROOT/"tickets"/"delegations"/(rid+".json"),{**args,"from":self.worker,"version":self.m["version"],"created":time.time()})
+            context=json.loads((self.session/'job.json').read_text()) if (self.session/'job.json').exists() else {}
+            observed=context.get('observation', {})
+            trace=self.m.get('request', {}).get('id') or observed.get('trace_id') or str(context.get('job_id') or context.get('id') or self.session.name)
+            rid=uuid.uuid4().hex;atomic(ROOT/"tickets"/"delegations"/(rid+".json"),{**args,"from":self.worker,"version":self.m["version"],"created":time.time(),
+                "trace_id":trace,"parent_run_id":self.session.name,"parent_call_id":self._call_id,"delegation_id":rid})
             return self.receipt(name,args,{"status":"queued","delegation_id":rid})
         if name=="harness_identity":
             if not args.get('detail'):
@@ -354,7 +364,7 @@ class Broker:
                 if req["status"]!="pending" or req["approver"]!=self.worker or req["worker"]==self.worker:
                     raise ValueError("request not assigned to this independent approver")
                 if time.time()-req["created"]>600:raise ValueError("approval request expired")
-                req["decision"]={"approve":args["approve"],"reason":args["reason"],"worker":self.worker,"version":self.m["version"]}
+                req["decision"]={"approve":args["approve"],"reason":args["reason"],"worker":self.worker,"version":self.m["version"],"at":time.time()}
                 req["status"]="approved" if args["approve"] else "denied"
                 atomic(path,req)
                 if args["approve"]:

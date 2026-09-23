@@ -73,7 +73,8 @@ class Permissions:
             grant = next((g for g in grants['grants'] if g['active'] and g['worker'] == broker.worker
                           and g['tool'] == tool and g['permission'] == permission and g.get('boundary') == boundary), None)
             if grant:
-                broker._grant_checks.append(dict(grant=grant['id'], decision='always', permission=permission))
+                broker._grant_checks.append(dict(grant=grant['id'], decision='always', permission=permission,
+                    actor=grant.get('actor'), decided_at=grant.get('created'), boundary=grant.get('boundary')))
                 broker.access(self.path, 'read')
                 return None
         with self.store.edit(context['id']) as data:
@@ -84,7 +85,8 @@ class Permissions:
                         and p['revision'] == context['revision'] and p['fingerprint'] == fingerprint
                         and p['status'] in ('pending', 'allowed_once')), None)
             if row and row['status'] == 'allowed_once':
-                broker._grant_checks.append(dict(request=row['id'], decision='once', permission=permission))
+                broker._grant_checks.append(dict(request=row['id'], decision='once', permission=permission,
+                    actor=row.get('actor'), decided_at=row.get('decided_at'), boundary=row.get('boundary')))
                 return None
             if row is None:
                 row = dict(id='permission-'+uuid.uuid4().hex[:16], worker=broker.worker,
@@ -146,6 +148,7 @@ class Permissions:
             # 이전 답변·실행 증거는 보존하고 같은 회차의 해당 작업만 이어서 실행한다.
             resumed = {k: copy.deepcopy(task[k]) for k in ('phase', 'revision', 'title', 'worker', 'instructions', 'depends_on', 'capabilities')}
             resumed.update(id=task['id']+'-r'+uuid.uuid4().hex[:6], status='queued')
+            resumed.update(resumed_from_task_id=task['id'], resume_reason='permission_' + decision)
             resumed['instructions'] += '\n도구 사용 승인이 반영되었습니다. 이전 대화와 승인 기록을 확인하여 중단된 작업을 이어가세요.'
             task['status'] = 'superseded'
             data['tasks'].append(resumed)

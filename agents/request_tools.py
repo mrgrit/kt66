@@ -170,7 +170,8 @@ def call(broker, root, name, args):
             raise ValueError('요청 계획 담당자만 역할·작업을 구성할 수 있습니다')
         if name == 'request_agent_create':
             return store.agent(rid, context['revision'], **args)
-        return {'tasks': store.plan(rid, context['revision'], args['tasks'])}
+        return {'tasks': store.plan(rid, context['revision'], args['tasks'],
+            origin=dict(parent_run_id=broker.session.name, parent_call_id=getattr(broker, '_call_id', None)))}
     if name in ('inventory_query', 'siem_search'):
         result = inventory(root, allowed_assets=broker.m['authorization'].get('inventory_assets', []), **args) if name == 'inventory_query' else siem_search(root, **args)
         artifact = broker.session / (name + '-' + str(time.time_ns()) + '.json')

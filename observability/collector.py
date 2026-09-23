@@ -8,6 +8,8 @@ import yaml
 from activity_audit import SECRET_KEY
 from client import IndexClient
 from projection import RUN, document, finding_document, control_document, safe_document, digest, iso
+from schema import PROJECTION_VERSION
+from enrichment import request_documents, grant_documents, change_approval_documents
 
 
 class Collector:
@@ -22,11 +24,11 @@ class Collector:
             CREATE TABLE IF NOT EXISTS records(key TEXT PRIMARY KEY, digest TEXT);
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT);
         ''')
-        if self.get('projection_version') != 2:
+        if self.get('projection_version') != PROJECTION_VERSION:
             # 변환 규약이 바뀌면 원문을 다시 투영한다. 전송 대기열/기존 SIEM 문서는 지우지 않는다.
             with self.db:
                 self.db.execute('DELETE FROM files')
-                self.set('projection_version', 2)
+                self.set('projection_version', PROJECTION_VERSION)
         self.secrets = [v for k, v in os.environ.items() if SECRET_KEY.search(k)]
         self.secrets += [json.loads(Path(os.environ.get('OBS_WRITER_CREDENTIALS', '/siem-writer/account.json')).read_text()).get('password', '')] if os.environ.get('OBS_WRITER_CREDENTIALS') else []
         self.stats = {'started_at': time.time(), 'source_errors': [], 'last_scan': None, 'last_success': self.get('last_success'), 'exported': self.get('exported') or 0}
@@ -63,6 +65,7 @@ class Collector:
     def meta(self, directory):
         job = self.read(directory / 'job.json') if (directory / 'job.json').exists() else {}
         manifest = self.read(directory / 'manifest-snapshot.json') if (directory / 'manifest-snapshot.json').exists() else {}
+        loaded = self.read(directory / 'loaded-harness.json') if (directory / 'loaded-harness.json').exists() else {}
         worker = manifest.get('worker') or {}
         if not isinstance(worker, dict):
             worker = {}
@@ -74,7 +77,24 @@ class Collector:
         except (ValueError, IndexError):
             started = directory.stat().st_mtime
         return {'worker': worker.get('id') or job.get('worker') or (pieces[2] if len(pieces) == 3 else 'unknown'),
-                'role': worker.get('security_role'), 'run_id': directory.name, 'trigger': job.get('kind'), 'started_at': started}
+                'role': worker.get('security_role'), 'run_id': directory.name, 'trigger': job.get('kind'), 'started_at': started,
+                'job': job, 'manifest': manifest, 'loaded': loaded}
+
+    def registry(self, path, project):
+        """가변 원장의 현재 상태와 남아 있는 결정 이력을 안정적 ID로 투영한다."""
+        if not path.exists():
+            return
+        st = path.stat()
+        relative = path.relative_to(self.root).as_posix()
+        signature = f'{st.st_ino}:{st.st_mtime_ns}:{st.st_size}'
+        row = self.db.execute('SELECT signature FROM files WHERE path=?', (relative,)).fetchone()
+        if row and row[0] == signature:
+            return
+        data = self.read(path)
+        with self.db:
+            for projected in project(data, relative):
+                self.enqueue(projected)
+            self.db.execute('INSERT OR REPLACE INTO files VALUES (?,?,?,?)', (relative, signature, st.st_size, 0))
 
     def consume(self, path, meta, cfg):
         if not self.valid(path):
@@ -116,6 +136,14 @@ class Collector:
                 raw = path.read_text()
             else:
                 raw = self.read(path)
+                # 모델 응답 후 업무 검증에 실패한 과거 실행도 사용량은 보존한다.
+                # 실패 원문과 보조 세션 원문은 각각 해시로 연결한다.
+                if path.name == 'failure.json' and (path.parent / 'session-result.json').exists():
+                    previous = self.read(path.parent / 'session-result.json')
+                    raw = {**{k: previous[k] for k in ('runtime', 'model', 'session_id', 'usage', 'harness_version',
+                        'started_at', 'ended_at', 'duration_ms') if k in previous}, **raw}
+                    meta = {**meta, 'result_evidence': {'ref': (path.parent / 'session-result.json').relative_to(self.root).as_posix(),
+                        'sha256': digest((path.parent / 'session-result.json').read_bytes())}}
             self.enqueue(document(relative, raw, meta, st.st_mtime, cfg, source_bytes=path.read_bytes()))
             offset, line = st.st_size, 0
         # 중간 배치/쓰는 중인 파일은 완료 서명을 저장하지 않는다.
@@ -132,8 +160,8 @@ class Collector:
             if changed >= 600:
                 break
             try:
-                # 결과의 정본만 처리하여 중간 session-result로 최종 결과를 덮지 않는다.
-                result = next((directory / n for n in ('result.json', 'session-result.json', 'failure.json') if (directory / n).exists()), None)
+                # 업무의 최종 result > 명시적 실패 > 런타임 중간 결과 순서다.
+                result = next((directory / n for n in ('result.json', 'failure.json', 'session-result.json') if (directory / n).exists()), None)
                 paths = [directory / 'tools.jsonl', directory / 'activity.jsonl', *sorted(directory.glob('finding-*.md'))]
                 if result:
                     paths.append(result)
@@ -161,11 +189,21 @@ class Collector:
             state = self.read(self.root / 'tickets/xoc/state.json', 50_000_000)
             with self.db:
                 for row in state.get('findings', {}).values():
-                    self.enqueue(finding_document(row))
+                    run = row.get('run_id', '')
+                    directory = self.root / 'evidence' / run
+                    metadata = self.meta(directory) if RUN.fullmatch(run) and directory.is_dir() and self.valid(directory) else {}
+                    self.enqueue(finding_document(row, metadata))
                 for row in state.get('history', []):
-                    self.enqueue(control_document(row))
+                    self.enqueue(control_document(row, state.get('findings', {}).get(row.get('finding_id'))))
         except (OSError, ValueError, TypeError, AttributeError):
             errors.append({'source': 'tickets/xoc/state.json', 'error': 'xOC 상태 미수집 · 기존 문서는 유지'})
+        for path, project in [(p, request_documents) for p in sorted((self.root / 'tickets/requests').glob('*/request.json'))] + [
+                (p, change_approval_documents) for p in sorted((self.root / 'tickets/approvals').glob('*.json'))] + [
+                (self.root / 'tickets/tool-permissions.json', grant_documents)]:
+            try:
+                self.registry(path, project)
+            except (OSError, ValueError, TypeError, AttributeError):
+                errors.append({'source': path.relative_to(self.root).as_posix(), 'error': '요청·승인 원장 미수집'})
         self.stats.update(last_scan=time.time(), source_errors=errors[:30], source_error_count=len(errors), scanned_directories=len(directories), scan_limited=changed >= 600)
 
     def flush(self):

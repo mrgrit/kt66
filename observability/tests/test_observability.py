@@ -137,6 +137,21 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(len(self.client.documents), 1)
         self.assertEqual(next(iter(self.client.documents.values()))['tokens_total'], 112)
 
+    def test_post_session_failure_replaces_intermediate_success_and_keeps_usage(self):
+        self.put('session-result.json', {'runtime':'codex','session_id':'session-1','usage':{'input_tokens':100,'output_tokens':12}})
+        self.collector.cycle()
+        self.put('failure.json', {'status':'failed','error':'verification_failed'})
+        self.collector.cycle()
+        self.assertEqual(len(self.client.documents),1)
+        d=next(iter(self.client.documents.values()))
+        self.assertEqual(d['outcome'],'error')
+        self.assertEqual(d['usage']['total_tokens'],112)
+        self.assertEqual(d['correlation']['session_id'],'session-1')
+        self.assertTrue(d['evidence_items'][0]['ref'].endswith('/session-result.json'))
+        self.put('result.json', {'runtime':'codex','session_id':'session-1','usage':{'input_tokens':100,'output_tokens':12},'verification':{'observed_live_evidence':True}})
+        self.collector.cycle()
+        self.assertEqual(next(iter(self.client.documents.values()))['outcome'],'completed')
+
     def test_source_immutable_and_secrets_minimized(self):
         self.put('tools.jsonl', {**self.tool(), 'arguments': {'password': 'never-export', 'path': 'api_key=secret-value'}, 'result': {'raw': 'never-export'}})
         self.put('activity.jsonl', {'id': 'activity', 'type': 'request', 'data': {'prompt': 'private-prompt', 'reasoning': 'hidden'}})

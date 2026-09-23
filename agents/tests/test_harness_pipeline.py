@@ -106,6 +106,15 @@ class BrokerTests(unittest.TestCase):
     def test_l1_cannot_change_state(self):
         with patch.object(self.b,"clear_fault") as execute:
             self.assertEqual(self.b.call("simulator_control",self.args())["status"],"denied");execute.assert_not_called()
+    def test_denied_calls_have_unique_ids_and_measured_timing(self):
+        self.b.call('simulator_control', self.args())
+        self.b.call('simulator_control', self.args())
+        rows=[json.loads(line) for line in (self.b.session/'tools.jsonl').read_text().splitlines()]
+        self.assertEqual(len({r['id'] for r in rows}),2)
+        for row in rows:
+            self.assertGreaterEqual(row['duration_ms'],0)
+            self.assertLessEqual(row['started_at'],row['at'])
+            self.assertEqual(row['result']['status'],'denied')
     def test_l2_requires_concrete_approval(self):
         self.b.autonomy="L2"
         with patch.object(self.b,"clear_fault") as execute:

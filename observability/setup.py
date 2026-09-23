@@ -7,6 +7,7 @@ import secrets
 import time
 from client import IndexClient, IndexErrorResponse
 from projection import EVENTS, FINDINGS, TICKETS
+from schema import mappings, VERSION
 
 
 def credentials(folder, username):
@@ -31,21 +32,13 @@ def credentials(folder, username):
 
 
 def configure(client, writer, reader):
-    keyword = ('schema_version event_id kind name outcome worker role run_id trigger runtime model zone axes '
-               'permission_mode permission_name autonomy boundary status rule domain evidence_ref evidence_sha256 '
-               'targets approval_refs assertion time_basis confidence reviewed_by').split()
-    properties = {k: {'type': 'keyword', 'ignore_above': 2048} for k in keyword}
-    properties.update({k: {'type': 'date'} for k in ('@timestamp', 'ingested_at', 'reviewed_at')})
-    properties.update({k: {'type': 'long'} for k in ('tokens_total', 'risk', 'likelihood', 'impact', 'exposure')})
-    properties.update({k: {'type': 'text'} for k in ('title', 'summary')})
-    properties.update({k: {'type': 'text', 'index': False} for k in ('body', 'review_reason')})
-    properties['usage_known'] = {'type': 'boolean'}
+    mapping = mappings()
     patterns = [EVENTS + '*', FINDINGS, TICKETS]
     client.request('PUT', '/_index_template/kt66-agent-observability-v1', {
         'index_patterns': patterns, 'priority': 150,
         'template': {'settings': {'number_of_shards': 1, 'number_of_replicas': 0, 'refresh_interval': '5s'},
-                     'mappings': {'dynamic': 'strict', 'properties': properties}},
-        '_meta': {'description': 'KT66 에이전트 관제. 보존 기한은 강사가 결정하며 자동 삭제하지 않음', 'schema': 1}})
+                     'mappings': mapping},
+        '_meta': {'description': 'KT66 에이전트 관제. 보존 기한은 강사가 결정하며 자동 삭제하지 않음', 'schema': VERSION}})
     for suffix, account, permissions, cluster in [
         ('writer', writer, [{'index_patterns': patterns, 'allowed_actions': [
             'indices:data/write/bulk*', 'indices:data/write/index*', 'indices:admin/create', 'indices:admin/mapping/put']}], ['indices:data/write/bulk']),
@@ -66,6 +59,9 @@ def configure(client, writer, reader):
             if error.status != 404:
                 raise
             client.request('PUT', '/' + index, {})
+    # 템플릿 변경은 기존 인덱스에 소급되지 않는다. 기존 필드의 형식은 보존하며
+    # 정확히 KT66 세 패턴에만 새 매핑을 먼저 적용한 뒤 수집기를 시작한다.
+    client.request('PUT', '/' + ','.join(patterns) + '/_mapping', mapping)
 
 
 if __name__ == '__main__':

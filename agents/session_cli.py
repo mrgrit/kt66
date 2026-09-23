@@ -6,12 +6,29 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+import time
+import datetime
 import yaml
 from activity_audit import record, scrub
 
 
 class SessionError(RuntimeError):
     pass
+
+
+def failure_metadata(evidence_dir, failure):
+    """후속 검증 실패가 이미 측정한 세션 시간·사용량·신원을 지우지 않게 한다."""
+    measured = {}
+    if evidence_dir is not None:
+        directory = pathlib.Path(evidence_dir)
+        for name in ('session-result.json', 'failure.json'):
+            try:
+                row = json.loads((directory / name).read_text())
+                measured.update({k: row[k] for k in ('started_at', 'ended_at', 'duration_ms', 'session_id',
+                    'usage', 'model', 'runtime', 'harness_version') if k in row})
+            except (OSError, ValueError, TypeError):
+                continue
+    return {**measured, **failure}
 
 
 def session_failure(text, default):
@@ -62,16 +79,23 @@ def authenticated(runtime, cli, env):
 
 
 def run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidence_dir=None, reasoning_effort=None):
+    started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    clock = time.monotonic()
+    def timing():
+        return dict(started_at=started_at, ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    duration_ms=max(0, int((time.monotonic() - clock) * 1000)))
     record(evidence_dir, "request", {"runtime": runtime, "model": model, "prompt": prompt,
                                     "timeout_seconds": timeout, "source": "session_cli"})
     try:
         result = _run(runtime, model, prompt, timeout, schema, harness, evidence_dir, reasoning_effort)
     except Exception as exc:
-        failure = {"status":"failed", "runtime":runtime, "error":str(exc) if isinstance(exc, SessionError) else type(exc).__name__}
+        failure = {"status":"failed", "runtime":runtime, "model":model,
+                   "error":str(exc) if isinstance(exc, SessionError) else type(exc).__name__, **timing()}
         record(evidence_dir, "session.failed", failure)
         if evidence_dir is not None:
             (pathlib.Path(evidence_dir) / "failure.json").write_text(json.dumps(failure))
         raise
+    result.update(timing())
     record(evidence_dir, "session.completed", {"session_id": result["session_id"],
            "usage": result.get("usage", {}), "outcome": result["body"]})
     if evidence_dir is not None:

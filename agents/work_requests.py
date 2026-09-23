@@ -205,7 +205,7 @@ class Store:
             d['events'].append(dict(at=time.time(), kind='agent_created', detail=name, agent=aid))
         return a
 
-    def plan(self, rid, revision, tasks):
+    def plan(self, rid, revision, tasks, origin=None):
         if not isinstance(tasks, list) or not 1 <= len(tasks) <= 12:
             raise ValueError('작업은 1~12개로 나눠 주세요')
         with self.edit(rid) as d:
@@ -239,6 +239,9 @@ class Store:
                     title=text(t.get('title'), 180), instructions=text(t.get('instructions'), 6000),
                     worker=t['worker'], capabilities=caps,
                     depends_on=[f'v{revision}-{dep}' for dep in deps], status='queued'))
+                # origin은 브로커가 전달한 관측값이며 모델의 tasks 입력에서 복사하지 않는다.
+                if origin:
+                    normalized[-1].update({k: origin[k] for k in ('parent_run_id', 'parent_call_id') if origin.get(k)})
             remaining = {t['id']: set(t['depends_on']) for t in normalized}
             while remaining:
                 ready = [tid for tid, deps in remaining.items() if not deps]
@@ -487,5 +490,6 @@ def execute(root, job):
                     request_outcome=outcome, verification=result['verification'])
     except Exception as exc:
         error = dict(status='failed', runtime=locals().get('manifest', {}).get('worker', {}).get('runtime', ''), error=str(exc)[:300], type=type(exc).__name__, evidence=str(evidence))
+        error = session_cli.failure_metadata(evidence, error)
         write_json(evidence / 'failure.json', error)
         return error

@@ -188,10 +188,13 @@ class Requests(unittest.TestCase):
 
     def test_dependency_plan_and_final_review(self):
         self.poll()
-        self.store.plan(self.rid,1,[self.task('one'),self.task('two',['one'])])
+        self.store.plan(self.rid,1,[self.task('one'),self.task('two',['one'])],
+                        origin={'parent_run_id':'loop-origin','parent_call_id':'call-origin'})
         self.finish('plan-1');self.poll()
         d=self.store.get(self.rid)
         self.assertEqual([t['status'] for t in d['tasks']],['completed','running','queued'])
+        self.assertEqual(d['tasks'][1]['parent_run_id'],'loop-origin')
+        self.assertEqual(d['tasks'][2]['parent_call_id'],'call-origin')
         self.finish('v1-one');self.poll();self.finish('v1-two');self.poll()
         self.assertEqual(self.store.get(self.rid)['tasks'][-1]['phase'],'review')
         self.finish('review-1');self.poll()

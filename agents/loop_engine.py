@@ -173,6 +173,7 @@ def execute(job):
                 "session_id":result["session_id"],"harness_version":m["version"],"verification":result["verification"]}
     except Exception as e:
         error={"status":"failed","type":type(e).__name__,"error":str(e)[:200],"evidence":str(evidence),"runtime":m["worker"]["runtime"]}
+        error=session_cli.failure_metadata(evidence,error)
         atomic(evidence/"failure.json",error);return error
 
 def run():

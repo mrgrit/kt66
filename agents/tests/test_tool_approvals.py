@@ -82,6 +82,9 @@ class Approvals(unittest.TestCase):
         receipts=[json.loads(l) for l in (b.session/'tools.jsonl').read_text().splitlines()]
         executed=next(r for r in receipts if r['result']['status']=='ok')
         self.assertEqual(executed['authorization']['user_decisions'][0]['decision'],'once')
+        self.assertEqual(executed['authorization']['user_decisions'][0]['actor'],'instructor')
+        self.assertGreater(executed['authorization']['user_decisions'][0]['decided_at'],0)
+        self.assertEqual(b.m['request']['resumed_from_task_id'],'conversation-1')
 
     def test_always_is_worker_and_tool_scoped_and_revocable_and_cannot_override_deny(self):
         b=self.broker();a=b.call('disk_usage',{});b=self.approve(a,'always')
