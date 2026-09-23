@@ -129,10 +129,11 @@ function installViewportFit() {
   let frame = null;
   const fit = () => {
     frame = null;
+    if (document.body.dataset.perspective==='risk') return;
     const content = $('#stage-body').hidden ? $('#asset-explorer') : $('#stage-body');
     const top = content.getBoundingClientRect().top + window.scrollY;
     const footer = stage.querySelector('.stage-bottom').getBoundingClientRect().height;
-    const height = Math.max(180, Math.floor(window.innerHeight - top - footer - 13));
+    const height = Math.max(160, Math.floor(window.innerHeight - top - footer - 13));
     stage.style.setProperty('--noc-scene-height', `${height}px`);
     workspace.style.setProperty('--noc-rail-height', `${stage.getBoundingClientRect().height}px`);
     render();

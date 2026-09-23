@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>xOC · AI 에이전트 & 보안 관제</title>
+<link rel="stylesheet" href="/ui/console.css"><link rel="stylesheet" href="/static/operations-center.css?v=2">
+</head><body data-console="xoc" data-initial="{{ initial }}">
+<main class="oc-shell">
+<header class="oc-header"><div><div class="oc-eyebrow"><i></i> RESTRICTED / OPERATIONS CENTER</div><h1>xOC <span>AI 에이전트 · 보안 관제</span></h1></div>
+<div class="oc-header-actions"><a id="risk-map-link" class="oc-button">리스크 공간 지도 ↗</a><button id="lock" hidden>잠금</button></div></header>
+<div class="oc-auth" id="auth-panel"><div><h2>관제 세션 열기</h2><p>주요 경보와 운영 통계를 확인하고, 근거가 있는 사건부터 검토합니다.</p></div>
+<form id="unlock"><label for="center-key">강사 키</label><div><input id="center-key" type="password" autocomplete="off" required><button>관제 시작 →</button></div></form></div>
+<p id="message" role="status" aria-live="polite">강사 인증이 필요합니다. 화면 조회는 AI 세션을 실행하지 않습니다.</p>
+<section id="workspace" hidden>
+<div class="oc-command"><nav class="oc-tabs" aria-label="관제 관점"><button data-view="xoc" aria-pressed="true">AI 에이전트 관제</button><button data-view="soc" aria-pressed="false">SOC 보안 관제</button><button data-view="cases" aria-pressed="false">사건 · 보고서함</button></nav>
+<div class="oc-period"><label for="hours">분석 기간</label><select id="hours"><option value="1">최근 1시간</option><option value="24" selected>최근 24시간</option><option value="168">최근 7일</option><option value="720">최근 30일</option></select><button id="refresh" aria-label="새로고침">↻</button></div></div>
+<div id="feed-status" class="oc-feed"></div>
+<section id="overview">
+<div class="oc-section-heading"><div><p class="oc-eyebrow" id="view-code"></p><h2 id="view-title"></h2><p id="view-description"></p></div><a id="specialist-link" class="oc-button">담당자와 대화 ↗</a></div>
+<div id="metrics" class="oc-metrics"></div>
+<div class="oc-main-grid">
+<article class="oc-panel oc-priority"><div class="oc-panel-head"><div><span class="oc-caption">PRIORITY QUEUE</span><h3 id="priority-title">우선 검토할 사건</h3></div><button id="all-cases">사건함 →</button></div><div id="priority-list"></div><p id="priority-note" class="oc-note"></p></article>
+<article class="oc-panel oc-side"><div class="oc-panel-head"><div><span class="oc-caption">COVERAGE & CONTROL</span><h3>수집 · 통제 상태</h3></div><span id="collector-dot" class="oc-dot"></span></div><div id="pipeline"></div><div id="holds"></div></article>
+</div>
+<div class="oc-analysis-grid">
+<article class="oc-panel"><div class="oc-panel-head"><div><span class="oc-caption">OBSERVED ACTIVITY</span><h3 id="trend-title">관측 추세</h3></div><span id="trend-total" class="oc-tag"></span></div><div id="trend"></div><p id="trend-note" class="oc-note"></p></article>
+<article class="oc-panel"><div class="oc-panel-head"><div><span class="oc-caption">DISTRIBUTION</span><h3 id="distribution-title"></h3></div></div><div id="distribution"></div></article>
+</div>
+<article class="oc-panel oc-secondary"><div class="oc-panel-head"><h3 id="secondary-title"></h3><a id="evidence-link">실행 증적 →</a></div><div id="secondary"></div></article>
+<details id="policy-details"><summary>집계 기준 · 탐지 규칙 · 수집 범위</summary><div id="policy"></div></details>
+</section>
+<section id="case-view" hidden>
+<div class="oc-section-heading"><div><p class="oc-eyebrow">CASES & REPORTS</p><h2>필요한 기록만 좁혀 보기</h2><p>탐지 사건의 판정과 에이전트가 작성한 보고서를 구분합니다. 목록을 정리해도 원본은 보존됩니다.</p></div></div>
+<form id="case-filters" class="oc-case-filters"><label>기록 유형<select id="case-kind"><option value="xoc">xOC 탐지 사건</option><option value="tickets">업무 보고서</option></select></label>
+<label id="case-status-label">처리 상태<select id="case-status"><option value="active">미종결</option><option value="open">신규</option><option value="acknowledged">검토 중</option><option value="resolved">종결</option><option value="false_positive">오탐</option><option value="all">전체</option></select></label>
+<label id="case-domain-label" hidden>담당 영역<select id="case-domain"><option value="all">모든 영역</option><option value="soc">SOC</option><option value="xoc">AI 에이전트 관제</option><option value="operations">운영 · 기타</option></select></label>
+<label class="oc-search">검색<input id="case-search" maxlength="120" placeholder="규칙, 담당자, 제목으로 검색"></label><button>검색</button></form>
+<div id="case-caption" class="oc-note" role="status"></div><div id="case-list" class="oc-panel"></div>
+<div class="oc-pagination"><button id="case-prev">← 이전</button><span id="case-page"></span><button id="case-next">다음 →</button></div>
+</section>
+<footer><span>KT66 / EVIDENCE FIRST</span><p id="coverage"></p><span>30초 갱신 · AI 호출 없음</span></footer>
+</section>
+<dialog id="detail"><div class="oc-dialog-head"><h2 id="detail-title"></h2><button id="close">닫기</button></div><div id="detail-body"></div><p id="detail-message" role="status"></p></dialog>
+</main>
+<script src="/ui/console.js?v=monitoring-1"></script>
+<script src="/static/vendor/marked-18.0.13/marked.umd.js"></script><script src="/static/vendor/dompurify-3.4.15/purify.min.js"></script>
+<script src="/static/request-markdown.js?v=1"></script>
+<script src="/static/operations-center.js?v=2"></script></body></html>

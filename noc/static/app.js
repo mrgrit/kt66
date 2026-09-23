@@ -461,6 +461,7 @@ function applyVB() {
 }
 function render() {
   if (!LAYOUT) return;
+  if (document.body.dataset.perspective==='risk') return;
   if (drag) return;
   if ($('#stage-body').hidden) { renderLift(); renderAssetExplorer(); return; }
   if (VIEW.mode === 'site') drawFloor('SITE');

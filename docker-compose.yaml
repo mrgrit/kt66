@@ -517,15 +517,61 @@ services:
     environment:
       AGENTS_DIR: /agents
       API_KEY: ${API_KEY:?Set API_KEY in .env}
+      OBS_INDEXER_URL: https://wazuh.indexer:9200
+      OBS_CA: /certs/root-ca.pem
+      OBS_READER_CREDENTIALS: /siem-reader/account.json
+      OBS_COLLECTOR_STATUS: /siem-state/status.json
       TZ: Asia/Seoul
     volumes:
       - ./ui:/app/ui:ro
       - ./agents:/agents
+      - agent-observer-reader:/siem-reader:ro
+      - agent-observer-state:/siem-state:ro
+      - ./wazuh-config/certs/root-ca.pem:/certs/root-ca.pem:ro
     ports:
       - "${INT_HOST_IP:-0.0.0.0}:8050:8000"   # 내부 전용
     networks:
       dmz:
         ipv4_address: 10.20.32.61
+    restart: unless-stopped
+
+  # 관제 저장소 준비는 일회성이다. 관리자 인증서를 상주 수집기/웹에 주지 않는다.
+  agent-observer-setup:
+    container_name: kt66-agent-observer-setup
+    build: {context: ., dockerfile: observability/Dockerfile}
+    command: [python, setup.py]
+    environment:
+      OBS_UID: ${UID:-1000}
+      OBS_GID: ${GID:-1000}
+    volumes:
+      - ./wazuh-config/certs/root-ca.pem:/certs/root-ca.pem:ro
+      - ./wazuh-config/certs/admin.pem:/certs/admin.pem:ro
+      - ./wazuh-config/certs/admin-key.pem:/certs/admin-key.pem:ro
+      - agent-observer-writer:/writer
+      - agent-observer-reader:/reader
+      - agent-observer-state:/state
+    networks: [dmz]
+    depends_on: [wazuh-indexer]
+    restart: "no"
+
+  agent-observer:
+    container_name: kt66-agent-observer
+    build: {context: ., dockerfile: observability/Dockerfile}
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      AGENTS_DIR: /agents
+      OBS_WRITER_CREDENTIALS: /siem-writer/account.json
+    volumes:
+      - ./agents:/agents:ro
+      - ./wazuh-config/certs/root-ca.pem:/certs/root-ca.pem:ro
+      - agent-observer-writer:/siem-writer:ro
+      - agent-observer-state:/state
+    networks: [dmz]
+    depends_on:
+      agent-observer-setup: {condition: service_completed_successfully}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     restart: unless-stopped
 
   # ╭─ 관제 화면(NOC) — 4F 운영층의 창 ─────────────────────────╮
@@ -794,6 +840,9 @@ networks:
 
 
 volumes:
+  agent-observer-writer:
+  agent-observer-reader:
+  agent-observer-state:
   bastion-data:
   ips-suricata-logs:
   web-apache-logs:

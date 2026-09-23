@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="/ui/console.css">
 <link rel="stylesheet" href="dashboard.css?v=facility-plan-2-school-title-1">
+<link rel="stylesheet" href="risk-map.css?v=risk-map-3">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23c6f582%27/%3E%3Ctext x=%276%27 y=%2724%27 font-size=%2723%27 font-family=%27sans-serif%27 font-weight=%27700%27 fill=%27%23141816%27%3Ek%3C/text%3E%3C/svg%3E">
 </head>
 <body data-console="noc">
@@ -31,7 +32,7 @@
   <section class="gauges" id="gauges" aria-label="핵심 운영 지표"><div class="loading-metrics">운영 지표를 가져오고 있습니다…</div></section>
   <main id="workspace">
     <section id="stage" aria-label="데이터센터 입체 배치도">
-      <div class="section-heading"><div><span class="eyebrow">FACILITY EXPLORER</span><h2 id="view-title">데이터센터 배치</h2></div><span class="scene-mode"><i></i> LIVE VIEW</span></div>
+      <div class="section-heading"><div><span class="eyebrow" id="perspective-eyebrow">FACILITY EXPLORER</span><nav class="perspective-tabs" role="tablist" aria-label="관제 관점"><button id="physical-tab" role="tab" aria-selected="true" aria-controls="stage-body"><span id="view-title">데이터센터 전체 배치</span></button><button id="risk-tab" role="tab" aria-selected="false" aria-controls="risk-panel" tabindex="-1"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2 17 5v5c0 4-7 8-7 8S3 14 3 10V5Z"/><path d="m6 10 3 3 5-6"/></svg>리스크·권한 관제</button></nav></div><span class="scene-mode"><i></i> LIVE VIEW</span></div>
       <div class="stage-toolbar"><nav class="lift" id="lift" aria-label="층 선택"></nav><a class="btn agent-control-link" id="agent-control-link" href="/agent-control" hidden>AI 에이전트 관제 ↗</a><button class="btn ghost sm" id="asset-toggle" aria-pressed="false">자산 목록</button></div>
       <div class="stage-body" id="stage-body">
         <div class="scene-caption"><span id="scene-floor-code">KT66</span><span id="scene-floor-note">물리 배치 · 자산 대장 기준</span></div>
@@ -43,6 +44,26 @@
       </div>
       <div id="asset-explorer" hidden><label class="asset-search"><span>자산 검색</span><input id="asset-search" type="search" placeholder="이름, 자산 ID 또는 IP 주소" autocomplete="off"></label><div id="asset-list"></div></div>
       <div class="stage-bottom"><div class="legend-inline"><span><i class="leg-online"></i>가동</span><span><i class="leg-cooling"></i>냉각</span><span><i class="leg-power"></i>전력</span><span><i class="leg-alarm"></i>이상</span></div><span id="scene-summary">자산 대장을 읽는 중</span></div>
+      <section id="risk-panel" role="tabpanel" aria-labelledby="risk-tab" hidden>
+        <div class="risk-toolbar"><div class="risk-heading"><span class="risk-live-dot"></span><strong>AGENT WATCH</strong><span id="risk-connection" role="status">접근 기록 인증 대기</span></div><div class="risk-actions"><label class="risk-filter">에이전트<select id="risk-worker-filter" aria-label="관찰할 에이전트"><option value="">전체 근무자</option></select></label><button id="risk-focus-mode" class="btn ghost sm" aria-pressed="false">이상만 강조</button><button id="risk-lock" class="btn ghost sm" hidden>잠금</button></div></div>
+        <div class="risk-metrics" id="risk-metrics" aria-label="에이전트 리스크 관측 지표"></div>
+        <div class="risk-layout">
+          <div class="risk-map-column">
+            <div class="risk-map-frame" id="risk-map-frame">
+              <div class="risk-map-top"><span><b>12</b> RISK DOMAINS <i>/</i> 논리적 활동 구역</span><span id="risk-map-clock">WAITING FOR EVIDENCE</span></div>
+              <div id="risk-map-viewport"><svg id="risk-map" viewBox="0 0 1160 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="12개 리스크 구역과 에이전트의 관측 활동 위치"></svg></div>
+              <div class="risk-map-bottom"><span id="risk-map-note">접근 기록을 연결하면 실제 에이전트가 표시됩니다.</span><div><button class="vbtn" id="risk-zoom-out" aria-label="리스크 지도 축소">−</button><button class="vbtn" id="risk-zoom-in" aria-label="리스크 지도 확대">＋</button><button class="vbtn" id="risk-fit" aria-label="리스크 지도 전체 보기">⤢</button></div></div>
+              <form id="risk-auth" class="risk-auth"><span class="risk-auth-icon" aria-hidden="true">⌁</span><span class="eyebrow">RESTRICTED OBSERVATION</span><h3>에이전트의 활동을 따라가세요.</h3><p>실행 기록·권한·승인 정보를 연결합니다.<br>기존 강사 키로 관제 화면을 열 수 있습니다.</p><label for="risk-key">강사 키</label><div><input id="risk-key" type="password" autocomplete="off" placeholder="강사 키 입력" required><button type="submit">관제 시작 →</button></div><small id="risk-auth-message" role="status">키는 이 화면의 메모리에서만 사용합니다.</small></form>
+            </div>
+            <div class="risk-playback"><div class="risk-mode-switch" role="group" aria-label="관측 모드"><button id="risk-live" aria-pressed="true"><i></i>실시간</button><button id="risk-replay" aria-pressed="false">기록 재생</button></div><div class="risk-transport"><button id="risk-prev" aria-label="이전 기록" disabled>‹</button><button id="risk-play" aria-label="기록 재생 시작" disabled>▶</button><button id="risk-next" aria-label="다음 기록" disabled>›</button></div><input id="risk-scrub" type="range" min="0" max="0" value="0" aria-label="관측 기록 탐색" disabled><span id="risk-playback-time">기록 연결 대기</span></div>
+            <div class="risk-legend"><span><i class="ring normal"></i>호출 관측</span><span><i class="ring pending"></i>승인 대기</span><span><i class="ring denied"></i>접근 거절</span><span><i class="ring alert"></i>xOC 미종결</span><span><i class="ring unknown"></i>미확인</span><button id="risk-guide-toggle" aria-expanded="false">표시 기준 ⓘ</button></div>
+            <div id="risk-guide" class="risk-guide" hidden><b>이동은 증거가 연결된 순간을 보여줍니다.</b><p>5초마다 기록을 조회하며 신규 실행 인덱스는 최대 10초 지연될 수 있습니다. 캐릭터의 위치는 마지막 관측 활동의 주 평가축이고, 이동선은 기록 사이를 연결한 표현입니다. 하나의 활동에 연결된 다른 평가축은 상세 패널에서 확인합니다.</p><p>E1~E4는 활동의 노출 등급이며 침해 판정이나 확률이 아닙니다. 승인·거절은 도구 영수증 기준, xOC 위험 점수는 기존 탐지 사건 기준입니다. 실시간 화면은 수집이 끊기면 이동을 멈추고 마지막 관측임을 표시합니다. 과거 기록은 재생 모드에서만 움직입니다.</p><p>브로커 도구와 업무 보고가 관측 범위입니다. 운영체제 전체 접근·CLI 내부 셸/웹 도구는 미수집이며, 에이전트의 판단 요약은 자체 보고입니다. 이 화면은 AI 호출·승인·조치를 실행하지 않습니다.</p></div>
+          </div>
+          <aside class="risk-inspector" aria-label="선택한 에이전트와 접근 증거"><div class="risk-inspector-head"><span class="eyebrow">INSPECTION</span><button id="risk-clear-selection" class="text-button">전체 보기</button></div><div id="risk-inspection"></div><div class="risk-stream-heading"><b>접근 타임라인</b><span id="risk-stream-count">—</span></div><div id="risk-stream" aria-label="접근 기록 목록"></div></aside>
+        </div>
+        <div class="risk-roster" id="risk-roster" aria-label="관측 에이전트 목록"></div>
+        <div class="risk-footnote"><span id="risk-coverage">읽기 전용 · 모델 호출 없음</span><a href="/agent-control" target="_blank" rel="noopener">실행 증적 열기 ↗</a></div>
+      </section>
     </section>
     <aside id="rail" aria-label="운영 상태 상세">
       <div class="section-heading"><div><span class="eyebrow">OPERATIONS</span><h2>운영 현황</h2></div><span class="rail-status" id="rail-status">—</span></div>
@@ -109,15 +130,16 @@
 
 <script src="/ui/console.js"></script>
 <script src="agent-sprites.js?v=research-xoc-1-adaptive-5"></script>
-<script src="facility-scene.js?v=compact-floor-2"></script>
-<script src="facility-floor.js?v=compact-floor-2"></script>
-<script src="ai-floor.js?v=compact-floor-2"></script>
-<script src="scene.js?v=compact-floor-2"></script>
+<script src="facility-scene.js?v=risk-map-3"></script>
+<script src="facility-floor.js?v=risk-map-3"></script>
+<script src="ai-floor.js?v=risk-map-3"></script>
+<script src="scene.js?v=risk-map-3"></script>
 <script src="control-center-scene.js?v=research-xoc-1"></script>
-<script src="dashboard.js?v=compact-floor-2"></script>
+<script src="dashboard.js?v=risk-map-3"></script>
 <script src="facilities.js?v=facility-plan-2"></script>
 <script src="ai-services.js?v=facility-plan-2"></script>
-<script src="building-layout.js?v=compact-floor-2"></script>
-<script src="app.js?v=compact-floor-2"></script>
+<script src="building-layout.js?v=risk-map-3"></script>
+<script src="app.js?v=risk-map-3"></script>
+<script src="risk-map.js?v=risk-map-3"></script>
 </body>
 </html>

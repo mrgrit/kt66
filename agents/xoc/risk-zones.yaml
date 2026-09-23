@@ -1,0 +1,66 @@
+# 리스크 관제의 공간 사전. 권한을 부여하거나 탐지 규칙을 실행하는 설정이 아닙니다.
+# 하나의 활동은 여러 평가축에 걸칩니다. primary는 캐릭터 위치, axes는 관련 평가축입니다.
+# exposure는 활동의 노출 등급(E1~E4)이며 침해 확률·xOC 사건 점수와 다릅니다.
+version: 1
+zones:
+  - {id: Z01, name: 업무·트리거, subtitle: REQUEST INTAKE, color: '#99bec7', description: '요청 수신·업무 범위·정기/사건 트리거를 확인합니다.', question: '누가 어떤 이유로 이 작업을 시작했는가?'}
+  - {id: Z02, name: 자산·영향 범위, subtitle: ASSET SCOPE, color: '#8fbd9f', description: '대상 자산과 실물·가상 환경, 영향 범위를 확인합니다.', question: '어느 자산을 조회하거나 변경하는가?'}
+  - {id: Z03, name: 신원·인증, subtitle: IDENTITY, color: '#9bb4d8', description: '실행 신원과 하네스의 직무·정책을 확인합니다.', question: '어떤 신원과 세션으로 실행하는가?'}
+  - {id: Z04, name: 직무·권한 경계, subtitle: ACCESS BOUNDARY, color: '#e1ad77', description: '직무·자산 경계 거절과 접근 범위 이상을 조사합니다.', question: '접근 시도는 허용 범위 안인가?'}
+  - {id: Z05, name: 승인·변경 통제, subtitle: CHANGE GATE, color: '#e2a083', description: '승인 대기·변경안 준비·승인·가상 설비 조치를 구분합니다.', question: '검토한 대상과 내용에 대해 유효한 승인이 있는가?'}
+  - {id: Z06, name: 데이터·기밀성, subtitle: DATA VAULT, color: '#bb9ccf', description: '보안 로그와 작업 파일 등 데이터 접근을 관찰합니다.', question: '필요한 범위의 데이터만 읽고 전달하는가?'}
+  - {id: Z07, name: 외부 지식·스킬, subtitle: KNOWLEDGE SUPPLY, color: '#b5aedc', description: '스킬 읽기·연구 후보와 외부 지식의 신뢰 경계를 확인합니다.', question: '자료의 출처와 변경 이력이 검증됐는가?'}
+  - {id: Z08, name: 판단·결과 품질, subtitle: QUALITY REVIEW, color: '#a5cda7', description: '계획·판단 요약·검증·평가를 구분해 관찰합니다.', question: '에이전트의 주장에 실제 근거가 있는가?'}
+  - {id: Z09, name: 도구·실행 격리, subtitle: TOOL SANDBOX, color: '#8ebec7', description: '작업 공간 쓰기와 미분류 도구, 실행 오류를 확인합니다.', question: '실행이 허용된 작업 공간과 도구 안에 머무르는가?'}
+  - {id: Z10, name: 협업·위임, subtitle: DELEGATION, color: '#c6b394', description: '업무 분배와 임시 에이전트 생성을 관찰합니다.', question: '위임으로 권한이나 정보 범위가 확대되지 않는가?'}
+  - {id: Z11, name: 자원·비용·복구, subtitle: RESILIENCE, color: '#a8bf82', description: '종료·실패·반복 호출·비용 이상과 보류를 관찰합니다.', question: '예산과 재시도 한도를 지키고 복구할 수 있는가?'}
+  - {id: Z12, name: 관제·감사, subtitle: EVIDENCE CONTROL, color: '#80c7b7', description: '실행 증거·xOC 사건·감사와 후속 판정을 확인합니다.', question: '누가 무엇을 관측하고 독립적으로 검토했는가?'}
+tools:
+  request_context: {primary: Z01, axes: [Z01, Z06], exposure: 1}
+  work_status: {primary: Z01, axes: [Z01, Z10], exposure: 1}
+  env_read: {primary: Z02, axes: [Z02, Z09], exposure: 1}
+  infrastructure_read: {primary: Z02, axes: [Z02, Z09], exposure: 1}
+  disk_usage: {primary: Z02, axes: [Z02, Z04, Z09], exposure: 1}
+  inventory_query: {primary: Z02, axes: [Z02, Z06], exposure: 1}
+  firewall_read: {primary: Z02, axes: [Z02, Z04, Z06], exposure: 2}
+  harness_identity: {primary: Z03, axes: [Z03, Z04], exposure: 1}
+  approval_inbox: {primary: Z05, axes: [Z04, Z05], exposure: 2}
+  approve_request: {primary: Z05, axes: [Z04, Z05, Z12], exposure: 4}
+  simulator_control: {primary: Z05, axes: [Z02, Z05, Z11], exposure: 3}
+  approved_action: {primary: Z05, axes: [Z02, Z04, Z05, Z11], exposure: 3}
+  waf_prepare: {primary: Z05, axes: [Z02, Z05, Z08], exposure: 2}
+  website_prepare: {primary: Z05, axes: [Z05, Z08, Z09], exposure: 2}
+  siem_search: {primary: Z06, axes: [Z02, Z06], exposure: 2}
+  log_read: {primary: Z06, axes: [Z02, Z06], exposure: 2}
+  workspace_read: {primary: Z06, axes: [Z06, Z09], exposure: 2}
+  workspace_list: {primary: Z06, axes: [Z06, Z09], exposure: 1}
+  skill_read: {primary: Z07, axes: [Z07, Z08], exposure: 1}
+  lab_read: {primary: Z07, axes: [Z07, Z08], exposure: 1}
+  lab_propose: {primary: Z07, axes: [Z07, Z08, Z09], exposure: 2}
+  lab_evaluate: {primary: Z08, axes: [Z07, Z08, Z11], exposure: 2}
+  website_validate: {primary: Z08, axes: [Z08, Z09], exposure: 1}
+  activity_note: {primary: Z08, axes: [Z08, Z12], exposure: 1}
+  request_finish: {primary: Z08, axes: [Z01, Z08, Z12], exposure: 1}
+  workspace_write: {primary: Z09, axes: [Z06, Z09], exposure: 2}
+  delegate_work: {primary: Z10, axes: [Z01, Z04, Z10], exposure: 2}
+  request_plan: {primary: Z10, axes: [Z01, Z04, Z10], exposure: 2}
+  request_agent_create: {primary: Z10, axes: [Z03, Z04, Z10], exposure: 3}
+  cycle_state: {primary: Z11, axes: [Z07, Z11], exposure: 1}
+  xoc_contain: {primary: Z11, axes: [Z04, Z05, Z11, Z12], exposure: 4}
+  xoc_read: {primary: Z12, axes: [Z06, Z12], exposure: 2}
+  xoc_review: {primary: Z12, axes: [Z08, Z12], exposure: 2}
+  agent_activity: {primary: Z12, axes: [Z06, Z12], exposure: 2}
+  compliance_read: {primary: Z12, axes: [Z04, Z12], exposure: 2}
+  ticket_create: {primary: Z12, axes: [Z08, Z12], exposure: 1}
+findings:
+  XOC-001: Z04
+  XOC-002: Z04
+  XOC-003: Z11
+  XOC-004: Z11
+  XOC-005: Z09
+  XOC-006: Z08
+  XOC-007: Z07
+  XOC-008: Z06
+  XOC-009: Z12
+  XOC-010: Z11
+  XOC-011: Z04

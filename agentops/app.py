@@ -645,3 +645,6 @@ install_configuration(app, AGENTS, API_KEY, _write_text, _backup)
 
 from control_centers_api import install as install_control_centers
 install_control_centers(app, AGENTS, API_KEY, tpl, _write_text)
+
+from monitoring_api import install as install_monitoring
+install_monitoring(app, AGENTS, API_KEY, tpl)

@@ -142,6 +142,10 @@ Claude와 Codex는 **KT66이 생성하는 실행 환경을 통해 같은 원본�
 
 관제에는 요청, 트리거, 상황·판단 요약, 계획, 도구 입출력, 확인 가능한 파일 접근, 결과, 재시도와 사용량이 남습니다. 모델의 비공개 내부 추론이나 OS 전체 접근 기록을 수집하는 기능은 아닙니다. [관제 범위와 증거 해석](docs/AGENT-CONTROL.ko.md)
 
+NOC의 **리스크·권한 관제** 탭에서는 실제 실행 기록에 따라 근무자가 12개 논리 구역으로 이동합니다. 접근 거절·승인 대기는 경계에 표시하고, 과거 활동을 재생하여 권한과 근거를 조사할 수 있습니다. xOC·SOC 대시보드는 반복 경보를 묶고 주요 사건, 시간대·출발지·도구·토큰 통계를 먼저 보여줍니다. 전체 사건과 Markdown 보고서는 별도 검색 목록에서 찾습니다.
+
+에이전트 로그·탐지·보고서는 기존 Wazuh와 구분된 **SIEM 전용 인덱스**에 저장합니다. 수집·조회 계정을 분리하고 장애 시 전송 대기열에서 재시도합니다. 관제 화면과 수집기는 모델을 호출하지 않습니다. [화면 사용법·12개 구역·SIEM 저장 구조·Luvus 검토](docs/OBSERVABILITY.ko.md)
+
 ### 연구소와 xOC의 개선 순환
 
 연구원은 공개 문헌·실무 사례를 조사해 한국어 스킬 후보를 등록하고, 평가원은 동일 사례를 기존/후보 스킬에 각각 제공하여 품질·안전·실측 토큰·시간을 비교합니다. 강사는 평가를 통과한 후보의 변경 내용을 검토해 담당자에 적용하고 필요하면 이전 상태로 복구합니다. 일반 스킬 편집 화면도 계속 사용할 수 있습니다.
@@ -156,7 +160,7 @@ xOC는 실제 도구 영수증을 11개 규칙으로 먼저 검사합니다. 권
 
 Linux·systemd·Docker Engine/Compose를 사용하는 전용 서버 또는 VM을 준비합니다. 호스트에는 Git, Python 3.10 이상·PyYAML, Node.js, curl·OpenSSL 등이 필요합니다. Wazuh를 포함한 전체 스택은 메모리와 디스크 여유가 필요하므로 [교수용 설치 안내](docs/INSTRUCTOR-GUIDE.ko.md#installation)의 사전 점검을 따릅니다.
 
-[Compose](docker-compose.yaml)에는 **서비스 26개**가 정의되어 있으며, 초기 작업 후 종료되는 서비스도 포함됩니다. 외부 GPU는 선택 사항입니다. GPU 연결이 없으면 관련 실측·장애 실습 범위가 제한됩니다.
+[Compose](docker-compose.yaml)에는 **서비스 28개**가 정의되어 있으며, 초기 작업 후 종료되는 서비스도 포함됩니다. 외부 GPU는 선택 사항입니다. GPU 연결이 없으면 관련 실측·장애 실습 범위가 제한됩니다.
 
 ### 1. 저장소와 서버별 설정
 
@@ -219,9 +223,11 @@ systemctl --user status kt66-runner.service
 | 화면 | 주소 | 용도 |
 |---|---|---|
 | **데이터센터 관제** | `http://<관리 IP>:8020/` | 여기서 시작: 건물·층·자산·근무자 |
+| **리스크·권한 공간 관제** | `http://<관리 IP>:8020/?view=risk` | 12개 위험 평가축·실제 활동 이동·경계·기록 재생 |
 | **AI 에이전트 관제** | `http://<관리 IP>:8020/agent-control` | 실행 조사·증거·사용량 |
 | **AI 연구소** | `http://<관리 IP>:8050/research-lab` | 스킬 후보·독립 A/B 평가·검토 후 적용·복구 |
-| **xOC 통합관제** | `http://<관리 IP>:8050/xoc` | 인증된 탐지 사건·판정·기한부 보류, SOC 연결 |
+| **xOC 통합관제** | `http://<관리 IP>:8050/xoc` | 주요 경보·SIEM 통계·반복 사건 묶음·판정·보고서함 |
+| **SOC 보안 관제** | `http://<관리 IP>:8050/soc` | Wazuh 경보 수준·시간대·출발지·규칙별 집계 |
 | **근무자 운영** | `http://<관리 IP>:8050/` | 회사·부서·팀·R&R·스킬·루프·권한 |
 | **업무 요청·근무자 대화** | `http://<관리 IP>:8050/requests` | 질문·협업 업무·산출물·변경안 |
 | 모델 운영 | `http://<관리 IP>:8060/` | AI 서비스 설정·평가·배포 |
@@ -253,6 +259,7 @@ systemctl --user status kt66-runner.service
 | [agents/](agents/), [agentops/](agentops/) | 에이전트 원본·컴파일러·실행기·도구 / 웹 운영·업무 요청 |
 | [fw/](fw/), [ips/](ips/), [web/](web/) | 방화벽·IPS·WAF 및 업무 서비스 진입 |
 | [wazuh-config/](wazuh-config/), [siem/](siem/), [sigma/](sigma/) | SIEM·수집·탐지 규칙 |
+| [observability/](observability/) | 에이전트 전용 SIEM 초기화·증적 변환·지속 전송 대기열 |
 | [injector/](injector/), [scenarios/](scenarios/) | 실제 IT 장애 주입 / 교육 시나리오·검증 |
 | [modelops/](modelops/), [gpu-gw/](gpu-gw/) | 모델 운영 실습 / 외부 GPU 연결 |
 | [infraops/](infraops/), [portal/](portal/), [assessor/](assessor/) | 인프라 요구사항 검사·관리 포털·기존 평가 기반 |
@@ -270,6 +277,7 @@ systemctl --user status kt66-runner.service
 | 언제 무엇을 점검·보고할지 | [loops/](agents/loops/) |
 | 실제 권한·대상·자율성·예산·시간대 | [harness.yaml](agents/harness.yaml) |
 | xOC 탐지 기준·위험·대응 | [xoc/rules.yaml](agents/xoc/rules.yaml) |
+| 관제 구역·도구의 평가축·노출 등급 | [xoc/risk-zones.yaml](agents/xoc/risk-zones.yaml) — 권한 부여와 구분 |
 | 연구 출처·격리 평가 사례 | [research/sources.yaml](agents/research/sources.yaml), [research/benchmarks.yaml](agents/research/benchmarks.yaml) |
 | 사용자 업무의 공통 지침 | [native/AGENTS.md](agents/native/AGENTS.md) |
 | 자동 실행하지 않는 학습 예시 | [examples/soc/](agents/examples/soc/) |

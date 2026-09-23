@@ -448,6 +448,8 @@ class Observatory:
 
 def router(root, key=""):
     store=Observatory(root)
+    from risk_map import RiskMap
+    risk_map=RiskMap(store)
     api=APIRouter(prefix="/api/agent-control",tags=["AI agent control"])
     def evidence_auth(request: Request, response: Response):
         if not key or not hmac.compare_digest(request.headers.get('x-api-key',''), key):
@@ -470,6 +472,14 @@ def router(root, key=""):
     @api.get("/workers")
     def workers():
         return store.worker_states()
+
+    @api.get("/risk-map/zones")
+    def risk_zones():
+        return risk_map.catalogue()
+
+    @api.get("/risk-map", dependencies=[Depends(evidence_auth)])
+    def risk_snapshot():
+        return risk_map.snapshot()
 
     @api.get("/runs", dependencies=[Depends(evidence_auth)])
     def runs(worker:str="",status:str="",trigger:str="",q:str=Query("",max_length=200),hours:int=Query(24,ge=0,le=8760),

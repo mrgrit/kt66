@@ -27,7 +27,7 @@ module.exports=async page=>{
     return {overflow:document.documentElement.scrollWidth>innerWidth+1,stageBottom:document.querySelector('#stage').getBoundingClientRect().bottom,
      clipped:[...document.querySelectorAll('#scene [data-worker-figure]')].some(e=>{const b=e.getBoundingClientRect();return b.left<svg.left-1||b.right>svg.right+1||b.top<svg.top-1||b.bottom>svg.bottom+1})};
    });
-   assert.equal(measure.overflow,false);assert.equal(measure.clipped,false);assert.ok(measure.stageBottom<=height+1);
+   assert.equal(measure.overflow,false);assert.equal(measure.clipped,false);assert.ok(measure.stageBottom<=height+1,JSON.stringify({width,height,floor,...measure}));
    sizes.push({width,floor,...measure});await page.mouse.move(2,2);
    await page.screenshot({path:'/tmp/kt66-inspect-ui/center-'+floor+'-'+width+'.png'});
   }

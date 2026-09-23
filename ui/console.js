@@ -16,6 +16,7 @@
     if(name==='requests')return window.dcURL('agentops')+'requests';
     if(name==='agentcontrol')return window.dcURL('noc')+'agent-control';
     if(name==='xoc')return window.dcURL('agentops')+'xoc';
+    if(name==='soc')return window.dcURL('agentops')+'soc';
     if(name==='researchlab')return window.dcURL('agentops')+'research-lab';
     const ports = {noc:8020, portal:8000, agentops:8050, modelops:8060, infraops:8070, siem:5601, landing:80};
     const host = location.hostname;

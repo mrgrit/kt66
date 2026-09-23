@@ -11,7 +11,7 @@ def install(app, root, key, templates, write):
     @app.middleware('http')
     async def private_records(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(('/api/xoc', '/api/research-lab', '/api/compliance-evidence')):
+        if request.url.path.startswith(('/api/xoc', '/api/research-lab', '/api/compliance-evidence', '/api/monitoring')):
             response.headers['Cache-Control'] = 'private, no-store'
         return response
 
@@ -27,7 +27,7 @@ def install(app, root, key, templates, write):
 
     @app.get('/xoc', include_in_schema=False)
     def xoc_page(request: Request):
-        return templates.TemplateResponse('control-centers.html', {'request': request, 'center': 'xoc'})
+        return templates.TemplateResponse('operations-center.html', {'request': request, 'initial': 'xoc'})
 
     @app.get('/research-lab', include_in_schema=False)
     def lab_page(request: Request):
@@ -41,12 +41,20 @@ def install(app, root, key, templates, write):
     @app.post('/api/xoc/review')
     def xoc_review(request: Request, body: dict = Body(...)):
         auth(request)
-        return perform(lambda: xoc.review(root, body.get('finding_id'), body.get('status'), body.get('reason'), 'instructor'))
+        result = perform(lambda: xoc.review(root, body.get('finding_id'), body.get('status'), body.get('reason'), 'instructor'))
+        if hasattr(app.state, 'monitor'):
+            with app.state.monitor.lock:
+                app.state.monitor.cache.clear()
+        return result
 
     @app.post('/api/xoc/containment')
     def xoc_hold(request: Request, body: dict = Body(...)):
         auth(request)
-        return perform(lambda: xoc.containment(root, body.get('worker'), body.get('minutes'), body.get('reason'), 'instructor', body.get('finding_id')))
+        result = perform(lambda: xoc.containment(root, body.get('worker'), body.get('minutes'), body.get('reason'), 'instructor', body.get('finding_id')))
+        if hasattr(app.state, 'monitor'):
+            with app.state.monitor.lock:
+                app.state.monitor.cache.clear()
+        return result
 
     @app.get('/api/compliance-evidence')
     def compliance_status(request: Request):
