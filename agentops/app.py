@@ -17,14 +17,15 @@
 from __future__ import annotations
 
 import datetime as dt
+from functools import wraps
 import json
 import os
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import yaml
+import configuration
 from ruamel.yaml import YAML
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
@@ -110,8 +111,19 @@ def _loops() -> list[str]:
     return sorted(p.stem for p in (AGENTS / "loops").glob("*.yaml"))
 
 
+def _loop_details():
+    out = []
+    for lid in _loops():
+        try:
+            value = yaml.safe_load((AGENTS / "loops" / f"{lid}.yaml").read_text())
+            out.append({key: value.get(key) for key in ("id", "owner", "cadence")})
+        except (ValueError, AttributeError, yaml.YAMLError):
+            out.append({"id": lid, "owner": "", "cadence": "원문 확인 필요"})
+    return out
+
+
 # ── 검증 ────────────────────────────────────────────────────────────
-def validate_all(over: dict | None = None) -> list[str]:
+def _validate_all(over: dict | None = None) -> list[str]:
     """조직 전체의 상호 참조를 확인한다. over 로 저장 예정 내용을 미리 끼워 본다.
 
     저장한 뒤에 깨진 것을 발견하면 이미 늦다 — 학생은 무엇이 깨졌는지 모른 채
@@ -192,6 +204,40 @@ def validate_all(over: dict | None = None) -> list[str]:
     return err
 
 
+def validate_all(over: dict | None = None) -> list[str]:
+    try:
+        errors = _validate_all(over)
+        if not over:
+            errors.extend(configuration.issues(AGENTS))
+        return list(dict.fromkeys(errors))
+    except (ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError) as exc:
+        return ["설정 구조 오류: " + str(exc)]
+
+
+def configuration_edit(fn):
+    @wraps(fn)
+    def locked(*args, **kwargs):
+        if kwargs.pop("_already_locked", False):
+            return fn(*args, **kwargs)
+        with configuration.edit_lock(AGENTS):
+            try:
+                return fn(*args, **kwargs)
+            except (ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError) as exc:
+                raise HTTPException(400, str(exc)) from exc
+    return locked
+
+
+def _preflight(updates):
+    configuration.preflight(AGENTS, updates)
+
+
+def _rt_text(data):
+    import io
+    buf = io.StringIO()
+    _rt.dump(data, buf)
+    return buf.getvalue()
+
+
 # ── 쓰기 ────────────────────────────────────────────────────────────
 def _backup(p: Path) -> None:
     if not p.exists():
@@ -236,6 +282,8 @@ def org():
                   "open_questions": graph.get("open_questions", [])},
         "personas": _personas(),
         "loops": _loops(),
+        "loop_details": _loop_details(),
+        "skill_catalog": configuration.library(AGENTS),
         "errors": validate_all(),
     }
 
@@ -255,11 +303,13 @@ def get_file(name: str):
         raise HTTPException(404, "알 수 없는 파일이다")
     if not p.exists():
         raise HTTPException(404, f"파일이 없다: {p.name}")
+    p = configuration.safe_path(AGENTS, str(p.relative_to(AGENTS)))
     return p.read_text(encoding="utf-8")
 
 
 # ── API: 저장 ───────────────────────────────────────────────────────
 @app.post("/api/file/{name}")
+@configuration_edit
 def put_file(name: str, key: str = "", body: dict = Body(...)):
     """원문 저장. 파싱해 보고 조직 정합성까지 확인한 뒤에만 쓴다."""
     _auth(key)
@@ -274,14 +324,15 @@ def put_file(name: str, key: str = "", body: dict = Body(...)):
         errs = validate_all({name: parsed})
         if errs:
             raise HTTPException(400, "조직 정합성 오류:\n" + "\n".join(f"· {e}" for e in errs))
+        _preflight({FILES[name]: text})
         _write_text(AGENTS / FILES[name], text)
     elif name.startswith("persona:"):
         pid = name[8:]
         if not ID_RE.match(pid):
             raise HTTPException(400, "페르소나 id 형식이 잘못됐다")
-        if not text.lstrip().startswith("---"):
-            raise HTTPException(400, "페르소나는 --- 프런트매터로 시작해야 한다 (description·model·tools)")
-        _write_text(AGENTS / "personas" / f"{pid}.md", text)
+        configuration.split_markdown(text, require_description=False)
+        _preflight({f"personas/{pid}.md": text})
+        _write_text(configuration.safe_path(AGENTS, f"personas/{pid}.md"), text)
     elif name.startswith("loop:"):
         lid = name[5:]
         if not ID_RE.match(lid):
@@ -293,7 +344,8 @@ def put_file(name: str, key: str = "", body: dict = Body(...)):
         for k in ("id", "owner", "steps"):
             if k not in (d or {}):
                 raise HTTPException(400, f"루프에 {k} 가 없다")
-        _write_text(AGENTS / "loops" / f"{lid}.yaml", text)
+        _preflight({f"loops/{lid}.yaml": text})
+        _write_text(configuration.safe_path(AGENTS, f"loops/{lid}.yaml"), text)
     elif name == "graph":
         try:
             g = json.loads(text)
@@ -317,32 +369,26 @@ def put_file(name: str, key: str = "", body: dict = Body(...)):
 
 # ── API: 근무자 추가·삭제 ───────────────────────────────────────────
 PERSONA_TEMPLATE = """---
-description: "{name}. 담당과 트리거를 한 줄로 적는다 — 이 문장이 스킬 발동을 정한다."
-model: {model}
-tools: env_read, metrics_read, ticket_create
+description: {description}
+skills: []
 ---
 
-## 핵심 역할
-{name} 의 담당 범위를 적는다. 무엇을 하는지보다 **무엇을 하지 않는지**를 먼저 적으면
-다른 근무자와 겹치지 않는다.
+## 역할과 책임
+{name}의 담당 업무, 하지 않는 일, 완료 조건을 적으세요.
 
-## 작업 원칙
-- 단일 측정값으로 판단하지 않는다. 추세와 교차 검증을 함께 낸다.
-- 상태를 바꾸는 제안에는 되돌리기 경로를 함께 낸다.
+## 업무 선택
+연결한 스킬 중 이번 요청에 필요한 절차만 읽으세요.
 
-## 입출력 프로토콜
-- 입력:
-- 출력: 티켓(원인추정·영향범위·근거·조치안·되돌리기경로)
-
-## 에러 핸들링
-- 두 번 실패하면 혼자 더 시도하지 않고 escalate 한다.
-
-## 협업 정의
-- 누구와 무엇을 합의하는가.
+## 협업과 보고
+- 다른 직무의 업무는 해당 담당자에게 필요한 대상·기간·근거를 정리해 안내하세요.
+- 관찰 사실, 판단, 미확인 사항, 후속 작업을 구분하세요.
+- 실제 모델·권한은 명단과 서버 정책이 결정합니다. 지침으로 권한을 넓히지 마세요.
 """
 
 
+
 @app.post("/api/worker")
+@configuration_edit
 def add_worker(key: str = "", w: dict = Body(...)):
     """근무자 추가. roster 항목과 페르소나 파일을 함께 만든다.
 
@@ -362,10 +408,10 @@ def add_worker(key: str = "", w: dict = Body(...)):
         "security_role": w.get("security_role") or "",
         "floor": w.get("floor") or "4F",
         "zone": w.get("zone") or "mgmt",
-        "runtime": w.get("runtime") or "bastion",
+        "runtime": w.get("runtime") or roster.get("defaults", {}).get("runtime", "claude"),
         "autonomy": w.get("autonomy") or "L1",
         "team": w.get("team") or "",
-        "model": w.get("model") or "local-small",
+        "model": w.get("model") or roster.get("defaults", {}).get("model", "cc-haiku"),
         "loops": w.get("loops") or [],
         "assets": w.get("assets") or [],
         "curriculum": w.get("curriculum") or [],
@@ -379,19 +425,18 @@ def add_worker(key: str = "", w: dict = Body(...)):
                 t.setdefault("members", []).append(wid)
 
     persona = AGENTS / "personas" / f"{wid}.md"
-    # 페르소나 프런트매터의 model 은 **티어**다(reasoning|small) — roster 의 모델 키와
-    # 다른 어휘다. 예전에는 키 문자열에 "reasoning" 이 들어 있는지로 골랐는데, 그러면
-    # cc-opus 를 고른 자리에도 small 이 박힌다. 카탈로그에 tier 가 있으니 그것을 쓴다.
-    tier = (_read_yaml("roster").get("models", {}).get(entry["model"], {}) or {}).get("tier", "")
-    persona_text = PERSONA_TEMPLATE.format(
-        name=entry["name"],
-        model="reasoning" if tier in ("reasoning", "frontier") else "small")
+    persona_text = PERSONA_TEMPLATE.format(name=entry["name"],
+        description=json.dumps(entry["name"] + "의 역할·업무 선택·보고 기준", ensure_ascii=False))
     errs = validate_all({"roster": roster, "teams": teams})
     # 페르소나 파일은 아직 없으므로 그 오류만 예외로 둔다
     errs = [e for e in errs if f"personas/{wid}.md" not in e]
     if errs:
         raise HTTPException(400, "조직 정합성 오류:\n" + "\n".join(f"· {e}" for e in errs))
 
+    updates = {"roster.yaml": _rt_text(roster), "teams.yaml": _rt_text(teams)}
+    if not persona.exists():
+        updates[f"personas/{wid}.md"] = persona_text
+    _preflight(updates)
     if not persona.exists():
         _write_text(persona, persona_text)
     _dump_rt("roster", roster)
@@ -401,6 +446,7 @@ def add_worker(key: str = "", w: dict = Body(...)):
 
 
 @app.delete("/api/worker/{wid}")
+@configuration_edit
 def del_worker(wid: str, key: str = "", keep_persona: bool = True):
     """근무자 삭제. 팀 명단에서도 빼고, 페르소나는 기본적으로 남긴다.
 
@@ -424,19 +470,26 @@ def del_worker(wid: str, key: str = "", keep_persona: bool = True):
     harness = _load_rt("harness")
     harness.get("workers", {}).pop(wid, None)
 
-    errs = validate_all({"roster": roster, "teams": teams})
+    errs = validate_all({"roster": roster, "teams": teams, "harness": harness})
     if errs:
         raise HTTPException(400, "삭제하면 조직이 깨진다:\n" + "\n".join(f"· {e}" for e in errs))
 
+    updates = {"roster.yaml": _rt_text(roster), "teams.yaml": _rt_text(teams), "harness.yaml": _rt_text(harness)}
+    if not keep_persona:
+        updates[f"personas/{wid}.md"] = None
+    _preflight(updates)
     _dump_rt("roster", roster)
     _dump_rt("teams", teams)
     _dump_rt("harness", harness)
     if not keep_persona:
-        (AGENTS / "personas" / f"{wid}.md").unlink(missing_ok=True)
+        path = configuration.safe_path(AGENTS, f"personas/{wid}.md")
+        _backup(path)
+        path.unlink(missing_ok=True)
     return {"ok": True, "errors": validate_all()}
 
 
 @app.patch("/api/worker/{wid}")
+@configuration_edit
 def patch_worker(wid: str, key: str = "", patch: dict = Body(...)):
     """런타임·모델·자율성·팀 같은 한 필드만 바꾼다. 화면의 드롭다운이 쓴다."""
     _auth(key)
@@ -461,6 +514,7 @@ def patch_worker(wid: str, key: str = "", patch: dict = Body(...)):
     errs = validate_all({"roster": roster, "teams": teams})
     if errs:
         raise HTTPException(400, "조직 정합성 오류:\n" + "\n".join(f"· {e}" for e in errs))
+    _preflight({"roster.yaml": _rt_text(roster), "teams.yaml": _rt_text(teams)})
     _dump_rt("roster", roster)
     _dump_rt("teams", teams)
     return {"ok": True, "worker": dict(w), "errors": validate_all()}
@@ -468,16 +522,16 @@ def patch_worker(wid: str, key: str = "", patch: dict = Body(...)):
 
 # ── API: 적용 ───────────────────────────────────────────────────────
 @app.post("/api/render")
+@configuration_edit
 def render(key: str = "", worker: str = ""):
-    """agentctl 로 런타임 형식으로 렌더한다. 여기까지 와야 실제로 적용된 것이다."""
+    """원본을 검증하고 전체 생성 포인터와 활성 버전을 함께 갱신한다."""
     _auth(key)
-    cmd = ["python3", str(AGENTS / "agentctl"), "render"]
-    cmd += [worker] if worker else ["--all"]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=str(AGENTS))
-    except (subprocess.TimeoutExpired, OSError) as e:
-        raise HTTPException(500, f"렌더 실행 실패: {e}") from e
-    return {"ok": r.returncode == 0, "stdout": r.stdout[-8000:], "stderr": r.stderr[-4000:]}
+    if worker and worker not in {w["id"] for w in _read_yaml("roster")["workers"]}:
+        raise HTTPException(404, "없는 근무자입니다")
+    _preflight({})
+    import harness_compiler
+    manifests = harness_compiler.compile_all(AGENTS)
+    return {"ok": True, "stdout": json.dumps(manifests, ensure_ascii=False, indent=2), "stderr": ""}
 
 
 @app.get("/api/backups")
@@ -490,28 +544,44 @@ def backups():
 
 
 @app.post("/api/restore")
+@configuration_edit
 def restore(key: str = "", name: str = ""):
     """백업 되돌리기. 되돌리기 경로 없는 조작을 학생에게 시키지 않기 위한 것이다."""
     _auth(key)
-    src = BAK / name
+    src = configuration.safe_path(BAK, name)
     if not src.exists() or src.parent != BAK:
         raise HTTPException(404, "없는 백업이다")
-    target_name = name.rsplit(".", 1)[0]
-    dest = None
-    for v in FILES.values():
-        if v == target_name:
-            dest = AGENTS / v
-    if dest is None:
-        if target_name.endswith(".md"):
-            dest = AGENTS / "personas" / target_name
-        elif target_name == "experience.json":
-            dest = AGENTS / "graph" / target_name
-        elif target_name.endswith(".yaml"):
-            dest = AGENTS / "loops" / target_name
-    if dest is None:
-        raise HTTPException(400, "복원 위치를 알 수 없다")
-    _write_text(dest, src.read_text(encoding="utf-8"))
-    return {"ok": True, "restored": str(dest.name), "errors": validate_all()}
+    relative = name.rsplit(".", 1)[0].replace("__", "/")
+    dest = configuration.safe_path(AGENTS, relative)
+    content = src.read_text(encoding="utf-8")
+    key_name = next((k for k, v in FILES.items() if v == relative), None)
+    if key_name:
+        result = put_file(key_name, key, {"text": content}, _already_locked=True)
+    elif relative.startswith("personas/") and dest.suffix == ".md":
+        result = put_file("persona:" + dest.stem, key, {"text": content}, _already_locked=True)
+    elif relative.startswith("loops/") and dest.suffix == ".yaml":
+        result = put_file("loop:" + dest.stem, key, {"text": content}, _already_locked=True)
+    elif relative == "graph/experience.json":
+        result = put_file("graph", key, {"text": content}, _already_locked=True)
+    elif relative.startswith("native/") and dest.suffix == ".md":
+        allowed = {"native/AGENTS.md", "native/README.md", "native/.claude/agents/kt66-request-worker.md"}
+        if re.fullmatch(r"native/\.agents/skills/[a-z][a-z0-9-]{0,63}/SKILL\.md", relative):
+            configuration.validate_skill(dest.parent.name, content)
+        elif relative not in allowed:
+            raise HTTPException(400, "복원할 지침 경로를 확인하세요")
+        elif relative.endswith("kt66-request-worker.md"):
+            metadata, _ = configuration.split_markdown(content)
+            if metadata.get("name") != "kt66-request-worker":
+                raise ValueError("공통 업무 역할의 name을 유지하세요")
+        if not content.strip():
+            raise ValueError("지침 본문을 입력하세요")
+        _preflight({relative: content})
+        _write_text(dest, content)
+        result = {"ok": True, "errors": validate_all()}
+    else:
+        raise HTTPException(400, "복원할 원본 경로를 확인하세요")
+    return {**result, "restored": relative}
+
 
 
 @app.get("/health")
@@ -532,15 +602,19 @@ def console(request: Request):
 async def activate_saved_harness(request, call_next):
     response = await call_next(request)
     if (request.method in ("POST", "PATCH", "DELETE") and response.status_code < 300
-            and (request.url.path.startswith("/api/file/") or request.url.path.startswith("/api/worker"))):
+            and (request.url.path.startswith("/api/file/") or request.url.path.startswith("/api/worker")
+                 or request.url.path == "/api/restore")):
         from fastapi.concurrency import run_in_threadpool
         from fastapi.responses import JSONResponse
         import sys
         if str(AGENTS) not in sys.path:
             sys.path.insert(0, str(AGENTS))
         import harness_compiler
+        def activate():
+            with configuration.edit_lock(AGENTS):
+                return harness_compiler.compile_all(AGENTS)
         try:
-            await run_in_threadpool(harness_compiler.compile_all, AGENTS)
+            await run_in_threadpool(activate)
             response.headers["X-KT66-Harness-Activation"] = "current"
         except Exception as exc:
             return JSONResponse(status_code=409, content={"saved": True, "activated": False,
@@ -565,3 +639,6 @@ def loop_status():
 # 사용자 업무는 기존 조직 파일 편집과 같은 백업 경로를 사용한다.
 from requests_api import install as install_requests
 install_requests(app, AGENTS, API_KEY, tpl, _write_text)
+
+from configuration_api import install as install_configuration
+install_configuration(app, AGENTS, API_KEY, _write_text, _backup)

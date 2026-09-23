@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>kt66 에이전트 운영</title>
-<link rel="stylesheet" href="/static/agentops.css">
+<link rel="stylesheet" href="/static/agentops.css?v=settings-2">
 <link rel="stylesheet" href="/ui/console.css">
 </head>
 <body data-console="agentops">
@@ -12,7 +12,7 @@
   <h1>kt66 <span>에이전트 운영</span></h1>
   <div class="head-right">
     <label class="keyfield">
-      <span class="keyrow">API 키 <input id="key" type="password" placeholder="API_KEY" autocomplete="off"></span>
+      <span class="keyrow">강사 키 <input id="key" type="password" placeholder=".env의 API_KEY" autocomplete="off"></span>
       <small class="keyhint">운영 키를 입력하면 설정을 변경할 수 있습니다.</small>
     </label>
     <span id="health" class="pill">…</span>
@@ -24,8 +24,8 @@
   <button class="step on" data-step="1"><b>1</b><span>회사</span><em>무엇을 하는 회사인가</em></button>
   <button class="step" data-step="2"><b>2</b><span>조직</span><em>누가 무엇을 책임지나</em></button>
   <button class="step" data-step="3"><b>3</b><span>팀</span><em>무엇으로 평가받나</em></button>
-  <button class="step" data-step="4"><b>4</b><span>근무자</span><em>누가 일하나</em></button>
-  <button class="step" data-step="5"><b>5</b><span>일하는 방식</span><em>어떻게 일하나</em></button>
+  <button class="step" data-step="4"><b>4</b><span>근무자·R&amp;R</span><em>역할과 담당 범위</em></button>
+  <button class="step" data-step="5"><b>5</b><span>일하는 방식</span><em>스킬·루프·권한</em></button>
   <button class="step" data-step="6"><b>6</b><span>적용</span><em>실제로 반영한다</em></button>
 </nav>
 
@@ -89,25 +89,60 @@
 <!-- ── 4. 근무자 ────────────────────────────────────────── -->
 <section class="panel" data-panel="4">
   <div class="lead">
-    <h2>누가 일하는가</h2>
-    <p>런타임과 모델을 근무자마다 고릅니다. 고르는 기준은 “얼마나 똑똑한가”가 아니라
-       <b>틀렸을 때 무엇이 망가지는가</b>입니다. 바꾸면 즉시 저장됩니다.</p>
+    <h2>근무자의 역할·책임과 담당 범위</h2>
+    <p><b>R&amp;R·스킬·담당 설정</b>에서 역할, 하지 않는 일, 협업 기준, 담당 자산과 루프를 함께 관리합니다.
+       상세 업무 절차는 스킬로 연결합니다. 아래 선택 항목은 변경 시 바로 저장됩니다.</p>
   </div>
   <div class="toolbar">
     <button id="add-worker" class="primary">+ 근무자 추가</button>
     <span class="muted">삭제해도 페르소나 파일은 남습니다 — 되돌릴 수 있어야 하니까.</span>
   </div>
+  <p id="worker-settings-hint" role="status"></p>
   <div id="worker-view" class="workers"></div>
+  <section id="assignment-box" class="settings-box" hidden aria-labelledby="assignment-title">
+    <h3 id="assignment-title">근무자 담당 설정</h3>
+    <div id="assignment-context" class="muted"></div>
+    <form id="assignment-form">
+      <label for="assignment-description">역할 요약·업무 선택 기준</label>
+      <input id="assignment-description" required>
+      <label for="assignment-instructions">업무 R&amp;R — 역할·제외 업무·협업·보고 기준</label>
+      <textarea id="assignment-instructions" rows="14" required spellcheck="false"></textarea>
+      <div class="settings-columns">
+        <fieldset><legend>연결 스킬</legend><div id="assignment-skills"></div></fieldset>
+        <fieldset><legend>담당 루프</legend><div id="assignment-loops"></div></fieldset>
+      </div>
+      <label for="assignment-assets">담당 자산 — 한 줄에 하나</label>
+      <textarea id="assignment-assets" rows="4" spellcheck="false"></textarea>
+      <p class="muted">자산 목록과 R&amp;R은 담당 설명입니다. 실제 도구·자산 접근 범위는 보안 직무와 상위 정책이 제한합니다.
+        스킬 본문은 필요한 업무에서 읽으며, 연결만으로 권한이나 자동 예약이 추가되지 않습니다.</p>
+      <details><summary>실제 컴파일러가 확인한 권한·원본</summary><pre id="assignment-policy" class="out"></pre></details>
+      <div class="toolbar"><button class="primary" type="submit">R&amp;R·연결 저장</button>
+        <button id="assignment-close" type="button">닫기</button><span id="assignment-msg" class="msg" role="status"></span></div>
+    </form>
+  </section>
   <div id="persona-box" class="raw" hidden>
     <h3 id="persona-title"></h3>
     <textarea id="ed-persona" spellcheck="false"></textarea>
     <button class="primary" id="save-persona">페르소나 저장</button>
     <span class="msg" data-msg="persona"></span>
   </div>
+  <details class="raw"><summary>roster.yaml 전체 원문 편집 — 이름·배치·명단·모델 카탈로그</summary>
+    <textarea id="ed-roster" spellcheck="false"></textarea>
+    <button class="primary" data-save="roster">저장</button>
+    <span class="msg" data-msg="roster"></span></details>
 </section>
 
 <!-- ── 5. 일하는 방식 ───────────────────────────────────── -->
 <section class="panel" data-panel="5">
+  <div class="lead">
+    <h2>업무 스킬 라이브러리</h2>
+    <p>전문가의 조사 순서·판단 기준·보고 방법을 <code>SKILL.md</code>로 관리합니다.
+       원본은 <code>agents/native/.agents/skills/</code>이며 Claude와 Codex가 함께 사용합니다.</p>
+  </div>
+  <div class="toolbar"><button id="skill-new" class="primary">+ 스킬 추가</button>
+    <button id="skill-refresh">목록 새로고침</button><span id="skill-summary" class="muted" role="status"></span></div>
+  <div id="skill-errors" class="msg bad" role="alert"></div>
+  <div id="skill-view" class="cards"></div>
   <div class="lead">
     <h2>어떻게 일하는가</h2>
     <p>하네스는 다섯 동사로 정리합니다. “무엇을 더 해야 하나”를 물을 때
@@ -116,8 +151,8 @@
   <div id="harness-view" class="verbs"></div>
   <div class="lead" style="margin-top:22px">
     <h2>루프</h2>
-    <p>회차 사이에 상태가 이어지는 작업입니다. 루프가 없는 런타임에 주기 작업을
-       맡기면 성립하지 않습니다.</p>
+    <p>루프의 <code>owner</code>와 근무자의 연결 목록이 일치해야 실행됩니다.
+       예약 시간과 단계는 원문에서, 근무자 연결은 R&amp;R·담당 설정에서 수정합니다.</p>
   </div>
   <div id="loop-view" class="cards"></div>
   <details class="raw"><summary>harness.yaml 직접 편집</summary>
@@ -143,6 +178,9 @@
     <button id="render-all" class="primary">하네스 다시 생성</button>
     <span class="muted">렌더 결과는 agents/runtimes/ 아래에 생깁니다.</span>
   </div>
+  <div class="lead"><h2>화면·원본·적용 상태 대조</h2>
+    <p>수정 위치와 실행에 쓰이는 파일을 확인합니다. 원본이 바뀌었지만 생성 사본이 오래됐으면 적용 대기로 표시합니다.</p></div>
+  <div id="config-audit" class="settings-box"></div>
   <pre id="activation-state" class="out"></pre>
   <pre id="render-out" class="out"></pre>
   <div class="lead" style="margin-top:22px"><h2>되돌리기</h2>
@@ -174,7 +212,24 @@
   </form>
 </dialog>
 
+<dialog id="dlg-skill" aria-labelledby="skill-title">
+  <form id="skill-form">
+    <h3 id="skill-title">스킬 추가</h3>
+    <label for="skill-name">스킬 이름</label><input id="skill-name" pattern="[a-z][a-z0-9-]{0,63}" required placeholder="soc-monthly-review">
+    <p class="muted">name은 폴더명과 같아야 합니다. description에는 선택할 상황, 본문에는 작업 순서·근거·완료 기준을 적습니다.</p>
+    <label for="skill-content">SKILL.md 원문</label><textarea id="skill-content" rows="18" required spellcheck="false"></textarea>
+    <div id="skill-usage" class="muted"></div>
+    <p class="muted">저장 후 근무자에게 연결하세요. 사용 중인 스킬은 먼저 연결을 해제해야 삭제할 수 있습니다.
+      실행기가 자동 사용하는 기본 스킬은 편집할 수 있지만 삭제할 수 없습니다.</p>
+    <div id="skill-msg" class="msg" role="status"></div>
+    <menu><button id="skill-close" type="button">닫기</button>
+      <button id="skill-delete" class="danger" type="button" hidden>삭제</button>
+      <button class="primary" type="submit">스킬 저장</button></menu>
+  </form>
+</dialog>
+
 <script src="/ui/console.js"></script>
-<script src="/static/agentops.js?v=role-boundaries-1"></script>
+<script src="/static/agentops.js?v=settings-2"></script>
+<script src="/static/settings.js?v=settings-2"></script>
 </body>
 </html>

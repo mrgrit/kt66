@@ -34,7 +34,7 @@ async function load() {
   ORG = await api('/api/org');
   renderCompany(); renderDepts(); renderTeams(); renderGraph();
   renderWorkers(); renderHarness(); renderLoops(); renderErrors();
-  for (const n of ['company', 'departments', 'teams', 'harness'])
+  for (const n of ['company', 'departments', 'teams', 'roster', 'harness'])
     api('/api/file/' + n).then(t => { const e = $('#ed-' + n); if (e) e.value = t; }).catch(() => {});
   api('/api/file/graph').then(t => $('#ed-graph').value = t).catch(() => {});
 }
@@ -125,6 +125,8 @@ function renderGraph() {
 function renderWorkers() {
   const r = ORG.roster, models = r.models || {}, runtimes = r.runtimes || {};
   const teams = (ORG.teams.teams || []);
+  const compatibleModels = runtime => Object.fromEntries(Object.entries(models).filter(([,m]) =>
+    m.endpoint === {claude:'claude-code',codex:'codex-cli'}[runtime]));
   const kpiOf = tid => (teams.find(t => t.id === tid)?.kpi || []).map(k => k.metric).join(', ');
   const opt = (o, cur) => Object.entries(o).map(([k, v]) =>
     `<option value="${esc(k)}" ${k === cur ? 'selected' : ''}>${esc(v.name || k)}</option>`).join('');
@@ -137,7 +139,7 @@ function renderWorkers() {
       <div class="row"><label>런타임</label>
         <select data-f="runtime">${opt(runtimes, w.runtime)}</select></div>
       <div class="row"><label>모델</label>
-        <select data-f="model">${opt(models, w.model)}</select></div>
+        <select data-f="model">${opt(compatibleModels(w.runtime), w.model)}</select></div>
       <div class="row"><label>자율성</label>
         <select data-f="autonomy">${['L1', 'L2', 'L3', 'approver'].map(a =>
           `<option ${a === w.autonomy ? 'selected' : ''}>${a}</option>`).join('')}</select></div>
@@ -148,18 +150,26 @@ function renderWorkers() {
           `<option value="${esc(t.id)}" ${t.id === w.team ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>
       <div class="s" style="margin-top:7px">${esc(runtimes[w.runtime]?.note || '')}</div>
       <div class="s">${esc(models[w.model]?.note || '')}</div>
+      <div class="s">연결 스킬: ${(ORG.skill_catalog?.skills || []).filter(s => s.workers.some(x => x.id === w.id)).map(s => esc(s.name)).join(', ') || '없음'}</div>
+      <div class="s">담당 자산: ${(w.assets || []).map(esc).join(', ') || '없음'}</div>
       <div class="kpi">KPI: ${esc(kpiOf(w.team)) || '—'}<br>
         루프: ${(w.loops || []).map(esc).join(', ') || '없음'}</div>
       <div class="row" style="margin-top:9px">
-        <button data-persona="${esc(w.id)}">페르소나 편집</button>
+        <button class="primary" data-assignment="${esc(w.id)}">R&amp;R·스킬·담당 설정</button>
+        <button data-persona="${esc(w.id)}">페르소나 원문</button>
         <button class="danger" data-del="${esc(w.id)}">삭제</button></div>
     </div>`).join('');
 
   $$('.wk select').forEach(sel => sel.onchange = async () => {
     const wid = sel.closest('.wk').dataset.w;
     try {
-      await api(withKey('/api/worker/' + wid), { method: 'PATCH',
-        body: { [sel.dataset.f]: sel.value } });
+      const body = { [sel.dataset.f]: sel.value };
+      if (sel.dataset.f === 'runtime') {
+        const model = Object.keys(compatibleModels(sel.value))[0];
+        if (!model) throw new Error('해당 런타임의 모델을 먼저 명단에 등록하세요.');
+        body.model = model;
+      }
+      await api(withKey('/api/worker/' + wid), { method: 'PATCH', body });
       await load();
     } catch (e) { alert('변경 실패:\n' + e.message); await load(); }
   });
@@ -183,6 +193,7 @@ $('#save-persona').onclick = async () => {
   try {
     await api(withKey('/api/file/persona:' + id), { method: 'POST', body: { text: $('#ed-persona').value } });
     m.className = 'msg ok'; m.textContent = '저장 및 하네스 반영 완료';
+    await load();
   } catch (e) { m.className = 'msg bad'; m.textContent = e.message; }
 };
 
@@ -224,10 +235,10 @@ function renderHarness() {
 }
 function renderLoops() {
   const owners = {};
-  (ORG.roster.workers || []).forEach(w => (w.loops || []).forEach(l => owners[l] = w.name));
+  (ORG.roster.workers || []).forEach(w => (w.loops || []).forEach(l => (owners[l] ||= []).push(w.name)));
   $('#loop-view').innerHTML = ORG.loops.map(l => `
     <div class="card"><div class="t">${esc(l)}</div>
-      <div class="s">담당: ${esc(owners[l] || '— 아무도 안 쓴다')}</div>
+      <div class="s">담당: ${esc(owners[l]?.join(', ') || '— 연결 없음')}</div>
       <div class="row" style="margin-top:8px"><button data-loop="${esc(l)}">편집</button></div>
     </div>`).join('');
   $$('[data-loop]').forEach(b => b.onclick = async () => {
@@ -243,6 +254,7 @@ $('#save-loop').onclick = async () => {
   try {
     await api(withKey('/api/file/loop:' + id), { method: 'POST', body: { text: $('#ed-loop').value } });
     m.className = 'msg ok'; m.textContent = '저장 및 하네스 반영 완료';
+    await load();
   } catch (e) { m.className = 'msg bad'; m.textContent = e.message; }
 };
 
@@ -267,6 +279,13 @@ $('#add-worker').onclick = () => {
     `<option value="${esc(k)}">${esc(v.name)}</option>`).join('');
   $('#nw-model').innerHTML = Object.entries(r.models || {}).map(([k, v]) =>
     `<option value="${esc(k)}">${esc(k)} — ${esc(v.name)}</option>`).join('');
+  $('#nw-runtime').onchange = () => {
+    const runtime = $('#nw-runtime').value;
+    $('#nw-model').innerHTML = Object.entries(r.models || {}).filter(([,v]) =>
+      v.endpoint === {claude:'claude-code',codex:'codex-cli'}[runtime]).map(([k,v]) =>
+      '<option value="' + esc(k) + '">' + esc(k) + ' — ' + esc(v.name) + '</option>').join('');
+  };
+  $('#nw-runtime').onchange();
   $('#dlg-worker').showModal();
 };
 $('#nw-ok').onclick = async (e) => {
@@ -290,6 +309,7 @@ $('#render-all').onclick = async () => {
     const r = await api(withKey('/api/render'), { method: 'POST' });
     out.textContent = (r.stdout || '') + (r.stderr ? '\n[stderr]\n' + r.stderr : '') ||
       (r.ok ? '완료 (출력 없음)' : '실패');
+    await loadActivation(); await loadConfigAudit();
   } catch (e) { out.textContent = '실패: ' + e.message; }
 };
 async function loadBackups() {
@@ -302,7 +322,7 @@ async function loadBackups() {
   $$('[data-rs]').forEach(b => b.onclick = async () => {
     if (!confirm(`${b.dataset.rs} 로 되돌립니다. 현재 내용은 다시 백업됩니다.`)) return;
     try { await api(withKey('/api/restore?name=' + encodeURIComponent(b.dataset.rs)),
-      { method: 'POST' }); await load(); await loadBackups(); alert('되돌렸습니다'); }
+      { method: 'POST' }); await load(); await loadBackups(); await loadActivation(); await loadConfigAudit(); alert('되돌렸습니다'); }
     catch (e) { alert('실패: ' + e.message); }
   });
 }

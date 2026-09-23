@@ -4,6 +4,7 @@ import hmac
 import json
 from pathlib import Path
 import sys
+import yaml
 
 from fastapi import Body, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -28,7 +29,7 @@ def install(app, root, key, templates, backup_write):
             return fn(*args, **kwargs)
         except FileNotFoundError:
             raise HTTPException(404, '요청 또는 파일을 찾을 수 없습니다')
-        except (ValueError, TypeError, KeyError) as error:
+        except (ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError) as error:
             raise HTTPException(400, str(error))
 
     def detail(rid):
@@ -119,7 +120,15 @@ def install(app, root, key, templates, backup_write):
         return perform(download)
 
     def documents():
-        return {str(p.relative_to(root / 'native')): p for p in (root / 'native').rglob('*.md') if not p.is_symlink()}
+        import configuration
+        out = {}
+        for p in (root / 'native').rglob('*.md'):
+            try:
+                configuration.safe_path(root, str(p.relative_to(root)))
+                out[str(p.relative_to(root / 'native'))] = p
+            except ValueError:
+                continue
+        return out
 
     @app.get('/api/request-guides')
     def guide_list(request: Request):
@@ -158,6 +167,13 @@ def install(app, root, key, templates, backup_write):
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 if body.get('sha256') != hashlib.sha256(path.read_bytes()).hexdigest():
                     raise ValueError('다른 편집 내용이 있습니다. 다시 불러온 뒤 저장하세요')
+                import configuration
+                if name.startswith('.agents/skills/') and name.endswith('/SKILL.md'):
+                    configuration.validate_skill(path.parent.name, content)
+                configuration.preflight(root, {str(path.relative_to(root)): content})
                 backup_write(path, content)
+                # 역할에 연결된 스킬을 두 편집 화면에서 동일하게 활성화한다.
+                import harness_compiler
+                harness_compiler.compile_all(root)
             return {'saved': True, 'applies': '다음 업무 세션부터 반영됩니다', 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
         return perform(save)
