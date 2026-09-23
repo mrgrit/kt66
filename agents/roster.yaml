@@ -119,7 +119,7 @@ workers:
     team: gpu-team
     model: codex-default
     loops: [gpu-quota-review, inference-sla-watch]
-    assets: [dgx-spark-01, ollama, model-registry]
+    assets: [dgx-spark-01, dgx-01, dgx-02, dgx-03, dgx-06, thor-02, thor-03, ollama, model-registry]
     curriculum: [W3, W7, W12]
 
   # ── 4F 운영층 (NOC/SOC) ───────────────────────────────────────

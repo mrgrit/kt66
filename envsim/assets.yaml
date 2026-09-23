@@ -59,6 +59,13 @@ zones:
     color: "#a78bfa"
     gateway: 10.20.50.1
     role: GPU 추론·학습. 터널 너머 DGX Spark 도 이 존의 정식 구성원이다
+  - id: gpu-external
+    name: 외부 NVIDIA AI 시스템
+    cidr: null
+    logical: true
+    trust: 외부 관리
+    color: "#76b900"
+    role: 외부 실물 AI 장비의 관리 구분. 3층은 교육용 배치이며 내부 app망·FW/IPS 경유를 의미하지 않는다
   - id: ot
     name: 시설망(OT)
     cidr: 10.20.60.0/24
@@ -142,7 +149,7 @@ floors:
     curriculum: [W2, W9, W10, W11]
   - id: "3F"
     name: AI 전산실
-    zone: [app]
+    zone: [app, gpu-external]
     grid: [12, 8]
     role: GPU 존 — 추론·학습. 랙당 전력밀도가 다른 층의 5~10배
     curriculum: [W3, W7, W12]
@@ -159,7 +166,7 @@ floors:
 racks:
   - { id: R-2F-01, floor: "2F", aisle: A, u: 42, design_kw: 8.0,  pos: [3, 3] }
   - { id: R-2F-02, floor: "2F", aisle: A, u: 42, design_kw: 10.0, pos: [3, 5] }   # 같은 아일 — 열이 섞인다
-  - { id: R-3F-01, floor: "3F", aisle: B, u: 42, design_kw: 25.0, pos: [4, 4] }   # GPU 랙 — 고밀도
+  - { id: R-3F-01, floor: "3F", aisle: B, u: 42, design_kw: 25.0, pos: [3.0, 3.4], style: nvidia-ai, name: NVIDIA AI COMPUTE }   # 실물 7대를 구분하는 교육용 전시 캐비닛
   - { id: R-4F-01, floor: "4F", aisle: C, u: 24, design_kw: 4.0,  pos: [8, 2] }
 
 # ── 부하 그룹 — 차단 시 영향 ───────────────────────────────────────
@@ -192,7 +199,7 @@ shed_groups:
     impact: 전 구간 통신 두절 — 다른 부하를 살려도 도달 불가
     recovery: 재기동 후 체인 재수립 필요
 
-# ── 시설 계통 (1F, 전부 가상) ──────────────────────────────────────
+# ── 시설 계통 (실내·옥외, 전부 가상) ──────────────────────────────────────
 #
 # 계통의 순서는 교재 5장을 그대로 따른다. 전력은 **상류에서 하류로** 한 줄로 읽힌다:
 #
@@ -213,13 +220,17 @@ facility:
   # ── 5.2.1 상류 전력 — 유틸리티에서 건물까지 ────────────────────
   utility:
     id: utility-01
-    floor: "1F"
+    floor: null
+    location: outdoor
+    site_pos: [0.7, 0.7]
     name: 수전설비
     capacity_kw: 60.0
     pos: [1, 1]
   substation:                         # 유틸리티 변전소 — 고압을 중압으로
     - id: sub-01
-      floor: "1F"
+      floor: null
+      location: outdoor
+      site_pos: [3.4, 0.7]
       name: 수전 변전소
       hv_kv: 154.0                    # 교재는 110kV 이상. 한전 특고압 수전 기준으로 맞췄다
       mv_kv: 22.9
@@ -250,7 +261,9 @@ facility:
       pos: [3, 3]
   generator:                          # 발전기 — UPS 가 버티는 동안 기동해야 한다
     - id: gen-01
-      floor: "1F"
+      floor: null
+      location: outdoor
+      site_pos: [0.7, 3.1]
       name: 비상 발전기
       capacity_kw: 50.0
       start_delay_s: 45               # 정상 기동 시 소요. 교재는 10~15초를 든다
@@ -259,7 +272,9 @@ facility:
       pos: [1, 5]
   fuel_tank:                          # 연료가 떨어지면 발전기는 그냥 쇳덩이다
     - id: tank-fuel-01
-      floor: "1F"
+      floor: null
+      location: outdoor
+      site_pos: [3.4, 3.1]
       name: 비상발전 연료탱크
       liters: 4000.0
       lph_at_full_load: 480.0         # 만부하 시 소비. 8.3시간분
@@ -298,13 +313,17 @@ facility:
       pos: [5, 1]
   microgrid:                          # 교재 5.2.5 — 계량기 뒤(behind the meter) CFE
     - id: pv-01
-      floor: "1F"
+      floor: null
+      location: outdoor
+      site_pos: [6.1, 3.1]
       kind: solar
-      name: 옥상 태양광
+      name: 옥외 태양광
       capacity_kw: 8.0
       pos: [10, 0]
     - id: bess-01
-      floor: "1F"
+      floor: null
+      location: outdoor
+      site_pos: [6.1, 0.7]
       kind: storage
       name: 에너지저장장치(BESS)
       capacity_kw: 15.0
@@ -312,7 +331,9 @@ facility:
       soc_pct: 85.0                   # 피크 회피용. UPS 와 목적이 다르다
       pos: [6, 1]
     - id: fc-01
-      floor: "1F"
+      floor: null
+      location: outdoor
+      site_pos: [8.8, 0.7]
       kind: fuel_cell
       name: 연료전지
       capacity_kw: 10.0
@@ -340,7 +361,9 @@ facility:
   # ── 5.3 냉각 계통 — 루프 ③ 응축수 (가장 바깥, 외기에 버린다) ────
   cooling_tower:                      # 교재 5.3.5 — 증발로 식힌다. 도달 하한은 습구 온도
     - id: ct-01
-      floor: "1F"
+      floor: null
+      location: outdoor
+      site_pos: [0.7, 5.5]
       name: 냉각탑 1호기
       capacity_kw: 40.0
       approach_c: 1.5                 # 습구 온도 + 1.5°C 가 도달 가능한 물 온도
@@ -349,7 +372,9 @@ facility:
       freeze_risk_c: 2.0              # 이 아래로 외기가 떨어지면 결빙 대책이 필요하다
       pos: [10, 5]
     - id: ct-02
-      floor: "1F"
+      floor: null
+      location: outdoor
+      site_pos: [3.4, 5.5]
       name: 냉각탑 2호기
       capacity_kw: 40.0
       approach_c: 1.5
@@ -412,7 +437,7 @@ facility:
       required_cfm: 4200              # 랙 기류 요구량. 타일이 부족하면 재순환이 생긴다
       supplied_cfm: 4400
       pos: [6, 6]
-  # ── 액체 냉각 (교재 5.3.7) — 3F GPU 는 콜드플레이트다 ──────────
+  # ── 액체 냉각 비교 실습 — 실물 Spark·Thor의 공랭 구조와 별개인 가상 모델 ──────────
   cdu:                                # 냉각 분배 장치 — 프로세스수를 랙별로 나눈다
     - id: cdu-01
       floor: "3F"
@@ -442,7 +467,9 @@ facility:
       pos: [8, 6]
   water_tank:                         # 교재 5.3.1 — 물은 열 완충이다. 공기보다 몇 분을 더 준다
     - id: tank-water-01
-      floor: "1F"
+      floor: null
+      location: outdoor
+      site_pos: [6.1, 5.5]
       name: 축열·보충수 탱크
       liters: 20000.0
       thermal_buffer_kwh: 9.0         # 냉각 상실 시 이만큼을 흡수한다
@@ -452,6 +479,9 @@ facility:
   # 습구가 오르면 냉각탑 용량이 떨어지고, 그 순간 냉동기가 켜지며 PUE 가 뛴다.
   weather:
     id: wx-01
+    floor: null
+    location: outdoor
+    site_pos: [8.8, 3.1]
     name: 외기
     drybulb_c: 18.0
     wetbulb_c: 13.0
@@ -475,7 +505,7 @@ facility:
     - { id: cctv-03,   floor: "3F", name: AI 전산실 CCTV,   kind: cctv, pos: [11, 1] }
     - { id: mantrap-01,  floor: "1F", name: 원형 회전문(맨트랩), kind: mantrap,        pos: [0, 3] }
     - { id: mdet-01,     floor: "1F", name: 금속탐지기,          kind: metal_detector, pos: [0, 2] }
-    - { id: guard-01,    floor: "1F", name: 경비 초소,            kind: guard_post,     pos: [1, 3] }
+    - { id: guard-01,    floor: null, location: outdoor, site_pos: [8.8, 5.5], name: 경비 초소,            kind: guard_post,     pos: [1, 3] }
     - { id: badge-3f,    floor: "3F", name: AI 전산실 카드리더,   kind: badge_reader,   pos: [0, 5] }
   # ── 물리 자동화 (교재 5.4.3) — 추적성이 곧 감사 증거다 ──────────
   automation:
@@ -504,7 +534,14 @@ facility:
 it_assets:
   # 3F — AI 전산실
   - id: dgx-spark-01
-    name: DGX Spark (GB10) — 추론 서비스
+    service_via: envsim             # 기존 OT → IPS → GPU 게이트웨이 경로 유지
+    serving:                       # 선택 시 메타데이터 GET만, 서버에서 60초 캐시
+      - { id: ollama, platform: ollama, name: Ollama, port: 11434, purpose: 로컬 모델 추론 }
+    name: DGX Spark — 기존 추론 서비스
+    vendor: NVIDIA
+    product: DGX Spark
+    form_factor: dgx-spark
+    gpu_model: NVIDIA GB10
     floor: "3F"
     rack: R-3F-01
     zone: app
@@ -520,6 +557,294 @@ it_assets:
     ssh: ssh mrgrit@211.170.162.109
     api: http://10.20.50.10:11434
   - { id: gpu-gw, name: GPU 게이트웨이, floor: "3F", rack: R-3F-01, zone: app, ip: 10.20.50.2, container: kt66-gpu-gw, shed_group: infra, idle_kw: 0.1, rated_kw: 0.4, u: 1 }
+
+  # 신규 외부 실물 6대. 2026-09-23 SSH 확인; 계정 비밀번호는 저장하지 않는다.
+  # 이용률·전력 수집이 없으므로 시뮬레이션 전력 합계에서 제외한다.
+  - id: dgx-01
+    serving:                       # 선택 시 메타데이터 GET만, 서버에서 60초 캐시
+      - { id: ollama, platform: ollama, name: Ollama, port: 11434, purpose: 로컬 모델 추론 }
+    name: DGX-01 · DGX Spark
+    vendor: NVIDIA
+    product: DGX Spark
+    form_factor: dgx-spark
+    floor: 3F
+    rack: R-3F-01
+    zone: gpu-external
+    remote: 211.170.162.110
+    ip: 211.170.162.110
+    gpu: true
+    gpu_model: NVIDIA GB10
+    shed_group: ai-inference
+    idle_kw: 0.0
+    rated_kw: 0.0
+    u: 2
+    ssh: ssh -p 8022 dgx-01@211.170.162.110
+    availability:
+      kind: ssh_tcp
+      port: 8022
+    telemetry:
+      mode: inventory
+      note: GPU·전력 실시간 수집 미연동. 0 kW는 전력 합계 제외 표시이며 실측값이 아니다.
+    hardware:
+      hostname: spark-b30a
+      architecture: aarch64
+      os: Ubuntu 24.04.4 LTS
+      cpu_cores: 20
+      memory_bytes: 130663165952
+      memory_type: CPU/GPU 통합 메모리
+      root_disk_bytes: 4031871553536
+      nvidia_driver: 580.159.03
+      cuda_driver_api: '13.0'
+    discovery:
+      checked_at: '2026-09-23T01:46:27.109365+00:00'
+      method: SSH 읽기 전용 점검
+      gpu_util_pct: 0.0
+      gpu_temp_c: 28.0
+      gpu_power_w: 4.41
+      root_disk_used_pct: 18
+      services:
+        - Ollama 포트 11434 수신 확인
+      docker_inventory: 권한 부족으로 미조회
+      note: 등록 시점의 관측값. GPU 전력은 장비 전체 소비전력이 아니며 현재 값으로 사용하지 않는다.
+  - id: dgx-02
+    serving:                       # 선택 시 메타데이터 GET만, 서버에서 60초 캐시
+      - { id: ollama, platform: ollama, name: Ollama, port: 11434, purpose: 로컬 모델 추론 }
+    name: DGX-02 · DGX Spark
+    vendor: NVIDIA
+    product: DGX Spark
+    form_factor: dgx-spark
+    floor: 3F
+    rack: R-3F-01
+    zone: gpu-external
+    remote: 211.170.162.111
+    ip: 211.170.162.111
+    gpu: true
+    gpu_model: NVIDIA GB10
+    shed_group: ai-inference
+    idle_kw: 0.0
+    rated_kw: 0.0
+    u: 2
+    ssh: ssh -p 8022 dgx-02@211.170.162.111
+    availability:
+      kind: ssh_tcp
+      port: 8022
+    telemetry:
+      mode: inventory
+      note: GPU·전력 실시간 수집 미연동. 0 kW는 전력 합계 제외 표시이며 실측값이 아니다.
+    hardware:
+      hostname: spark-b472
+      architecture: aarch64
+      os: Ubuntu 24.04.4 LTS
+      cpu_cores: 20
+      memory_bytes: 130663170048
+      memory_type: CPU/GPU 통합 메모리
+      root_disk_bytes: 4031871553536
+      nvidia_driver: 580.173.02
+      cuda_driver_api: '13.0'
+    discovery:
+      checked_at: '2026-09-23T01:46:27.078021+00:00'
+      method: SSH 읽기 전용 점검
+      gpu_util_pct: 0.0
+      gpu_temp_c: 27.0
+      gpu_power_w: 4.45
+      root_disk_used_pct: 7
+      services:
+        - Ollama 포트 11434 수신 확인
+      docker_inventory: 권한 부족으로 미조회
+      note: 등록 시점의 관측값. GPU 전력은 장비 전체 소비전력이 아니며 현재 값으로 사용하지 않는다.
+  - id: dgx-03
+    serving:                       # 선택 시 메타데이터 GET만, 서버에서 60초 캐시
+      - { id: ollama, platform: ollama, name: Ollama, port: 11434, purpose: 로컬 모델 추론 }
+    name: DGX-03 · DGX Spark
+    vendor: NVIDIA
+    product: DGX Spark
+    form_factor: dgx-spark
+    floor: 3F
+    rack: R-3F-01
+    zone: gpu-external
+    remote: 211.170.162.112
+    ip: 211.170.162.112
+    gpu: true
+    gpu_model: NVIDIA GB10
+    shed_group: ai-inference
+    idle_kw: 0.0
+    rated_kw: 0.0
+    u: 2
+    ssh: ssh -p 8022 dgx-03@211.170.162.112
+    availability:
+      kind: ssh_tcp
+      port: 8022
+    telemetry:
+      mode: inventory
+      note: GPU·전력 실시간 수집 미연동. 0 kW는 전력 합계 제외 표시이며 실측값이 아니다.
+    hardware:
+      hostname: spark-ae42
+      architecture: aarch64
+      os: Ubuntu 24.04.4 LTS
+      cpu_cores: 20
+      memory_bytes: 130663165952
+      memory_type: CPU/GPU 통합 메모리
+      root_disk_bytes: 4031871553536
+      nvidia_driver: 580.159.03
+      cuda_driver_api: '13.0'
+    discovery:
+      checked_at: '2026-09-23T01:46:27.081492+00:00'
+      method: SSH 읽기 전용 점검
+      gpu_util_pct: 0.0
+      gpu_temp_c: 41.0
+      gpu_power_w: 4.16
+      root_disk_used_pct: 6
+      services:
+        - Ollama 포트 11434 수신 확인
+      docker_inventory: 권한 부족으로 미조회
+      note: 등록 시점의 관측값. GPU 전력은 장비 전체 소비전력이 아니며 현재 값으로 사용하지 않는다.
+  - id: dgx-06
+    serving:                       # 선택 시 메타데이터 GET만, 서버에서 60초 캐시
+      - { id: ollama, platform: ollama, name: Ollama, port: 11434, purpose: 로컬 모델 추론 }
+    name: DGX-06 · DGX Spark
+    vendor: NVIDIA
+    product: DGX Spark
+    form_factor: dgx-spark
+    floor: 3F
+    rack: R-3F-01
+    zone: gpu-external
+    remote: 211.170.162.113
+    ip: 211.170.162.113
+    gpu: true
+    gpu_model: NVIDIA GB10
+    shed_group: ai-inference
+    idle_kw: 0.0
+    rated_kw: 0.0
+    u: 2
+    ssh: ssh -p 8022 dgx-06@211.170.162.113
+    availability:
+      kind: ssh_tcp
+      port: 8022
+    telemetry:
+      mode: inventory
+      note: GPU·전력 실시간 수집 미연동. 0 kW는 전력 합계 제외 표시이며 실측값이 아니다.
+    hardware:
+      hostname: spark-76a4
+      architecture: aarch64
+      os: Ubuntu 24.04.4 LTS
+      cpu_cores: 20
+      memory_bytes: 130663165952
+      memory_type: CPU/GPU 통합 메모리
+      root_disk_bytes: 4031871553536
+      nvidia_driver: 580.159.03
+      cuda_driver_api: '13.0'
+    discovery:
+      checked_at: '2026-09-23T01:46:27.152467+00:00'
+      method: SSH 읽기 전용 점검
+      gpu_util_pct: 0.0
+      gpu_temp_c: 49.0
+      gpu_power_w: 3.59
+      root_disk_used_pct: 6
+      services:
+        - Ollama 포트 11434 수신 확인
+      docker_inventory: 권한 부족으로 미조회
+      note: 등록 시점의 관측값. GPU 전력은 장비 전체 소비전력이 아니며 현재 값으로 사용하지 않는다.
+  - id: thor-02
+    serving:                       # 선택 시 메타데이터 GET만, 서버에서 60초 캐시
+      - { id: ollama, platform: ollama, name: Ollama, port: 11434, purpose: 로컬 모델 추론 }
+      - { id: vllm, platform: vllm, name: vLLM, port: 8001, purpose: 문서 작성 모델 서빙 }
+    name: THOR-02 · Jetson AGX Thor
+    vendor: NVIDIA
+    product: Jetson AGX Thor Developer Kit
+    form_factor: jetson-thor
+    floor: 3F
+    rack: R-3F-01
+    zone: gpu-external
+    remote: 211.170.162.120
+    ip: 211.170.162.120
+    gpu: true
+    gpu_model: NVIDIA Thor
+    shed_group: ai-inference
+    idle_kw: 0.0
+    rated_kw: 0.0
+    u: 2
+    ssh: ssh -p 8022 thor-02@211.170.162.120
+    availability:
+      kind: ssh_tcp
+      port: 8022
+    telemetry:
+      mode: inventory
+      note: GPU·전력 실시간 수집 미연동. 0 kW는 전력 합계 제외 표시이며 실측값이 아니다.
+    hardware:
+      hostname: thor-02
+      architecture: aarch64
+      os: Ubuntu 24.04.4 LTS
+      cpu_cores: 14
+      memory_bytes: 131881111552
+      memory_type: CPU/GPU 통합 메모리
+      root_disk_bytes: 1005441994752
+      nvidia_driver: '580.00'
+      cuda_driver_api: '13.0'
+    discovery:
+      checked_at: '2026-09-23T01:46:27.141119+00:00'
+      method: SSH 읽기 전용 점검
+      gpu_util_pct: 0.0
+      gpu_temp_c: 37.0
+      gpu_power_w: 1.97
+      root_disk_used_pct: 22
+      services:
+        - Ollama 포트 11434 수신 확인
+        - vLLM 8001 컨테이너 실행 확인
+        - Open WebUI 컨테이너 실행 확인
+      docker_inventory: 조회 완료
+      note: 등록 시점의 관측값. GPU 전력은 장비 전체 소비전력이 아니며 현재 값으로 사용하지 않는다.
+  - id: thor-03
+    serving:                       # 선택 시 메타데이터 GET만, 서버에서 60초 캐시
+      - { id: ollama, platform: ollama, name: Ollama, port: 11434, purpose: 로컬 모델 추론 }
+      - { id: vllm, platform: vllm, name: vLLM, port: 8001, purpose: 문서 작성 모델 서빙 }
+      - { id: embedding, platform: health, name: 임베딩 API, port: 8016, purpose: 문서 벡터화 }
+      - { id: reranker, platform: health, name: 재정렬 API, port: 8015, purpose: 검색 결과 재정렬 }
+    name: THOR-03 · Jetson AGX Thor
+    vendor: NVIDIA
+    product: Jetson AGX Thor Developer Kit
+    form_factor: jetson-thor
+    floor: 3F
+    rack: R-3F-01
+    zone: gpu-external
+    remote: 211.170.162.121
+    ip: 211.170.162.121
+    gpu: true
+    gpu_model: NVIDIA Thor
+    shed_group: ai-inference
+    idle_kw: 0.0
+    rated_kw: 0.0
+    u: 2
+    ssh: ssh -p 8022 thor-03@211.170.162.121
+    availability:
+      kind: ssh_tcp
+      port: 8022
+    telemetry:
+      mode: inventory
+      note: GPU·전력 실시간 수집 미연동. 0 kW는 전력 합계 제외 표시이며 실측값이 아니다.
+    hardware:
+      hostname: thor-03
+      architecture: aarch64
+      os: Ubuntu 24.04.3 LTS
+      cpu_cores: 14
+      memory_bytes: 131881111552
+      memory_type: CPU/GPU 통합 메모리
+      root_disk_bytes: 1005441994752
+      nvidia_driver: '580.00'
+      cuda_driver_api: '13.0'
+    discovery:
+      checked_at: '2026-09-23T01:46:26.827568+00:00'
+      method: SSH 읽기 전용 점검
+      gpu_util_pct: 0.0
+      gpu_temp_c: 36.0
+      gpu_power_w: 2.37
+      root_disk_used_pct: 20
+      services:
+        - Ollama 포트 11434 수신 확인
+        - vLLM 8001 컨테이너 실행 확인
+        - 임베딩 8016 컨테이너 실행 확인
+        - 리랭커 8015 컨테이너 실행 확인
+      docker_inventory: 조회 완료
+      note: 등록 시점의 관측값. GPU 전력은 장비 전체 소비전력이 아니며 현재 값으로 사용하지 않는다.
 
   # 2F — 코어 인프라. 존 체인(ext→pipe→dmz→int)이 전부 이 층에 있다.
   - { id: fw,        name: 방화벽,        floor: "2F", rack: R-2F-01, zone: ext,  ip: 10.20.30.1,  container: kt66-fw,             shed_group: infra,         idle_kw: 0.3, rated_kw: 1.0, u: 1, web: "http://${INT_HOST}:8081/" }

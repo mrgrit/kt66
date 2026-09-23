@@ -43,9 +43,10 @@ function cabinetDoor(x,y,z,w,h,accent,slots=[]) {
   return face;
 }
 function drawRoomRack(rack,x,y,z) {
+  if(rack.style==='nvidia-ai')return drawNvidiaRack(rack,x,y,z);
   const list=(LAYOUT.it_assets || []).filter(a=>a.rack===rack.id);
   const aisle=ST?.aisles?.[rack.aisle], load=list.reduce((s,a)=>s+assetState(a.id).kw,0);
-  const bad=list.some(a=>!alive(a)) || load>rack.design_kw;
+  const bad=list.some(assetDown) || load>rack.design_kw;
   const w=1.65,d=1.5,h=rack.u>=42?3.3:2.35;
   const g=el('g',{'data-rack':rack.id,class:'hit',on:{click:e=>{e.stopPropagation();openRack(rack.id)}}});
   g.appendChild(prism(x,y,z,w,d,h,'#52626b'));
@@ -70,42 +71,112 @@ function drawRoomRack(rack,x,y,z) {
     bar:load/rack.design_kw,barColor:'#b9df90',foot:'랙 선택으로 탑재 자산을 확인합니다'});
   return g;
 }
-function equipmentKind(kind) {
-  if(['cooling_tower','crac','chiller','fan_coil','economizer','heat_exchanger','cdu','water_tank','pump','immersion'].includes(kind))return 'cooling';
-  if(['utility','generator','ups','pdu','substation','switchgear','transformer','ats','battery','fuel_tank','microgrid','busway'].includes(kind))return 'power';
-  return 'security';
+/* NVIDIA desktop systems sit on a display rack; the illustration is not a
+   claim that Spark/Thor are full-size enterprise rack servers. */
+function roomLettering(x,y,z,text,size,color,extra={}) {
+  const [sx,sy]=iso(x,y,z);
+  return el('text',{transform:'matrix('+XS+','+YS+',0,'+ZS+','+sx+','+sy+')',
+    x:0,y:0,'font-family':'Arial,sans-serif','font-size':size,'font-weight':700,
+    fill:color,text,...extra});
 }
-function drawRoomEquipment(item,x,y,z,compact=false) {
-  const type=equipmentKind(item.kind),bad=facilityDown(item),accent=bad?'#ee8582':type==='cooling'?'#7ccadc':type==='power'?'#e5b579':'#b3c3cd';
-  const tall=['crac','ups','battery','substation','switchgear','ats','transformer'].includes(item.kind);
-  const tank=['water_tank','fuel_tank','cooling_tower'].includes(item.kind);
-  const small=['fire','cctv','door','pump','automation','pdu'].includes(item.kind);
-  const w=small ? .43 : compact ? .83 : 1.1;
-  const d=small ? .43 : compact ? .7 : .85;
-  const h=small ? .65 : tall ? 1.75 : tank ? 1.35 : .98;
-  const g=el('g',{class:'hit','data-facility':item.id,on:{click:e=>{e.stopPropagation();openFacility(item)}}});
-  g.appendChild(prism(x,y,z,w,d,h,bad?'#855f62':type==='cooling'?'#809ba9':type==='power'?'#899093':'#6a8494'));
-  const front=el('g',{transform:roomFace(x,y+d,z)});
-  front.appendChild(roomRect(.08,.1,w-.16,h-.2,'#3a505b',{rx:.02}));
-  front.appendChild(roomRect(.09,h-.17,w-.18,.05,accent));
-  if(tall){
-    front.appendChild(roomRect(.18,h-.6,Math.max(w-.36,.1),.3,'#162c36',{rx:.02}));
-    front.appendChild(roomRect(.22,h-.53,Math.max(w-.44,.04),.045,accent));
-    for(let i=.2;i<h-.75;i+=.12)front.appendChild(roomRect(.18,i,w-.36,.025,'#243b47'));
-  } else if(!small) {
-    for(let i=.18;i<h-.28;i+=.12)front.appendChild(roomRect(.16,i,w-.32,.033,'#1c3541'));
+function drawNvidiaDevice(asset,x,y,z) {
+  const thor=asset.form_factor==='jetson-thor',w=1.43,d=.86,h=thor?.48:.39;
+  const color=thor?'#343b3d':'#c6af83';
+  const open=e=>{e.stopPropagation();openAsset(asset.id)};
+  const g=el('g',{'data-asset':asset.id,'data-nvidia-device':asset.form_factor,
+    class:'hit',role:'button',tabindex:0,'aria-label':asset.name+' 자산 상세',
+    on:{click:open,keydown:e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open(e)}}}});
+  g.appendChild(prism(x,y,z,w,d,h,color));
+  const face=el('g',{transform:roomFace(x,y+d,z)});
+  face.appendChild(roomRect(.05,.055,w-.1,h-.1,thor?'#13191b':'#88764f',{rx:.045}));
+  for(let v=.12;v<w-.12;v+=thor?.105:.065)
+    face.appendChild(roomRect(v,.085,thor?.042:.021,h-.16,thor?'#566363':'#d8c495'));
+  face.appendChild(roomRect(w-.19,.075,.065,.024,assetIndicator(asset),{rx:.008}));
+  g.appendChild(face);
+  if(thor) {
+    // Black heat-spreader, exposed fan and deep fin stack.
+    for(let v=.12;v<1.28;v+=.12)
+      g.appendChild(quad(x+v,y+.1,z+h+.012,.045,.63,{fill:'#172122'}));
+    const p=iso(x+w*.68,y+d*.47,z+h+.02);
+    const fan=el('g',{transform:'translate('+p.join(',')+') scale(1,'+(YS/XS)+')'});
+    fan.appendChild(el('circle',{r:7.4,fill:'#0a1112',stroke:'#63726c','stroke-width':.8}));
+    for(let k=0;k<7;k++)fan.appendChild(el('path',{d:'M0,-1 Q3,-6 6,-2 L1,1Z',fill:'#8b9991',transform:'rotate('+(k*360/7)+')'}));
+    fan.appendChild(el('circle',{r:1.5,fill:'#76b900'}));g.appendChild(fan);
+  } else {
+    g.appendChild(quad(x+.04,y+.04,z+h+.009,w-.08,d-.08,{fill:'#cbb88e',stroke:'#e0cca1','stroke-width':.6}));
+    g.appendChild(roomLettering(x+.17,y+d+.007,z+.27,'DGX SPARK',.102,'#f4e6c5'));
+    for(let v=.2;v<1.3;v+=.14)
+      g.appendChild(roomLine([x+v,y+.07,z+h+.018],[x+v,y+.73,z+h+.018],'#9b865e',.34));
   }
-  g.appendChild(front);
-  if(tank || ['chiller','generator','fan_coil'].includes(item.kind)) {
-    const p=iso(x+w/2,y+d/2,z+h+.02),fan=el('g',{transform:`translate(${p.join(',')}) scale(1,${YS/XS})`});
-    fan.appendChild(el('circle',{r:w*9,fill:'#253f4c',stroke:'#a4bbc7','stroke-width':1}));
-    for(let k=0;k<5;k++)fan.appendChild(el('path',{d:`M0,-2 Q${w*5},${-w*7} ${w*8},0 L0,2Z`,fill:'#688894',transform:`rotate(${k*72})`}));
-    fan.appendChild(el('circle',{r:2,fill:'#bdcbd1'}));g.appendChild(fan);
-  }
-  if(bad){const p=iso(x+w/2,y+d/2,z+h);g.appendChild(warnBadge(p[0],p[1]-10))}
-  tipify(g,{title:item.name || item.id,sub:`${item.id} / ${item.floor}`,color:accent,
-    rows:[['계통',type==='cooling'?'냉각':type==='power'?'전력':'시설·보안'],['상태',bad?'이상':'정상']],foot:'가상 시설 · 선택하면 계통 상세를 엽니다'});
+  g.appendChild(roomLettering(x+.03,y+d+.02,z-.075,
+    asset.id==='dgx-spark-01'?'SPARK · EXISTING':asset.id.toUpperCase(),.125,'#e0e7d5'));
+  tipify(g,{title:asset.name,sub:asset.ip || asset.remote,color:assetIndicator(asset),
+    rows:[['제품',asset.product],['GPU',asset.gpu_model],['접속 상태',assetStatusLabel(asset)],
+      ['성능 수집',asset.telemetry?.mode==='inventory'?'등록 시 SSH 점검 · 실시간 미연동':'Ollama 기반 추정']],
+    foot:'선택하면 사양·확인 시각·SSH 접속 정보를 엽니다'});
   return g;
+}
+function drawNvidiaRack(rack,x,y,z) {
+  const list=(LAYOUT.it_assets||[]).filter(a=>a.rack===rack.id);
+  const devices=list.filter(a=>a.vendor==='NVIDIA');
+  const utility=list.filter(a=>a.vendor!=='NVIDIA');
+  const w=5.9,d=1.7,h=3.9,green='#76b900';
+  const g=el('g',{'data-rack':rack.id,'data-rack-style':'nvidia-ai',class:'hit',
+    on:{click:e=>{e.stopPropagation();openRack(rack.id)}}});
+  g.appendChild(prism(x-.15,y-.07,z,w+.3,d+.18,.17,'#1b2829'));
+  g.appendChild(prism(x,y,z+.17,w,.12,h-.17,'#202c2c'));
+  for(const dx of [0,w-.15]) {
+    g.appendChild(prism(x+dx,y,z+.17,.15,d,h-.17,'#36433e'));
+    g.appendChild(roomLine([x+dx+.065,y+d+.007,z+.24],[x+dx+.065,y+d+.007,z+h-.08],green,2));
+  }
+  g.appendChild(prism(x,y,z+h-.4,w,d,.4,'#172121'));
+  const spark=devices.filter(a=>a.form_factor==='dgx-spark'),thor=devices.filter(a=>a.form_factor==='jetson-thor');
+  const slots=[spark.slice(0,3),spark.slice(3),thor],levels=[2.43,1.45,.47];
+  levels.forEach((level,row)=>{
+    g.appendChild(prism(x+.16,y+.1,z+level-.09,w-.32,d-.05,.1,'#49564e'));
+    g.appendChild(roomLine([x+.22,y+d+.04,z+level-.03],[x+w-.22,y+d+.04,z+level-.03],'#a4cb60',1.5));
+    slots[row].forEach((asset,column)=>{
+      g.appendChild(drawNvidiaDevice(asset,x+.43+column*1.83,y+.59,z+level));
+    });
+  });
+  // The legacy GPU gateway remains a distinct, selectable infrastructure asset.
+  utility.forEach((a,i)=>{
+    const p=el('g',{'data-asset':a.id,class:'hit',role:'button',tabindex:0,'aria-label':a.name,
+      on:{click:e=>{e.stopPropagation();openAsset(a.id)},keydown:e=>{if(e.key==='Enter'){e.stopPropagation();openAsset(a.id)}}}});
+    p.appendChild(prism(x+4.1,y+.58,z+1.45+i*.18,1.25,.8,.14,'#526066'));
+    p.appendChild(roomLettering(x+4.18,y+1.4,z+1.54+i*.18,'GPU GATEWAY',.1,'#d3e1dd'));
+    g.appendChild(p);
+  });
+  for(let i=0;i<17;i++)g.appendChild(quad(x+.28+i*.32,y+.18,z+h+.013,.14,1.27,{fill:'#3d5144'}));
+  g.appendChild(roomLettering(x+.25,y+d+.018,z+h-.135,'NVIDIA',.265,'#a6df43'));
+  if(devices.some(assetDown)){const p=iso(x+w-.25,y+d,z+h);g.appendChild(warnBadge(p[0],p[1]-12))}
+  tipify(g,{title:'NVIDIA AI COMPUTE',sub:rack.id+' · 3층 AI 전산실',color:green,
+    rows:[['DGX Spark',devices.filter(a=>a.form_factor==='dgx-spark').length+'대'],
+      ['Jetson Thor',devices.filter(a=>a.form_factor==='jetson-thor').length+'대'],
+      ['인프라',utility.length+'대'],['배치','실물 장비의 교육용 전시 캐비닛']],
+    foot:'각 장비를 개별 선택할 수 있습니다'});
+  return g;
+}
+function drawLeadOffice(worker,x,y,z,detail) {
+  const w=3.15,d=2.75;
+  const g=el('g',{'data-office-zone':'ops-lead','data-office-bounds':[x,y,w,d].join(',')});
+  g.appendChild(quad(x,y,z+.022,w,d,{fill:'#304540',stroke:'#c5b581','stroke-width':1}));
+  // Rear partition and east glazing leave the front open for picking and sight.
+  g.appendChild(prism(x,y,z,.075,d,1.12,'#566c67'));
+  g.appendChild(prism(x,y,z,w,.08,1.12,'#4b615d'));
+  const glass=[[x+w,y,z+.2],[x+w,y+d-.3,z+.2],[x+w,y+d-.3,z+1.4],[x+w,y,z+1.4]];
+  g.appendChild(el('polygon',{points:pts(glass.map(p=>iso(...p))),fill:'#9ac5b4',opacity:.2,stroke:'#d7e6d6','stroke-width':.8}));
+  g.appendChild(roomLettering(x+.28,y+.1,z+1.02,'OPERATIONS LEAD',.14,'#e5d8a7'));
+  g.appendChild(prism(x+.25,y+.2,z,.9,.28,.48,'#33463d'));
+  g.appendChild(quad(x+.27,y+.21,z+.49,.86,.26,{fill:'#b8a57d'}));
+  g.appendChild(drawWorkstation(worker,x+.85,y+.67,z,detail));
+  return g;
+}
+
+function equipmentKind(kind) {
+  if(['cooling_tower','crac','chiller','fan_coil','economizer','heat_exchanger','cdu','water_tank','pump','immersion','weather','cold_plate','containment','raised_floor'].includes(kind))return 'cooling';
+  if(['utility','generator','ups','pdu','substation','switchgear','transformer','ats','battery','fuel_tank','microgrid','busway','solar','storage','fuel_cell'].includes(kind))return 'power';
+  return 'security';
 }
 function workerAttributes(worker) {
   const open=e=>{e.stopPropagation();openCrew(worker.id)};
@@ -174,7 +245,7 @@ function drawWorkstation(worker,x,y,z,detail) {
   return workerInfo(g,worker,x+.53,y+1.45,z,detail);
 }
 function drawRoom(fid,detail) {
-  const g=el('g'),z=.22, racks=racksOf(fid), fac=facilityOf(fid);
+  const g=el('g'),z=.22, racks=racksOf(fid), fac=physicalFacilitiesOf(fid);
   g.appendChild(el('g',{filter:'url(#plateShadow)'},[prism(0,0,0,GW,GD,z,'#647c8b',{flat:true})]));
   g.appendChild(quad(0,0,z+.004,GW,GD,{fill:'#647e8c'}));
   // Raised access floor: alternating panels and metal perimeter trim.
@@ -198,9 +269,9 @@ function drawRoom(fid,detail) {
   if(racks.length) {
     racks.forEach((r,i)=>{
       const [x,y]=r.pos || [3+i*2.3,3];
-      const aisle=ST?.aisles?.[r.aisle];
-      g.appendChild(quad(x-.15,y+1.57,z+.027,2.05,.62,{fill:aisle?.cooling_kw>0?'#5cbed4':'#927b79',opacity:.75}));
-      g.appendChild(quad(x-.15,y-.45,z+.027,2.05,.36,{fill:'#d6ac7a',opacity:.65}));
+      const aisle=ST?.aisles?.[r.aisle], rackWidth=r.style==='nvidia-ai'?6.2:2.05;
+      g.appendChild(quad(x-.15,y+1.57,z+.027,rackWidth,.62,{fill:aisle?.cooling_kw>0?'#5cbed4':'#927b79',opacity:.75}));
+      g.appendChild(quad(x-.15,y-.45,z+.027,rackWidth,.36,{fill:'#d6ac7a',opacity:.65}));
       // Perforated cold aisle tiles.
       for(let ix=0;ix<8;ix++)for(let iy=0;iy<3;iy++)g.appendChild(quad(x+ix*.23,y+1.65+iy*.14,z+.032,.12,.025,{fill:'#27748e',opacity:.75}));
       put(x+.85,y+.75,drawRoomRack(r,x,y,z));
@@ -212,21 +283,19 @@ function drawRoom(fid,detail) {
       tray.appendChild(roomLine([x+.82,.4,z+3.77],[x+.82,y+.2,z+3.77],'#75c4d5',1.2));
       tray.appendChild(roomLine([x+.65,y+.2,z+3.77],[x+.65,y+.2,z+3.3],'#e8b577',1.5));
       put(x+.8,y+.35,tray);
-      if(detail){const [sx,sy]=iso(x+.8,y+1.5,z);pill(sx,sy+34,r.id,{color:'#c1d6e2',size:10,anchor:'mid',sub:`${r.u}U · ${r.design_kw} kW 정격`})}
+      if(detail){const [sx,sy]=iso(x+(fid==='4F'?2.4:r.style==='nvidia-ai'?3:.8),y+(fid==='4F'?.7:1.7),z+(fid==='4F'?1.45:0));pill(sx,sy+(fid==='4F'?0:34),r.style==='nvidia-ai'?'DGX SPARK + JETSON THOR':r.id,{color:'#c1d6e2',size:10,anchor:'mid',sub:`${r.u}U · ${r.design_kw} kW 정격`})}
     });
   }
   // Equipment is laid out deterministically from the ledger. The layout is a
   // schematic placement; it does not claim surveyed real-world dimensions.
   if(fid==='1F') {
-    const cols=7,rows=Math.ceil(fac.length/cols),dy=Math.min(1.7,(GD-1.3)/rows);
-    fac.forEach((item,i)=>{
-      const x=.75+(i%cols)*1.53,y=.65+Math.floor(i/cols)*dy;
-      put(x+.45,y+.35,drawRoomEquipment(item,x,y,z,true));
+    const areas=[{type:'power',x:.4,w:3.5,label:'전기 · UPS'},{type:'cooling',x:4.1,w:3.5,label:'기계 · 냉각'},{type:'security',x:7.8,w:3.8,label:'출입 · 방재'}];
+    areas.forEach(area=>{
+      g.appendChild(quad(area.x,.6,z+.025,area.w,6.05,{fill:area.type==='power'?'#978b6c':area.type==='cooling'?'#5a919e':'#648087',opacity:.45,stroke:'#b7c3bb','stroke-width':.8}));
+      const items=fac.filter(item=>equipmentKind(item.kind)===area.type),columns=area.type==='security'?3:2;
+      items.forEach((item,i)=>{const x=area.x+.25+(i%columns)*(area.w-.3)/columns,y=1.05+Math.floor(i/columns)*1.95;put(x+.5,y+.4,drawRoomEquipment(item,x,y,z,true));});
+      if(detail){const p=iso(area.x+area.w/2,.35,z+.1);pill(p[0],p[1]-14,area.label,{size:9,anchor:'mid',color:'#ebefdd'})}
     });
-    for(let yy=1.8;yy<GD-.5;yy+=dy){
-      g.appendChild(roomLine([.5,yy,z+.06],[GW-.5,yy,z+.06],'#a8c7d4',3));
-      g.appendChild(roomLine([.5,yy+.07,z+.06],[GW-.5,yy+.07,z+.06],'#426f86',1.4));
-    }
   } else {
     fac.forEach((item,i)=>{
       // Back wall first, then right wall. Keep the rack fronts unobstructed.
@@ -235,8 +304,15 @@ function drawRoom(fid,detail) {
     });
   }
   if(fid==='4F') {
-    const workers=crewOf(fid);
-    workers.forEach((w,i)=>{const x=1.8+(i%2)*3.8,y=3.0+Math.floor(i/2)*2.3;put(x+.7,y+1.1,drawWorkstation(w,x,y,z,detail))});
+    const workers=crewOf(fid),lead=workers.find(w=>w.id==='ops-lead');
+    const staff=workers.filter(w=>w.id!=='ops-lead'),rows=Math.ceil(staff.length/2);
+    staff.forEach((worker,i)=>{
+      const x=1.85+(i%2)*3.15,y=rows<=1?3.65:2.55+Math.floor(i/2)*2.9/Math.max(rows-1,1);
+      const node=drawWorkstation(worker,x,y,z,detail);
+      node.setAttribute('data-workstation-bounds',[x-.08,y-.04,1.43,1.5].join(','));
+      put(x+.7,y+1.1,node);
+    });
+    if(lead)put(10,6.2,drawLeadOffice(lead,8.25,4.85,z,detail));
     // Operations video wall, rendered as instrument panels without invented numbers.
     for(let n=0;n<3;n++){
       const x=2+n*1.6;g.appendChild(prism(x,.17,z+1.05,1.45,.05,.83,'#263f50'));
@@ -256,7 +332,7 @@ function drawRoom(fid,detail) {
   } else {
     const workers=crewOf(fid),columns=Math.min(workers.length,3);
     workers.forEach((w,i)=>{
-      const x=columns===1?7.8:2.3+(i%columns)*8/(columns-1),y=7-Math.floor(i/columns)*1.3;
+      const x=columns===1?(fid==='3F'?2.4:7.8):2.3+(i%columns)*8/(columns-1),y=(fid==='3F'?6.3:7)-Math.floor(i/columns)*1.3;
       put(x,y,drawRoomWorker(w,x,y,z,detail));
     });
   }

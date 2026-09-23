@@ -210,7 +210,7 @@ security:
       temporary: true
       tools: [infrastructure_read, inventory_query]
       capabilities: [inventory]
-      inventory_assets: [dgx-spark-01, gpu-gw]
+      inventory_assets: [dgx-spark-01, dgx-01, dgx-02, dgx-03, dgx-06, thor-02, thor-03, gpu-gw]
     soc:
       label: 보안 자산 대장·SIEM 경보 분석
       duty: operate

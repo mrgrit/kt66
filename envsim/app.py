@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from model import FAULTS, Simulator
+from service_inventory import AIServiceInventory
 
 log = logging.getLogger("envsim")
 logging.basicConfig(level=logging.INFO, format="[envsim] %(message)s")
@@ -38,7 +39,10 @@ CORES_PER_ASSET = float(os.getenv("CORES_PER_ASSET", "4"))
 API_KEY = os.getenv("API_KEY", "")
 
 assets = yaml.safe_load(pathlib.Path(ASSETS_PATH).read_text(encoding="utf-8"))
+guide_path = pathlib.Path(ASSETS_PATH).with_name("facility-guide.yaml")
+assets["facility_guide"] = yaml.safe_load(guide_path.read_text(encoding="utf-8")) if guide_path.exists() else {}
 sim = Simulator(assets)
+service_inventory = AIServiceInventory(ttl=60)
 app = FastAPI(title="kt66 환경 시뮬레이터", version="1.0")
 
 _cpu_prev: dict[str, tuple[int, int]] = {}
@@ -108,7 +112,7 @@ async def collect_gpu_util() -> dict[str, float]:
     """
     out: dict[str, float] = {}
     for a in assets["it_assets"]:
-        if not a.get("gpu") or not a.get("remote"):
+        if not a.get("gpu") or not a.get("remote") or a.get("telemetry", {}).get("mode") == "inventory":
             continue
         try:
             async with httpx.AsyncClient(timeout=6.0) as c:
@@ -197,6 +201,16 @@ def state():
 def get_assets():
     """자산 대장 원본 — UI 의 배치도 데이터 모델이자 CMDB 기준."""
     return assets
+
+
+@app.get("/assets/{asset_id}/services")
+async def get_ai_services(asset_id: str):
+    """기존 GPU 존 경로로 명시적으로 위임된 장비의 메타데이터만 읽는다."""
+    asset = next((a for a in assets.get("it_assets", []) if a["id"] == asset_id), None)
+    if not asset or asset.get("service_via") != "envsim" or not asset.get("serving"):
+        raise HTTPException(404, "envsim 경유 조회 대상이 아닙니다")
+    result = await service_inventory.collect(asset)
+    return dict(result, route="envsim의 기존 GPU 존 경로")
 
 
 @app.get("/events")

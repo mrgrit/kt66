@@ -29,6 +29,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agent_control import router as agent_control_router
+from remote_hosts import RemoteHosts
+from envsim.service_inventory import AIServiceInventory
 
 log = logging.getLogger("noc")
 logging.basicConfig(level=logging.INFO, format="[noc] %(message)s")
@@ -79,6 +81,8 @@ def agent_control_page():
     return FileResponse(STATIC / "agent-control.html")
 
 _cache: dict[str, tuple[float, object]] = {}
+_remote_hosts = RemoteHosts(ttl=60)
+_ai_services = AIServiceInventory(ttl=60)
 
 
 def _sub(obj):
@@ -228,17 +232,39 @@ async def health():
 @app.get("/api/layout")
 async def layout():
     """건물 배치도 + 존 정의 + 자산 대장. 화면이 처음 한 번 받아 가는 정적 모델."""
+    return _sub(await asset_layout())
+
+
+async def asset_layout():
+    hit = _cache.get("asset-layout")
+    if hit and time.time() - hit[0] < 60:
+        return hit[1]
     _, assets = await _env("GET", "/assets")
-    return _sub(assets)
+    _cache["asset-layout"] = (time.time(), assets)
+    return assets
 
 
 @app.get("/api/state")
 async def state():
     """매 폴링마다 받아 가는 동적 상태. envsim 상태 + 컨테이너 생사."""
-    (_, st), ct = await _env("GET", "/state"), await container_states()
+    (_, st), ct, assets = await asyncio.gather(_env("GET", "/state"), container_states(), asset_layout())
     st["containers"] = ct
+    st["remote_hosts"] = await _remote_hosts.collect(assets.get("it_assets", []))
     st["netglue"] = await netglue_ok()
     return st
+
+
+@app.get("/api/assets/{asset_id}/services")
+async def ai_services(asset_id: str):
+    """사용자가 선택한 장비만 조회. 대상·포트는 대장에서만 가져온다."""
+    layout = await asset_layout()
+    asset = next((a for a in layout.get("it_assets", []) if a["id"] == asset_id), None)
+    if not asset or not asset.get("serving"):
+        raise HTTPException(404, "등록된 AI 서빙 서비스가 없습니다")
+    if asset.get("service_via") == "envsim":
+        code, data = await _env("GET", f"/assets/{asset_id}/services")
+        return JSONResponse(data, status_code=code)
+    return await _ai_services.collect(asset)
 
 
 @app.get("/api/events")

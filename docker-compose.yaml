@@ -486,6 +486,7 @@ services:
       # 하면 한 번 고치는 데 몇 분이 걸려 아무도 대장을 안 고치게 된다.
       # 이미지 안의 사본은 그대로 둔다: 저장소 없이 이미지만 돌려도 랩은 떠야 한다.
       - ./envsim/assets.yaml:/app/assets.yaml:ro
+      - ./envsim/facility-guide.yaml:/app/facility-guide.yaml:ro
     ports:
       - "${INT_HOST_IP:-0.0.0.0}:8010:8000"   # 강사/UI 접근 (내부 전용)
     networks:

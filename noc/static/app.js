@@ -75,6 +75,8 @@ let INJCAT = { injections: [] }, INJACT = { active: [] };
 let VIEW = { mode: 'floor', floor: '2F', zoom: 1, panx: 0, pany: 0 };
 const requestedFloor = new URLSearchParams(location.search).get('floor');
 if (['1F','2F','3F','4F'].includes(requestedFloor)) VIEW.floor = requestedFloor;
+if(new URLSearchParams(location.search).get('view')==='site'){VIEW.mode='site';VIEW.floor=null;}
+let SELECTED_FACILITY = null;
 let BASE_VB = null, SELECTED = null, upsDismissed = false;
 let MOUSE = { x: 0, y: 0 };
 const TIPS = new Map();                 // tipId -> 툴팁 payload
@@ -88,7 +90,7 @@ let YS = 14;
 const STAGGER = { dx: 130, dy: 170 };
 const iso = (x, y, z) => [(x - y) * XS, (x + y) * YS - z * ZS];
 
-const ZONE_ORDER = ['ext', 'pipe', 'dmz', 'int', 'app', 'ot', 'mgmt'];
+const ZONE_ORDER = ['ext', 'pipe', 'dmz', 'int', 'app', 'gpu-external', 'ot', 'mgmt'];
 
 /* ══ 색 ════════════════════════════════════════════════════════ */
 const TEMP_STOPS = [[16, '#2563eb'], [22, '#2ee6ff'], [27, '#ffb020'],
@@ -300,7 +302,7 @@ const racksOf = f => (LAYOUT?.racks || []).filter(r => r.floor === f);
 const assetsOf = f => (LAYOUT?.it_assets || []).filter(a => a.floor === f);
 const crewOf = f => (ROSTER.workers || []).filter(w => w.floor === f);
 const assetState = id => ST?.assets?.[id] || { kw: 0, util: 0 };
-const alive = a => a.container ? ST?.containers?.[a.container]?.state === 'running'
+const alive = a => a.availability?.kind==='ssh_tcp' ? ST?.remote_hosts?.[a.id]?.reachable===true : a.container ? ST?.containers?.[a.container]?.state === 'running'
   : a.remote ? (ST?.assets?.[a.id]?.util ?? 0) > 0 : true;
 
 function zonesOf(fid) {
@@ -309,33 +311,12 @@ function zonesOf(fid) {
   return ids.filter(z => zoneOf(z))
     .sort((a, b) => ZONE_ORDER.indexOf(a) - ZONE_ORDER.indexOf(b)).map(z => zoneOf(z));
 }
-function facilityOf(f) {
-  const F = LAYOUT?.facility || {}, out = [];
-  const push = (kind, list) => (list || []).filter(i => i.floor === f)
-    .forEach(i => out.push({ ...i, kind: i.kind || kind }));
-  if (F.utility && F.utility.floor === f) out.push({ ...F.utility, kind: 'utility' });
-  push('generator', F.generator); push('ups', F.ups); push('pdu', F.pdu);
-  push('chiller', F.chiller); push('crac', F.crac); push('fire', F.fire);
-  push('facility', F.security);
-  // ── 신규 계통. 교재 5장의 전력·냉각 계통을 층에 실제로 세운다 ──
-  // containment · raised_floor · cold_plate · weather 는 상자가 아니라 성질이라
-  // 프리즘으로 세우지 않는다 — 아일 지표(기류·격리)와 우측 레일에서 읽힌다.
-  push('substation', F.substation); push('switchgear', F.switchgear);
-  push('transformer', F.transformer); push('ats', F.ats);
-  push('battery', F.battery); push('fuel_tank', F.fuel_tank);
-  push('microgrid', F.microgrid); push('busway', F.busway);
-  push('cooling_tower', F.cooling_tower); push('pump', F.pump);
-  push('heat_exchanger', F.heat_exchanger); push('economizer', F.economizer);
-  push('fan_coil', F.fan_coil); push('cdu', F.cdu);
-  push('water_tank', F.water_tank); push('immersion', F.immersion);
-  push('automation', F.automation);
-  return out;
-}
 function floorTemp(f) {
   const a = Object.values(ST?.aisles || {}).filter(x => x.floor === f);
   return a.length ? Math.max(...a.map(x => x.temp_c)) : null;
 }
 function facilityDown(item) {
+  if(!ST)return false;
   const F = ST?.faults || {};
   const hit = k => (F[k] || []).includes(item.id) || (F[k] || []).includes('*');
   switch (item.kind) {
@@ -360,11 +341,24 @@ function facilityDown(item) {
     case 'economizer': return hit('economizer_stuck');
     case 'cdu': return hit('cdu_leak');
     case 'fan_coil': return hit('fan_coil_fail');
+    case 'containment': return hit('containment_open');
+    case 'raised_floor': return hit('airflow_block') || (F.airflow_block||[]).includes(item.floor);
+    case 'weather': return hit('heatwave');
     default: return false;
   }
 }
-const floorAlarms = fid => (ST?.alarms || []).filter(a =>
-  (a.scope || '').startsWith(fid) || (fid === '1F' && (a.scope || '').startsWith('facility')));
+function floorAlarms(fid) {
+  return (ST?.alarms||[]).filter(alarm=>{
+    const scope=alarm.scope||'';
+    if(scope.startsWith(fid+'/'))return true;
+    const id=scope.split('/')[1];
+    const item=allFacilities().find(f=>f.id===id);
+    if(item)return fid==='SITE'?item.location==='outdoor':item.floor===fid;
+    if(['fuel','weather'].includes(id))return fid==='SITE';
+    // Whole-plant alarms are shown in the common alarm list, not assigned to a floor.
+    return false;
+  });
+}
 
 /* ══ 스프라이트 ═════════════════════════════════════════════════ */
 
@@ -379,7 +373,7 @@ const warnBadge = (cx, cy) => el('g', { filter: 'url(#bloom)' }, [
 const RT_COLOR = { bastion: '#2ee6ff', hermes: '#a78bfa', claude: '#ffb020', codex: '#a7e1bc' };
 const AU_COLOR = { L3: '#ff4d6a', approver: '#3ddc97', L2: '#38bdf8', L1: '#5b7185' };
 
-function drawFloorContent(fid, detail) { return drawRoom(fid, detail); }
+function drawFloorContent(fid, detail) { return fid==='SITE'?drawOutdoor(detail):drawRoom(fid, detail); }
 
 /* ══ 장면 ══════════════════════════════════════════════════════ */
 function sceneFrame(svg) {
@@ -426,6 +420,10 @@ function drawBuilding() {
       anchor:'mid', sub: `${racksOf(f.id).length} RACKS / 근무자 ${crewOf(f.id).length}명`,
       color:floorAlarms(f.id).length?'#f49797':'#bfd5e2', size:10, gap:3 });
   });
+  const siteX=-(GW+GD)*XS*.94,siteY=100;
+  root.appendChild(el('g',{transform:'translate('+siteX+','+siteY+')',class:'hit',on:{click:enterSite}},[drawOutdoor(false)]));
+  const siteLabel=iso(GW-.3,GD-.2,.13);
+  pill(siteLabel[0]+siteX,siteLabel[1]+siteY+8,'옥외 · 전력·냉각 설비',{anchor:'mid',sub:'OUTDOOR / 층 구분 없음',color:'#d1dfc5',size:10,gap:3});
   finish(svg, root);
 }
 
@@ -464,7 +462,8 @@ function render() {
   if (!LAYOUT) return;
   if (drag) return;
   if ($('#stage-body').hidden) { renderLift(); renderAssetExplorer(); return; }
-  if (VIEW.mode === 'floor' && VIEW.floor) drawFloor(VIEW.floor); else drawBuilding();
+  if (VIEW.mode === 'site') drawFloor('SITE');
+  else if (VIEW.mode === 'floor' && VIEW.floor) drawFloor(VIEW.floor); else drawBuilding();
   renderLift();
   refreshTip();
 }
@@ -475,6 +474,10 @@ function enterFloor(fid) {
 function enterBuilding() {
   VIEW = { ...VIEW, mode: 'building', floor: null, zoom: 1, panx: 0, pany: 0 };
   render(); renderZonePane(); renderCrew(); renderAssetExplorer();
+}
+function enterSite() {
+  VIEW={...VIEW,mode:'site',floor:null,zoom:1,panx:0,pany:0};
+  render();renderZonePane();renderCrew();renderAssetExplorer();
 }
 
 /* ══ 엘리베이터 패널 ════════════════════════════════════════════ */
@@ -533,19 +536,20 @@ function renderPower() {
 function renderZonePane() {
   const pane = $('#pane-zone');
   const scope = VIEW.mode === 'floor' ? VIEW.floor : null;
+  if(VIEW.mode==='site'){pane.innerHTML='<div class="empty">옥외 시설은 시설·전력·냉각 계통에 속합니다. 설비를 선택하면 연결 관계를 확인할 수 있습니다.</div>';return;}
   const zs = scope ? zonesOf(scope) : (LAYOUT?.zones || []);
   const pool = scope ? assetsOf(scope) : (LAYOUT?.it_assets || []);
   pane.innerHTML = `<div class="railhead">${scope ? `${scope} 의 존 ${zs.length}개` : '전체 존'} — 층은 물리, 존은 논리</div>`
     + zs.map(z => {
       const mine = pool.filter(a => a.zone === z.id || (z.logical && a.logical_zone === z.id));
-      const down = mine.filter(a => !alive(a)).length;
+      const down = mine.filter(assetDown).length;
       return `<div class="zcard" data-z="${z.id}" style="border-left-color:${z.color}">
         <div class="zh"><b style="color:${z.color}">${z.id}</b><span>${z.name}</span>
           <span class="trust">${z.trust}${z.logical ? ' 논리' : ''}${z.isolated ? ' 격리' : ''}</span></div>
         <div class="cidr">${z.cidr || '— 세그먼트 없음 (권한 경계)'}${z.gateway ? ` · gw ${z.gateway}` : ''}</div>
         <div class="zrole">${z.role}</div>
         ${mine.length ? `<div class="zassets">${mine.map(a =>
-          `<span class="za ${alive(a) ? '' : 'down'}">${a.name}</span>`).join('')}</div>` : ''}
+          `<span class="za ${assetDown(a) ? 'down' : ''}">${a.name}</span>`).join('')}</div>` : ''}
         ${down ? `<div class="zrole" style="color:var(--red)">정지 ${down}건</div>` : ''}</div>`;
     }).join('');
   $$('[data-z]', pane).forEach(n => n.onclick = () => openZone(n.dataset.z));
@@ -561,6 +565,7 @@ function renderCrew() {
   const pane = $('#pane-crew'), ws = ROSTER.workers || [];
   if (!ws.length) { pane.innerHTML = '<div class="empty">근무자 명단을 읽지 못했습니다</div>'; return; }
   const scope = VIEW.mode === 'floor' ? VIEW.floor : null;
+  if(VIEW.mode==='site'){pane.innerHTML='<div class="railhead">옥외 시설 담당</div>'+ws.filter(w=>['facility-engineer','physical-security'].includes(w.id)).map(w=>'<button class="btn" data-site-worker="'+safeText(w.id)+'">'+safeText(w.name)+'</button>').join('');$$('[data-site-worker]').forEach(b=>b.onclick=()=>openCrew(b.dataset.siteWorker));return;}
   const groups = scope ? floors().filter(f => f.id === scope) : floors();
   pane.innerHTML = groups.map(f => {
     const list = ws.filter(w => w.floor === f.id);
@@ -649,6 +654,7 @@ function selectNode(n) {
 
 /* ══ 상세 패널 ══════════════════════════════════════════════════ */
 function showDrawer(name, zoneId, html) {
+  SELECTED_FACILITY=null;
   $('#dr-name').textContent = name;
   const z = $('#dr-zone');
   if (zoneId) { z.textContent = zoneId; z.style.color = zoneColor(zoneId); z.hidden = false; }
@@ -673,35 +679,71 @@ function showDrawer(name, zoneId, html) {
 const kv = (k, v) => v == null || v === '' ? ''
   : `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
 
-function openAsset(id) {
-  const a = (LAYOUT?.it_assets || []).find(x => x.id === id); if (!a) return;
-  SELECTED = id;
-  const st = assetState(id), up = alive(a), zn = zoneOf(a.zone);
-  const ct = a.container ? ST?.containers?.[a.container] : null;
-  const grp = LAYOUT?.shed_groups?.[a.shed_group];
-  showDrawer(a.name, a.zone, `
-    ${kv('자산 ID', a.id)}
-    ${kv('상태', up ? '<span style="color:var(--green)">가동 중</span>' : '<span style="color:var(--red)">정지</span>')}
-    ${kv('위치', `${a.floor} · ${a.rack || '랙 외'}${a.u ? ` · ${a.u}U` : ''}`)}
-    ${kv('존', `${a.zone} (${zn?.trust || '-'}) ${zn?.cidr || ''}`)}
-    ${a.logical_zone ? kv('권한 경계', `${a.logical_zone} — 망 경계와 다르다`) : ''}
-    ${kv('주소', a.ip)} ${kv('실체', a.container || (a.remote ? `원격 ${a.remote}`
-      : a.host || '-'))}
-    ${ct ? kv('컨테이너', ct.status) : ''}
-    <div class="kv"><span class="k">수집 기반 사용률</span><span class="v">${(st.util * 100).toFixed(0)}%</span></div>
-    <div class="bar"><i style="width:${Math.min(st.util * 100, 100)}%;background:${
-      st.util > .7 ? 'var(--red)' : 'var(--cyan)'}"></i></div>
-    ${kv('환산 전력', `${st.kw.toFixed(2)} kW <span style="color:var(--dimmer)">(${a.idle_kw}~${a.rated_kw})</span>`)}
-    ${grp ? kv('부하 그룹', `${grp.name} · 우선순위 ${grp.priority}`) : ''}
-    ${grp ? `<div class="note">차단 시: ${grp.impact}</div>` : ''}
-    <div class="access">
-      ${a.web ? `<a class="btn act" href="${a.web}" target="_blank" rel="noopener">웹 콘솔 열기 ↗</a>` : ''}
-      ${a.api ? `<a class="btn" href="${a.api}" target="_blank" rel="noopener">API ↗</a>` : ''}
-      ${a.ssh ? `<div class="cmd">${a.ssh}</div>` : ''}
-      ${a.container ? `<div class="cmd">docker exec -it ${a.container} sh</div>` : ''}
-      ${a.container ? `<div class="cmd">docker logs -f --tail 100 ${a.container}</div>` : ''}
-    </div>`);
+function assetStatusLabel(a) {
+  if(a.availability?.kind==='ssh_tcp') {
+    const row=ST?.remote_hosts?.[a.id];
+    return !row?'접속 확인 중':row.reachable?'SSH 포트 응답':'SSH 포트 미응답';
+  }
+  return alive(a)?'가동 중':'정지·응답 없음';
 }
+const assetDown = a => a.availability?.kind==='ssh_tcp'
+  ? ST?.remote_hosts?.[a.id]?.reachable===false : !alive(a);
+const assetIndicator = a => a.availability?.kind==='ssh_tcp' && !ST?.remote_hosts?.[a.id]
+  ? '#92a29e' : alive(a)?'#a6d980':'#f48181';
+const assetPowerLabel = a => a.telemetry?.mode==='inventory'?'전력 미수집':assetState(a.id).kw.toFixed(2)+' kW';
+function hardwareDetails(a) {
+  if(!a.hardware)return '';
+  const h=a.hardware,d=a.discovery,esc=safeText;
+  return '<div class="dsec">SSH로 확인한 하드웨어</div>'+
+    kv('제품',esc(a.product))+kv('호스트',esc(h.hostname))+kv('GPU',esc(a.gpu_model))+
+    kv('CPU',esc(h.architecture)+' · '+h.cpu_cores+'코어')+
+    kv('통합 메모리',(h.memory_bytes/1024**3).toFixed(1)+' GiB · OS 인식 용량')+
+    kv('루트 파일시스템',(h.root_disk_bytes/1e12).toFixed(2)+' TB')+
+    kv('운영체제',esc(h.os))+kv('NVIDIA 드라이버',esc(h.nvidia_driver))+
+    kv('CUDA 드라이버 지원',esc(h.cuda_driver_api))+
+    (d?'<div class="dsec">등록 시점 점검 기록</div>'+kv('확인 시각',esc(new Date(d.checked_at).toLocaleString('ko-KR')))+
+      kv('GPU 관측',d.gpu_temp_c+'°C · 사용률 '+d.gpu_util_pct+'%')+
+      kv('루트 디스크 사용',d.root_disk_used_pct+'%')+
+      kv('Docker 조회',esc(d.docker_inventory))+
+      '<div class="note">'+(d.services||[]).map(esc).join('<br>')+'<br><br>'+esc(d.note)+'</div>':'');
+}
+function openAsset(id) {
+  const a=(LAYOUT?.it_assets||[]).find(x=>x.id===id);if(!a)return;
+  const same=SELECTED===id,scroll=same?$('#dr-body').scrollTop:0;
+  const expanded=same?$$('[data-service-expand][open]').map(e=>e.dataset.serviceExpand):[];
+  SELECTED=id;
+  const st=assetState(id),zn=zoneOf(a.zone),ct=a.container?ST?.containers?.[a.container]:null;
+  const grp=LAYOUT?.shed_groups?.[a.shed_group],inventory=a.telemetry?.mode==='inventory',esc=safeText;
+  const status=ST?.remote_hosts?.[id];
+  showDrawer(a.name,a.zone,
+    kv('자산 ID',esc(a.id))+kv('상태','<span style="color:'+assetIndicator(a)+'">'+esc(assetStatusLabel(a))+'</span>')+
+    kv('배치',esc(a.floor+' · '+(a.rack||'랙 외'))+(a.vendor==='NVIDIA'?' · 교육용 전시 배치':a.u?' · '+a.u+'U':''))+
+    kv('존',esc(a.zone+' ('+(zn?.trust||'-')+') '+(zn?.cidr||'')))+
+    (a.logical_zone?kv('권한 경계',esc(a.logical_zone)+' — 망 경계와 다르다'):'')+
+    kv('주소',esc(a.ip))+kv('실체',esc(a.container||(a.remote?'원격 '+a.remote:a.host||'-')))+
+    (ct?kv('컨테이너',esc(ct.status)):'')+
+    (status?kv('접속 점검',esc(new Date(status.checked_at*1000).toLocaleTimeString('ko-KR'))+' · 60초 간격')+
+      '<div class="note">SSH 포트 접속성입니다. 로그인 성공·GPU 작업 상태·서비스 정상 여부를 뜻하지 않습니다.</div>':'')+
+    (inventory?'<div class="note">'+esc(a.telemetry.note)+'</div>':
+      kv('수집 기반 사용률',(st.util*100).toFixed(0)+'%')+
+      '<div class="bar"><i style="width:'+Math.min(st.util*100,100)+'%;background:var(--cyan)"></i></div>'+
+      kv('환산 전력',st.kw.toFixed(2)+' kW ('+a.idle_kw+'~'+a.rated_kw+')'))+
+    aiServicesMarkup(a)+hardwareDetails(a)+
+    (a.zone==='gpu-external'?'<div class="note">외부 관리 IP입니다. 내부 AI 존의 터널·방화벽·IPS 경로에 편입된 장비라는 뜻은 아닙니다.</div>':'')+
+    (grp?kv('부하 그룹',esc(grp.name)+' · 우선순위 '+grp.priority):'')+
+    (inventory?'<div class="note">현재 부하 차단 시뮬레이션으로 이 외부 장비의 전원을 제어하지 않습니다.</div>':
+      grp?'<div class="note">차단 시: '+esc(grp.impact)+'</div>':'')+
+    '<div class="access">'+
+    (a.web?'<a class="btn act" href="'+esc(a.web)+'" target="_blank" rel="noopener">웹 콘솔 열기 ↗</a>':'')+
+    (a.api?'<a class="btn" href="'+esc(a.api)+'" target="_blank" rel="noopener">API ↗</a>':'')+
+    (a.ssh?'<div class="cmd">'+esc(a.ssh)+'</div>':'')+
+    (a.container?'<div class="cmd">docker exec -it '+esc(a.container)+' sh</div><div class="cmd">docker logs -f --tail 100 '+esc(a.container)+'</div>':'')+
+    '</div>');
+  $$('[data-service-expand]').forEach(e=>e.open=expanded.includes(e.dataset.serviceExpand));
+  $('#dr-body').scrollTop=scroll;
+  refreshAIServices(id);
+}
+
 function openZone(id) {
   const z = zoneOf(id); if (!z) return; SELECTED = null;
   const mine = (LAYOUT?.it_assets || []).filter(a => a.zone === id || (z.logical && a.logical_zone === id));
@@ -719,11 +761,10 @@ function openZone(id) {
     <div class="dsec">자산 ${mine.length}</div>
     ${mine.map(a => `<div class="kv" style="cursor:pointer" data-a="${a.id}">
       <span class="k">${a.name} <span class="muted">${a.floor}</span></span>
-      <span class="v" style="color:${alive(a) ? 'var(--tx)' : 'var(--red)'}">${
-        alive(a) ? assetState(a.id).kw.toFixed(2) + 'kW' : '정지'}</span></div>`).join('')
+      <span class="v" style="color:${assetIndicator(a)}">${
+        alive(a) ? assetPowerLabel(a) : '정지'}</span></div>`).join('')
       || '<div class="muted">없음</div>'}
-    <div class="note">존 밖으로 나가는 트래픽은 위의 경유 지점을 반드시 지난다.
-      우회로가 없다는 것이 이 랩의 핵심 성질이다.</div>`);
+    <div class="note">${z.id==='gpu-external'?'외부 실물 장비의 관리 구분입니다. 내부 존 경유 경로가 적용된다는 뜻은 아닙니다.':'내부 존 사이의 정의된 경유 경로입니다.'}</div>`);
   $$('#dr-body [data-a]').forEach(n => n.onclick = () => openAsset(n.dataset.a));
 }
 function openRack(id) {
@@ -739,38 +780,16 @@ function openRack(id) {
     ${a ? kv('냉방', `${a.cooling_kw}kW ${a.cooling_kw < a.it_kw ? '— 부족' : ''}`) : ''}
     ${kv('섞여 있는 존', [...new Set(list.map(x => x.zone))]
       .map(z => `<span style="color:${zoneColor(z)}">${z}</span>`).join(' '))}
+    ${list.some(x=>x.telemetry?.mode==='inventory')?'<div class="note">외부 장비의 전력은 아직 수집하지 않습니다. 현재 부하는 수집 가능한 자산의 환산값만 합산합니다.</div>':''}
     <div class="dsec">탑재 자산 ${list.length}</div>
     ${list.map(x => `<div class="kv" style="cursor:pointer" data-a="${x.id}">
       <span class="k"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;
         background:${zoneColor(x.zone)};margin-right:7px"></i>${x.name}</span>
-      <span class="v">${assetState(x.id).kw.toFixed(2)}kW</span></div>`).join('')}
+      <span class="v">${assetPowerLabel(x)}</span></div>`).join('')}
     <div class="note">한 랙 안에 서로 다른 존이 섞여 있다 — 물리적으로 옆자리인데 논리적으로
       다른 망이다. 이 어긋남이 1주차 실습 재료다.<br><br>
       같은 아일의 랙끼리는 열이 섞인다. 한 랙의 폭주가 옆 랙 온도를 올린다.</div>`);
   $$('#dr-body [data-a]').forEach(n => n.onclick = () => openAsset(n.dataset.a));
-}
-function openFacility(item) {
-  SELECTED = null;
-  const down = facilityDown(item), p = ST?.power;
-  let extra = '';
-  if (item.kind === 'ups' && p) extra = kv('충전', `${p.ups_charge_pct}%`)
-    + kv('잔여', `${p.ups_runtime_min} 분`) + kv('배터리', `${item.battery_kwh} kWh / ${item.capacity_kw} kW`);
-  else if (item.kind === 'generator' && p) extra = kv('상태', p.generator_failed ? '기동 실패'
-    : p.generator_running ? '운전 중' : '대기') + kv('기동 지연', `${item.start_delay_s} 초`)
-    + kv('연료', `${item.fuel_hours} 시간`);
-  else if (item.kind === 'pdu') { const kw = p?.pdu?.[item.id] ?? 0;
-    extra = kv('부하', `${kw.toFixed(2)} / ${item.capacity_kw} kW (${(kw / item.capacity_kw * 100).toFixed(0)}%)`)
-      + kv('급전 랙', item.rack); }
-  else if (item.kind === 'crac') { const a = ST?.aisles?.[item.aisle];
-    extra = kv('담당 아일', item.aisle) + kv('정격', `${item.capacity_kw} kW`)
-      + (a ? kv('현재 출력', `${a.cooling_kw} kW`) : ''); }
-  showDrawer(item.name || item.id, 'ot', `
-    ${kv('설비 ID', item.id)} ${kv('종류', item.kind)} ${kv('층', item.floor)}
-    ${kv('상태', down ? '<span style="color:var(--red)">이상</span>'
-                      : '<span style="color:var(--green)">정상</span>')}
-    ${extra}
-    <div class="note">시설 계통은 가상이다. 다만 이 계통이 계산에 쓰는 <b>발열은 실측</b>이다 —
-      컨테이너 CPU 와 GPU 상태에서 온다.</div>`);
 }
 function openCrew(id) {
   const w = (ROSTER.workers || []).find(x => x.id === id); if (!w) return; SELECTED = null;
@@ -1071,6 +1090,7 @@ async function poll() {
     body.scrollTop = keep;
     render(); renderAssetExplorer();
     if (SELECTED) openAsset(SELECTED);
+    else if(SELECTED_FACILITY && !$('#drawer').hidden){const item=allFacilities().find(f=>f.id===SELECTED_FACILITY);if(item)openFacility(item);}
   } catch (e) {
     updateConnection(false, String(e.message || e));
   } finally { polling = false; }
@@ -1104,7 +1124,7 @@ async function boot() {
 
 /* ══ 배선 ══════════════════════════════════════════════════════ */
 $$('#tabs .tab').forEach(t => t.onclick = () => selectTab(t.dataset.tab));
-$('#dr-close').onclick = () => { $('#drawer').hidden = true; SELECTED = null; };
+$('#dr-close').onclick = () => { $('#drawer').hidden = true; SELECTED = null; SELECTED_FACILITY = null; };
 $('#ups-close').onclick = () => { upsDismissed = true; $('#ups-modal').hidden = true; };
 /* 키는 브라우저에만 남는다. 강사 노트북에서 한 번 넣으면 다음 수업에도 그대로 있다. */
 {
@@ -1188,8 +1208,8 @@ window.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (!$('#inj-modal').hidden) $('#inj-modal').hidden = true;
   else if (!$('#ups-modal').hidden) { upsDismissed = true; $('#ups-modal').hidden = true; }
-  else if (!$('#drawer').hidden) { $('#drawer').hidden = true; SELECTED = null; }
-  else if (VIEW.mode === 'floor') enterBuilding();
+  else if (!$('#drawer').hidden) { $('#drawer').hidden = true; SELECTED = null; SELECTED_FACILITY = null; }
+  else if (VIEW.mode !== 'building') enterBuilding();
 });
 window.addEventListener('resize', render);
 

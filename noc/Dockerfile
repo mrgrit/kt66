@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY noc/app.py ./
 COPY noc/agent_control.py ./
+COPY noc/remote_hosts.py ./
+COPY envsim/service_inventory.py ./envsim/service_inventory.py
 COPY agents/activity_audit.py ./
 COPY noc/static ./static
 

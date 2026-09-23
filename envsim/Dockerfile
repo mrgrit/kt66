@@ -14,7 +14,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY model.py app.py assets.yaml entrypoint.sh ./
+COPY model.py app.py assets.yaml facility-guide.yaml entrypoint.sh ./
+COPY service_inventory.py ./
 RUN chmod +x entrypoint.sh
 
 EXPOSE 8000
