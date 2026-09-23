@@ -399,7 +399,7 @@ function prepareScene(svg, building) {
   }
 }
 function drawBuilding() {
-  const svg = $('#scene');
+  const svg = $('#scene'), compactLabels = svg.clientWidth < 560;
   prepareScene(svg, true);
   svg.replaceChildren(); LBL = []; TIPS.clear(); tipSeq = 0;
   svg.appendChild(sceneDefs());
@@ -414,16 +414,19 @@ function drawBuilding() {
   floors().forEach((f, i) => {
     root.appendChild(el('g', {
       transform: `translate(${i * STAGGER.dx},${-i * STAGGER.dy})`,
+      'data-building-floor': f.id,
       class: 'hit', on: { click: () => enterFloor(f.id) } }, [drawFloorContent(f.id, false)]));
     const [sx,sy] = iso(GW-.3, GD-.2, .22);
     pill(sx+i*STAGGER.dx, sy-i*STAGGER.dy+5, `${f.id} · ${f.name}`, {
-      anchor:'mid', sub: `${racksOf(f.id).length} RACKS / 근무자 ${crewOf(f.id).length}명`,
-      color:floorAlarms(f.id).length?'#f49797':'#bfd5e2', size:10, gap:3 });
+      anchor:'mid', sub: compactLabels?null:`${racksOf(f.id).length} RACKS / 근무자 ${crewOf(f.id).length}명`,
+      color:floorAlarms(f.id).length?'#f49797':'#bfd5e2', size:compactLabels?9:10, gap:3 });
   });
-  const siteX=-(GW+GD)*XS*.94,siteY=100;
-  root.appendChild(el('g',{transform:'translate('+siteX+','+siteY+')',class:'hit',on:{click:enterSite}},[drawOutdoor(false)]));
+  // 벌려 놓은 층의 왼쪽 위 빈 공간을 쓴다. 옥외를 건물 외곽으로 밀어내면
+  // 화면 맞춤의 경계가 커져 모든 층이 불필요하게 작아진다.
+  const siteX=0,siteY=-Math.max(0,floors().length-1)*STAGGER.dy-Math.max(0,220-STAGGER.dx)*.45;
+  root.appendChild(el('g',{'data-building-site':'outdoor',transform:'translate('+siteX+','+siteY+')',class:'hit',on:{click:enterSite}},[drawOutdoor(false)]));
   const siteLabel=iso(GW-.3,GD-.2,.13);
-  pill(siteLabel[0]+siteX,siteLabel[1]+siteY+8,'옥외 · 전력·냉각 설비',{anchor:'mid',sub:'OUTDOOR / 층 구분 없음',color:'#d1dfc5',size:10,gap:3});
+  pill(siteLabel[0]+siteX,siteLabel[1]+siteY+8,'옥외 · 전력·냉각 설비',{anchor:'mid',sub:compactLabels?null:'OUTDOOR / 층 구분 없음',color:'#d1dfc5',size:compactLabels?9:10,gap:3});
   finish(svg, root);
 }
 
