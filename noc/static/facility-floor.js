@@ -263,7 +263,8 @@ function drawLobbyFloor(detail) {
     if(plan.mount_z)node.setAttribute('data-wall-mounted','true');
     put(x+plan.size[0]/2,y+plan.size[1]/2,node);
   }
-  for(const worker of crewOf('1F'))put(6.2,3.65,drawRoomWorker(worker,6.2,3.65,z,detail&&wide));
+  // 데스크 앞 안내 위치. 칸막이·카운터에 캐릭터와 선택 영역이 가려지지 않는다.
+  for(const worker of crewOf('1F'))put(5.15,5.9,drawRoomWorker(worker,5.15,5.9,z,detail&&wide));
   // 방재 패널과 건물 이름은 뒤 벽면을 사용한다.
   const sign=el('g',{'data-architectural-feature':'lobby-sign'});
   sign.appendChild(prism(.7,.15,z+.91,3.15,.06,.52,'#344f47'));
