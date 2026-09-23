@@ -7,6 +7,7 @@ import yaml
 def install(app, root, key, templates, write):
     import xoc
     import research_lab
+    import research_benchmarks
 
     @app.middleware('http')
     async def private_records(request, call_next):
@@ -31,7 +32,7 @@ def install(app, root, key, templates, write):
 
     @app.get('/research-lab', include_in_schema=False)
     def lab_page(request: Request):
-        return templates.TemplateResponse('control-centers.html', {'request': request, 'center': 'researchlab'})
+        return templates.TemplateResponse('research-lab.html', {'request': request})
 
     @app.get('/api/xoc')
     def xoc_status(request: Request):
@@ -71,12 +72,40 @@ def install(app, root, key, templates, write):
         auth(request)
         return perform(lambda: research_lab.propose(root, body, 'instructor'))
 
+    @app.get('/api/research-lab/example')
+    def lab_example(request: Request):
+        auth(request)
+        return perform(lambda: research_lab.example(root))
+
+    @app.get('/api/research-lab/candidates/{cid}')
+    def lab_detail(cid: str, request: Request):
+        auth(request)
+        return perform(lambda: research_lab.detail(root, cid))
+
+    @app.get('/api/research-lab/suites/{sid}')
+    def lab_suite(sid: str, request: Request):
+        auth(request)
+        return perform(lambda: research_benchmarks.get(root, sid))
+
+    @app.post('/api/research-lab/suites/{sid}')
+    def lab_suite_save(sid: str, request: Request, body: dict = Body(...)):
+        auth(request)
+        roles = {w['security_role'] for w in research_lab.workers(root).values()}
+        return perform(lambda: research_benchmarks.save(root, sid, body.get('yaml'), body.get('revision'), roles))
+
+    @app.post('/api/research-lab/suites/{sid}/delete')
+    def lab_suite_delete(sid: str, request: Request, body: dict = Body(...)):
+        auth(request)
+        return perform(lambda: research_benchmarks.delete(root, sid, body.get('revision')))
+
     @app.post('/api/research-lab/candidates/{cid}/{action}')
     def lab_action(cid: str, action: str, request: Request, body: dict = Body(...)):
         auth(request)
         if action == 'evaluate':
             # 제출자는 강사라도 평가는 별도 평가원의 고정 실행 경로다.
-            return perform(lambda: research_lab.queue(root, cid, 'skill-evaluator'))
+            return perform(lambda: research_lab.queue(root, cid, 'skill-evaluator', requested_by='instructor'))
+        if action == 'archive':
+            return perform(lambda: research_lab.archive(root, cid))
         if action in ('apply', 'rollback'):
             return perform(lambda: research_lab.apply_candidate(root, cid, action == 'rollback', body.get('reason'), write))
         raise HTTPException(404, '지원하지 않는 작업입니다')

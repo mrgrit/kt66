@@ -76,7 +76,7 @@ function renderFloorSelector() {
   }
   const floor=floors().find(f=>f.id===VIEW.floor),pool=floor?assetsOf(floor.id):LAYOUT.it_assets;
   $('#view-title').textContent=floor?floor.name:'데이터센터 전체 배치';
-  const centerLink=$('#agent-control-link');centerLink.hidden=!['5F','XOC'].includes(VIEW.floor);centerLink.href=dcURL(VIEW.floor==='5F'?'researchlab':'xoc');centerLink.textContent=VIEW.floor==='5F'?'연구·평가 관리 ↗':'xOC 관제 ↗';
+  const centerLink=$('#agent-control-link');centerLink.hidden=!['5F','XOC'].includes(VIEW.floor);centerLink.href=dcURL(VIEW.floor==='5F'?'researchlab':'xoc');centerLink.textContent=VIEW.floor==='5F'?'업무 방식 실험실 ↗':'xOC 관제 ↗';
   $('#scene-floor-code').textContent=floor?`${floor.id} / ${({'B1':'PLANT ROOMS','1F':'SECURITY LOBBY','2F':'SERVER HALL','3F':'AI COMPUTE','4F':'OPERATIONS','5F':'AI RESEARCH','XOC':'RESTRICTED / 층 번호 대외비'}[floor.id] || '')}`:'KT66 / BUILDING';
   $('#scene-floor-note').textContent=VIEW.mode==='building'?'층별 분해 배치 · xOC 실제 층 비공개':VIEW.floor==='3F'?'NVIDIA 7대 공랭 구역 · 액체냉각 비교 실습 분리':VIEW.floor==='5F'?'실무 방법론 연구 → 독립 평가 → 검토 후 적용':VIEW.floor==='XOC'?'AI 에이전트 관제 · SOC / 접근 권한 분리':VIEW.floor==='4F'?'운영 리드 전용 공간 · 역할별 근무석':'자산 대장 기반 개념 배치도';
   $('#scene-summary').textContent=`${floor?racksOf(floor.id).length:LAYOUT.racks.length} RACKS / ${pool.length} ASSETS / 근무자 ${floor?crewOf(floor.id).length:ROSTER.workers.length}명`;

@@ -14,7 +14,7 @@ TOOLS=[
  ("xoc_contain","검증된 XOC-001 사건 대상의 새 세션·다음 도구를 최대 15분 보류합니다. 승인자·감사인·자신은 제외합니다.",schema({"finding_id":S,"worker":S,"minutes":{"type":"integer","minimum":1,"maximum":15},"reason":S},["finding_id","worker","minutes","reason"]),"xoc_contain"),
  ("compliance_read","현재 통제 설정·증적 범위·갭을 읽습니다. 설정 존재와 운영 효과·인증 판정을 구분하세요.",schema({}),"xoc_read"),
  ("lab_read","후보·출처·실측 평가 요약을 조회합니다. candidate_id는 후보 상세, target_worker는 해당 역할의 원본 지침·스킬·권한만 읽습니다.",schema({"candidate_id":S,"target_worker":S}),"research_lab"),
- ("lab_propose","출처·개선 가설·대상 역할이 있는 SKILL.md 후보를 등록합니다. 운영 스킬 적용이 아닙니다.",schema({"name":S,"content":S,"target_worker":S,"hypothesis":S,"sources":{"type":"array","items":S}},["name","content","target_worker","hypothesis","sources"]),"research_lab"),
+ ("lab_propose","출처·개선 가설·대상 역할이 있는 SKILL.md 후보를 등록합니다. suite_id로 직무 평가 세트를 선택할 수 있습니다. 운영 적용이 아닙니다.",schema({"name":S,"content":S,"target_worker":S,"hypothesis":S,"suite_id":S,"sources":{"type":"array","items":S}},["name","content","target_worker","hypothesis","sources"]),"research_lab"),
  ("lab_evaluate","후보의 독립 격리 A/B 평가를 큐에 등록합니다. 모델 2회, 운영 도구 없이 고정 사례를 비교합니다.",schema({"candidate_id":S},["candidate_id"]),"research_lab"),
  ("skill_read","이 역할 또는 사용자 업무에 배정된 SKILL.md를 읽습니다. 적용할 업무를 시작할 때 필요한 스킬만 한 번 읽으세요.",schema({"name":S},["name"]),None),
  ("activity_note","Record a concise operational explanation for human/AI supervision: perceived situation, plan, decision or review. Cite evidence and uncertainty. Do not include private chain-of-thought or secrets. This only writes this session's audit evidence.",schema({"stage":{"type":"string","enum":["situation","plan","decision","review"]},"summary":S,"evidence":{"type":"array","items":S},"steps":{"type":"array","items":S},"rework_cause":S},["stage","summary","evidence"]),None),
@@ -191,7 +191,8 @@ class Broker:
                 data = research_lab.catalog(ROOT)
                 if args.get('candidate_id'):
                     candidate = research_lab.stored_candidates(ROOT)['candidates'].get(args['candidate_id'])
-                    data['candidates'] = [candidate] if candidate else []
+                    # 평가 정답을 연구 에이전트의 후보 작성 컨텍스트로 전달하지 않는다.
+                    data['candidates'] = [{k: v for k, v in candidate.items() if k != 'suite_snapshot'}] if candidate else []
                 else:
                     data['candidates'] = [{k:v for k,v in c.items() if k not in ('baseline','content','evaluation','history')}
                                           for c in data['candidates'][:10]]

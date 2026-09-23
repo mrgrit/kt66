@@ -120,7 +120,7 @@ class Probes:
             if kind == 'research':
                 import research_lab
                 rows = research_lab.catalog(self.root)['candidates']
-                drafts = sorted(c['id'] for c in rows if c['status'] == 'draft')
+                drafts = sorted(c['id'] for c in rows if c['status'] == 'draft' and c.get('evaluation_mode') != 'manual')
                 # 대기 후보가 없으면 결과 보고의 변화만으로 평가원을 다시 깨우지 않는다.
                 return {'signals': {'drafts': drafts}, 'problems': drafts, 'sources': ['local:research-lab']}
             state = self.get('/api/state')

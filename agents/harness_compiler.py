@@ -104,7 +104,7 @@ def _compile_worker(wid, root=ROOT):
                "role_skills": {name: skill_metadata(name, body) for name, body in role_skills.items()}}
     payload['available_tools'] = authorization.visible(payload, TOOLS)
     hashes = {p: digest(b) for p, b in sources.items()}
-    implementation = {f: digest((ROOT / f).read_bytes()) for f in ("harness_compiler.py", "harness_tools.py", "activity_audit.py", "storage_probe.py", "tool_approvals.py", "authorization.py", "request_runtime.py", "request_tools.py", "session_cli.py", "xoc.py", "research_lab.py") if (ROOT / f).exists()}
+    implementation = {f: digest((ROOT / f).read_bytes()) for f in ("harness_compiler.py", "harness_tools.py", "activity_audit.py", "storage_probe.py", "tool_approvals.py", "authorization.py", "request_runtime.py", "request_tools.py", "session_cli.py", "xoc.py", "research_lab.py", "research_benchmarks.py") if (ROOT / f).exists()}
     version = digest(json.dumps({"sources": hashes, "implementation": implementation, "worker": wid}, sort_keys=True).encode())
     payload.update(version=version, source_hashes=hashes, implementation_hashes=implementation)
     # 무결성 해시는 서버가 검증한다. 무작위 해시 목록을 매 모델 턴에 반복하지 않는다.

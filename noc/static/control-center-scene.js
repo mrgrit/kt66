@@ -10,7 +10,7 @@ function drawControlCenterRoom(fid,detail) {
   g.appendChild(prism(0,0,z,.15,GD,1.35,lab?'#93a8b7':'#496477'));
   g.appendChild(roomLine([.2,.22,z+1.67],[GW-.25,.22,z+1.67],accent,2));
   // 읽을 수 있는 벽면 표식. 좌표 변환의 Y축을 양수로 두어 글자를 뒤집지 않는다.
-  const sign=el('a',{href:dcURL(lab?'researchlab':'xoc'),'aria-label':lab?'AI 연구소 연구·평가 화면':'xOC 제한구역 관제 화면',on:{click:e=>e.stopPropagation()}});
+  const sign=el('a',{href:dcURL(lab?'researchlab':'xoc'),'aria-label':lab?'AI 연구소 전문가 업무 방식 실험실':'xOC 제한구역 관제 화면',on:{click:e=>e.stopPropagation()}});
   sign.appendChild(roomLettering(.65,.19,z+2.05,lab?'AI RESEARCH LAB  /  5F':'xOC  /  RESTRICTED',.26,accent));
   g.appendChild(sign);
   const station=(id,x,y)=>{const worker=crewOf(fid).find(w=>w.id===id);if(worker)g.appendChild(drawWorkstation(worker,x,y,z,detail))};
