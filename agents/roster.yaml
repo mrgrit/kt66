@@ -48,11 +48,11 @@ runtimes:
     note: Fresh ChatGPT-authenticated codex exec session for each job
 
 workers:
-  # ── 1F 시설·보안층 ────────────────────────────────────────────
+  # ── B1 시설 / 1F 물리보안 ────────────────────────────────────────────
   - id: facility-engineer
     security_role: facility
     name: 시설 담당(전기/기계)
-    floor: 1F
+    floor: B1
     zone: ot
     # 원래는 hermes 였다 — 주기 점검이 많아 cron 이 있는 쪽이 맞다는 판단이었다. 그런데
     # hermes 는 이 랩에 설치돼 있지 않아 **도는 몸이 없었다**: cadence 를 적어 둔 루프를

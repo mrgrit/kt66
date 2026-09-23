@@ -11,9 +11,10 @@ NOC에서 설비·장비를 선택하면 **설계값, 시뮬레이션 값, 실�
 | 옥외 | 수전 인입, 변전소, 비상 발전기, 연료탱크 | 인입·배기·방열·연료 계통을 실내와 구분 |
 | 옥외 | 냉각탑 2대, 축열·보충수 탱크, 외기 관측 | 외기에 열을 방출하는 냉각 단계와 경계 조건 |
 | 옥외 | 태양광, BESS, 연료전지, 경비 초소 | 옥외 패키지형 전원과 부지 진입 경계 |
-| 1층 전기 구역 | 개폐기, 변압기, ATS, UPS, 배터리 | 이 설계는 실내 전기실·배터리 구역을 가정 |
-| 1층 기계 구역 | 수랭식 냉동기, 펌프, 열교환기, 수 이코노마이저 | 옥외 냉각탑과 연결되는 실내 수 계통 |
-| 실내 방호·출입 구역 | 소화설비, VESDA, 수신반, 출입 통제, CCTV | 각 방호·접근 구역에 대응 |
+| B1 전기실·배터리실 | 개폐기, 변압기, ATS, UPS, 배터리 | 이 설계는 실내 전기실·배터리 구역을 가정 |
+| B1 기계실 | 수랭식 냉동기, 펌프, 열교환기, 수 이코노마이저 | 옥외 냉각탑과 연결되는 실내 수 계통 |
+| B1 방호·매체 폐기 구역 | 소화용기, VESDA, 매체 파쇄기 | 전기·배터리 방호와 매체 폐기 작업 공간 |
+| 1F 보안 로비 | 정문, 검색대, 맨트랩, CCTV, 소방 수신반 | 안내·대기 → 검색 → 인증 → 계단·승강기 |
 | 전산실 | PDU, 부스바, 항온항습기, 인로우 팬코일 등 | 담당 랙·아일에 대응 |
 
 변압기, BESS, 발전기, 탱크 등은 실제 설계에 따라 실내·옥외형이 달라집니다. 여기서는 위 가정을 채택했습니다. 액체 냉각 설비는 고밀도 데이터센터 비교 실습용이며, 실물 DGX Spark·Jetson Thor에 액체 배관이 설치되어 있다는 의미가 아닙니다.
@@ -27,6 +28,26 @@ NOC에서 설비·장비를 선택하면 **설계값, 시뮬레이션 값, 실�
 
 항온항습기의 **아일 냉방 합계**는 해당 장치의 개별 실측 출력이 아닙니다. 플랜트 전체 용량도 개별 냉각탑의 출력과 다릅니다. 개별 계측이 없는 설비는 미연동으로 표시합니다. 실내의 이중마루·격리 구조·콜드플레이트는 독립 상자로 그리지 않으며 **자산 목록**에서 상세를 확인할 수 있습니다.
 
+### 로비와 지하의 동선
+
+**1F는 로비만**, 전력·기계 주 설비는 **B1**에 둡니다. 로비는 방문객 대기석과 안내 데스크를 출입 검색선 옆에 배치합니다. 정문은 외벽의 개구부이며, 검색대를 지나 인터록 포털에서 인증한 뒤 계단·승강기로 이동합니다. CCTV는 출입 동선을 향하는 벽부형, 소방 수신반은 안내 담당자가 확인할 수 있는 벽면에 표시합니다.
+
+지하에는 전기실·기계실·배터리실·소화용기실·매체 폐기실을 구분하고, 공통 복도로 연결합니다. UPS·배터리 캐비닛과 냉동기 앞의 빗금 영역은 점검 공간입니다. 인원 출입은 녹색, 반입·점검 동선은 황색 화살표로 표시합니다. 문에는 개구부와 개폐 방향을 표시하며, 지하의 낮은 문틀·벽은 내부 장비가 가려지지 않도록 자른 단면 표현입니다. 실제 문이나 벽 높이를 뜻하지 않습니다.
+
+시설 담당은 B1, 물리보안 담당은 1F에 배치됩니다. 위치를 바꾸어도 설비 ID와 전력·냉각 연결 관계는 유지하며, 권한은 담당 직무의 상한을 따릅니다. 모든 치수와 이격은 상대적인 화면 좌표입니다. 실제 건물의 시공·피난 도면이나 제조사 설치 치수로 사용할 수 없습니다.
+
+### 외형 참고 자료
+
+일반 상자 대신 수랭식 냉동기의 수평 용기·압축기, 모터와 펌프 케이싱, 건식 변압기 외함·코일, 모듈형 UPS·배터리 캐비닛, 곡면 유리 인터록 포털을 구분했습니다. 대표적인 제품 구조는 아래 제조사 자료를 참고했습니다. 특정 제품의 성능·용량을 훈련 자산의 정격으로 가져온 것은 아닙니다.
+
+- [Carrier 30XW 수랭식 냉동기](https://www.carrier.com/commercial/en/qa/products/commercial/chillers/30xw/)
+- [Eaton 건식 변압기](https://www.eaton.com/tr/en-gb/catalog/medium-voltage-power-distribution-control-systems/dry-type-transformer.html)
+- [Schneider Electric Galaxy VS 배터리 캐비닛](https://www.se.com/in/en/product/GVSCBC7C/galaxy-vs-classic-battery-cabinet-with-batteries-iec-700mm-wide-config-c/)
+- [Boon Edam 인터록 포털](https://www.boonedam.com/en-us/security-interlocking-portals)
+- [Vertiv Liebert CW 실내 냉방 캐비닛](https://www.vertiv.com/en-us/products-catalog/thermal-management/room-cooling/liebert--cw-chilled-water-cooling-system-305-440kw/)
+
+이전에 전달된 Claude artifact는 확인 시 `Page not found`여서 원문을 반영하지 못했습니다.
+
 ### 학생이 고치는 파일
 
 | 파일 | 수정할 내용 | 화면·동작의 변화 |
@@ -34,7 +55,10 @@ NOC에서 설비·장비를 선택하면 **설계값, 시뮬레이션 값, 실�
 | [assets.yaml](../envsim/assets.yaml) | 설비 종류, 정격, 연결 대상, 층, `location`, `site_pos` | 배치와 시뮬레이션 입력 변경 |
 | [facility-guide.yaml](../envsim/facility-guide.yaml) | 역할, 배치 이유, 고장 영향, 점검 항목 | 시설 상세의 한국어 학습 설명 변경 |
 | [model.py](../envsim/model.py) | 전력·냉각·경보 계산 | 시뮬레이터 동작 변경 |
+| [facility-floor.js](../noc/static/facility-floor.js) | B1/1F 방 구획, 문, 점검 여유, 동선, 설비 크기와 배치 이유 | 층별 건축 배치와 설명 변경 |
 | [facility-scene.js](../noc/static/facility-scene.js) | 설비 종류별 SVG 형상 | 설비 그림 변경 |
+
+B1/1F의 방·문·동선을 바꿀 때는 `facility-floor.js`의 배치 좌표와 `assets.yaml`의 해당 설비 `pos`를 함께 맞춥니다. 새 설비는 방과 점검 여유를 정한 뒤 배치표에 등록합니다.
 
 예를 들어 냉각탑은 `floor: null`, `location: outdoor`, `site_pos: [0.7, 5.5]`로 배치합니다. 연결된 냉동기의 `condenser` ID는 유지하므로 위치만 바꾸어도 계통 관계가 끊기지 않습니다.
 
@@ -107,6 +131,6 @@ docker compose -f docker-compose.yaml up -d --build --no-deps envsim noc
 
 NOC의 자산 대장 캐시도 새로 시작하며, 기존 브라우저는 새로고침합니다. GPU 역할의 자산 범위를 바꾸면 역할별 권한 설정과 명단을 함께 수정하고 하네스를 다시 컴파일합니다.
 
-검증은 `noc/tests/test_ai_services.py`, `test_remote_hosts.py`와 브라우저 시나리오 `facility-ai-browser.cjs`를 사용합니다. 시뮬레이터 객체 안에서 고장 연쇄를 검사하며 운영 장비에 고장이나 모델 작업을 주입하지 않습니다.
+검증은 `noc/tests/test_ai_services.py`, `test_remote_hosts.py`와 브라우저 시나리오 `facility-ai-browser.cjs`, `facility-floor-browser.cjs`를 사용합니다. 층별 자산 누락, 장비·통로 간섭, 마우스·키보드 선택, 화면 크기별 맞춤을 함께 확인합니다. 시뮬레이터 객체 안에서 고장 연쇄를 검사하며 운영 장비에 고장이나 모델 작업을 주입하지 않습니다.
 
 API 의미의 기준: [Ollama 설치 모델](https://docs.ollama.com/api/tags), [Ollama 적재 모델](https://docs.ollama.com/api/ps), [vLLM 서버](https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/), [llama.cpp 서버](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).

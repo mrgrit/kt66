@@ -74,7 +74,7 @@ function refreshCrewActivity() {
 let INJCAT = { injections: [] }, INJACT = { active: [] };
 let VIEW = { mode: 'floor', floor: '2F', zoom: 1, panx: 0, pany: 0 };
 const requestedFloor = new URLSearchParams(location.search).get('floor');
-if (['1F','2F','3F','4F'].includes(requestedFloor)) VIEW.floor = requestedFloor;
+if (['B1','1F','2F','3F','4F'].includes(requestedFloor)) VIEW.floor = requestedFloor;
 if(new URLSearchParams(location.search).get('view')==='site'){VIEW.mode='site';VIEW.floor=null;}
 let SELECTED_FACILITY = null;
 let BASE_VB = null, SELECTED = null, upsDismissed = false;

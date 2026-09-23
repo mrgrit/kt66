@@ -245,6 +245,8 @@ function drawWorkstation(worker,x,y,z,detail) {
   return workerInfo(g,worker,x+.53,y+1.45,z,detail);
 }
 function drawRoom(fid,detail) {
+  if(fid==='B1')return drawFacilityFloor(detail);
+  if(fid==='1F')return drawLobbyFloor(detail);
   const g=el('g'),z=.22, racks=racksOf(fid), fac=physicalFacilitiesOf(fid);
   g.appendChild(el('g',{filter:'url(#plateShadow)'},[prism(0,0,0,GW,GD,z,'#647c8b',{flat:true})]));
   g.appendChild(quad(0,0,z+.004,GW,GD,{fill:'#647e8c'}));
@@ -288,21 +290,11 @@ function drawRoom(fid,detail) {
   }
   // Equipment is laid out deterministically from the ledger. The layout is a
   // schematic placement; it does not claim surveyed real-world dimensions.
-  if(fid==='1F') {
-    const areas=[{type:'power',x:.4,w:3.5,label:'전기 · UPS'},{type:'cooling',x:4.1,w:3.5,label:'기계 · 냉각'},{type:'security',x:7.8,w:3.8,label:'출입 · 방재'}];
-    areas.forEach(area=>{
-      g.appendChild(quad(area.x,.6,z+.025,area.w,6.05,{fill:area.type==='power'?'#978b6c':area.type==='cooling'?'#5a919e':'#648087',opacity:.45,stroke:'#b7c3bb','stroke-width':.8}));
-      const items=fac.filter(item=>equipmentKind(item.kind)===area.type),columns=area.type==='security'?3:2;
-      items.forEach((item,i)=>{const x=area.x+.25+(i%columns)*(area.w-.3)/columns,y=1.05+Math.floor(i/columns)*1.95;put(x+.5,y+.4,drawRoomEquipment(item,x,y,z,true));});
-      if(detail){const p=iso(area.x+area.w/2,.35,z+.1);pill(p[0],p[1]-14,area.label,{size:9,anchor:'mid',color:'#ebefdd'})}
-    });
-  } else {
-    fac.forEach((item,i)=>{
-      // Back wall first, then right wall. Keep the rack fronts unobstructed.
-      const x=i<8?.55+i*1.38:10.35,y=i<8?.4:2+(i-8)*1.3;
-      put(x+.5,y+.4,drawRoomEquipment(item,x,y,z));
-    });
-  }
+  fac.forEach((item,i)=>{
+    // Back wall first, then right wall. Keep the rack fronts unobstructed.
+    const x=i<8?.55+i*1.38:10.35,y=i<8?.4:2+(i-8)*1.3;
+    put(x+.5,y+.4,drawRoomEquipment(item,x,y,z));
+  });
   if(fid==='4F') {
     const workers=crewOf(fid),lead=workers.find(w=>w.id==='ops-lead');
     const staff=workers.filter(w=>w.id!=='ops-lead'),rows=Math.ceil(staff.length/2);

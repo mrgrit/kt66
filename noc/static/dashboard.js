@@ -68,7 +68,7 @@ function renderFloorSelector() {
   const box=$('#lift');
   const signature = `${VIEW.mode}:${VIEW.floor}:${floors().map(f=>f.id).join(',')}`;
   if (box.dataset.signature !== signature) {
-  box.innerHTML=`<button class="all ${VIEW.mode==='building'?'on':''}" data-f="" aria-pressed="${VIEW.mode==='building'}">전체</button>`+floors().map(f=>`<button class="${VIEW.floor===f.id?'on':''}" data-f="${safeText(f.id)}" aria-pressed="${VIEW.floor===f.id}"><span class="fl">${safeText(f.id)}</span><span class="fn">${safeText({'1F':'시설','2F':'전산실','3F':'AI','4F':'운영'}[f.id] || '')}</span></button>`).join('');
+  box.innerHTML=`<button class="all ${VIEW.mode==='building'?'on':''}" data-f="" aria-pressed="${VIEW.mode==='building'}">전체</button>`+floors().map(f=>`<button class="${VIEW.floor===f.id?'on':''}" data-f="${safeText(f.id)}" aria-pressed="${VIEW.floor===f.id}"><span class="fl">${safeText(f.id)}</span><span class="fn">${safeText({'B1':'설비','1F':'로비','2F':'전산실','3F':'AI','4F':'운영'}[f.id] || '')}</span></button>`).join('');
   $$('[data-f]',box).forEach(b=>b.onclick=()=>b.dataset.f?enterFloor(b.dataset.f):enterBuilding());
   const site=document.createElement('button');site.textContent='옥외';site.dataset.view='site';
   site.classList.toggle('on',VIEW.mode==='site');site.setAttribute('aria-pressed',String(VIEW.mode==='site'));site.onclick=enterSite;box.appendChild(site);
@@ -77,7 +77,7 @@ function renderFloorSelector() {
   const floor=floors().find(f=>f.id===VIEW.floor),pool=floor?assetsOf(floor.id):LAYOUT.it_assets;
   $('#view-title').textContent=floor?.id==='4F'?'AI 에이전트 관제 · 운영층':floor?floor.name:'데이터센터 전체 배치';
   $('#agent-control-link').hidden=VIEW.floor!=='4F';
-  $('#scene-floor-code').textContent=floor?`${floor.id} / ${({'1F':'FACILITIES','2F':'SERVER HALL','3F':'AI COMPUTE','4F':'OPERATIONS'}[floor.id] || '')}`:'KT66 / BUILDING';
+  $('#scene-floor-code').textContent=floor?`${floor.id} / ${({'B1':'PLANT ROOMS','1F':'SECURITY LOBBY','2F':'SERVER HALL','3F':'AI COMPUTE','4F':'OPERATIONS'}[floor.id] || '')}`:'KT66 / BUILDING';
   $('#scene-floor-note').textContent=VIEW.floor==='3F'?'NVIDIA 7대 · 실물 장비의 교육용 배치도':VIEW.floor==='4F'?'운영 리드 전용 공간 · 역할별 근무석':'자산 대장 기반 개념 배치도';
   $('#scene-summary').textContent=`${floor?racksOf(floor.id).length:LAYOUT.racks.length} RACKS / ${pool.length} ASSETS / 근무자 ${floor?crewOf(floor.id).length:ROSTER.workers.length}명`;
   if(VIEW.mode==='site') {
@@ -85,9 +85,9 @@ function renderFloorSelector() {
     $('#scene-floor-code').textContent='SITE / OUTDOOR';
     $('#scene-floor-note').textContent='건물 밖 독립 설비 · 교육용 개념 배치';
     $('#scene-summary').textContent=facilityOf('SITE').length+' FACILITIES / 층 구분 없음';
-  } else if(floor?.id==='1F') {
-    $('#scene-floor-note').textContent='실내 전기실 · 기계실 · 출입·방재 구역';
-    $('#scene-summary').textContent=facilityOf('1F').length+' FACILITIES / 근무자 '+crewOf('1F').length+'명';
+  } else if(['B1','1F'].includes(floor?.id)) {
+    $('#scene-floor-note').textContent=floor.id==='B1'?'전기 · 기계 · 배터리실 / 낮은 벽은 내부를 보여주는 절단 표현':'안내·대기 → 검색 → 인증 → 계단·승강기';
+    $('#scene-summary').textContent=facilityOf(floor.id).length+' FACILITIES / 근무자 '+crewOf(floor.id).length+'명';
   }
 }
 function renderAssetExplorer() {
@@ -112,7 +112,7 @@ function renderAssetExplorer() {
   $$('[data-inspect-facility]').forEach(b=>b.onclick=()=>openFacility(facilities.find(f=>f.id===b.dataset.inspectFacility)));
 }
 function renderRoomLegend() {
-  $('#legend').innerHTML=`<div><b>랙 캐비닛</b> = 자산 대장 기반 교육용 배치</div><div><b>3F 금색 / 검정 장비</b> = DGX Spark / Jetson Thor</div><div>신규 외부 장비 LED는 60초 간격 SSH 포트 접속성입니다. 사양·GPU 값은 등록 시점 점검 기록입니다.</div><div><b>서버 슬롯의 색 띠</b> = 네트워크 존</div><div>${(LAYOUT.zones || []).map(z=>`<span style="white-space:nowrap"><i class="sw" style="background:${safeText(z.color)}"></i> ${safeText(z.id)}</span>`).join(' · ')}</div><div><b>청색 통로·배관</b> = 냉각 / <b>황색 배선</b> = 전력</div><div><b>IT 녹색 LED</b> = 컨테이너 또는 접속 응답 / <b>시설 LED</b> = 활성 고장 없음</div><div>시설 상태는 시뮬레이션이며 실제 설비 센서값이 아닙니다. 옥외는 층과 분리된 부지입니다.</div><div><b>유니폼을 입은 도트 근무자</b> = 명단에 배치된 AI 에이전트</div><div>유니폼은 담당 업무, 모자는 자율 등급, 명찰은 모델·런타임을 구분합니다.</div><div><b>발밑 원</b> = 자동 실행 작업 상태</div><div class="agent-state-legend">${Object.values(WORKER_STATE_STYLES).map(s=>`<span><i style="border-color:${s.color};${s.dash?'border-style:dashed':''}"></i>${s.label}</span>`).join('')}</div><div>10초마다 확인 · 개별 CLI 세션은 제외 · 격리/강제 종료 상태는 미연동</div><div>작업 중에도 검토 대기 건이 있을 수 있습니다. 근무자를 선택해 확인하세요.</div><div>층은 물리 배치, 존은 논리 경계입니다.</div>`;
+  $('#legend').innerHTML=`<div><b>랙 캐비닛</b> = 자산 대장 기반 교육용 배치</div><div><b>3F 금색 / 검정 장비</b> = DGX Spark / Jetson Thor</div><div>신규 외부 장비 LED는 60초 간격 SSH 포트 접속성입니다. 사양·GPU 값은 등록 시점 점검 기록입니다.</div><div><b>서버 슬롯의 색 띠</b> = 네트워크 존</div><div>${(LAYOUT.zones || []).map(z=>`<span style="white-space:nowrap"><i class="sw" style="background:${safeText(z.color)}"></i> ${safeText(z.id)}</span>`).join(' · ')}</div><div><b>1F 녹색 화살표</b> = 방문·인증 동선 / <b>B1 황색 화살표</b> = 반입·점검 동선</div><div><b>바닥 빗금</b> = 점검 여유 공간 / <b>낮은 벽</b> = 내부를 보여주기 위한 절단 표현</div><div><b>청색 통로·배관</b> = 냉각 / <b>황색 배선</b> = 전력</div><div><b>IT 녹색 LED</b> = 컨테이너 또는 접속 응답 / <b>시설 LED</b> = 활성 고장 없음</div><div>시설 상태는 시뮬레이션이며 실제 설비 센서값이 아닙니다. 옥외는 층과 분리된 부지입니다.</div><div><b>유니폼을 입은 도트 근무자</b> = 명단에 배치된 AI 에이전트</div><div>유니폼은 담당 업무, 모자는 자율 등급, 명찰은 모델·런타임을 구분합니다.</div><div><b>발밑 원</b> = 자동 실행 작업 상태</div><div class="agent-state-legend">${Object.values(WORKER_STATE_STYLES).map(s=>`<span><i style="border-color:${s.color};${s.dash?'border-style:dashed':''}"></i>${s.label}</span>`).join('')}</div><div>10초마다 확인 · 개별 CLI 세션은 제외 · 격리/강제 종료 상태는 미연동</div><div>작업 중에도 검토 대기 건이 있을 수 있습니다. 근무자를 선택해 확인하세요.</div><div>층은 물리 배치, 존은 논리 경계입니다.</div>`;
 }
 function updateConnection(ok,error='') {
   $('#link-status').classList.toggle('down',!ok);

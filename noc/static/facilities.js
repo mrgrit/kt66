@@ -56,7 +56,7 @@ function openFacility(item) {
   SELECTED=null;
   const scroll=SELECTED_FACILITY===item.id?$('#dr-body').scrollTop:0;
   const expanded=SELECTED_FACILITY===item.id && !!$('.facility-related[open]');
-  const guide=facilityGuide(item),esc=safeText,related=[];
+  const guide=facilityGuide(item),placement=facilityPlacement(item),esc=safeText,related=[];
   const refer=value=>{
     for(const id of (Array.isArray(value)?value:[value]).filter(Boolean)) {
       const target=allFacilities().find(f=>f.id===id);
@@ -71,8 +71,10 @@ function openFacility(item) {
     '<span class="facility-tag">교육용 가상 설비</span>'+
     kv('설비 ID',esc(item.id))+kv('종류',esc(guide.title||item.kind))+
     kv('배치',esc(item.location==='outdoor'?'옥외 부지 · 층 구분 없음':item.floor+' 실내'))+
+    (placement?kv('실내 구역',esc(placement.roomName)):'')+
     kv('고장 주입 상태',!ST?'미확인':facilityDown(item)?'<span class="service-unknown">활성 이상 있음</span>':'해당 설비의 활성 고장 없음')+
     '<div class="dsec">역할과 배치 이유</div><p class="facility-prose">'+esc(guide.role||'자산 대장에 등록된 시설입니다.')+'</p><p class="note">'+esc(guide.placement||'')+'</p>'+
+    (placement?'<p class="facility-prose" data-placement-reason>'+esc(placement.reason)+'</p>':'')+
     '<div class="dsec">계통에서의 위치</div><p class="facility-flow">'+esc(LAYOUT.facility_guide?.systems?.[guide.system]||'')+'</p>'+
     (related.length?'<div class="facility-relations">'+related.join(' · ')+'</div>':'')+
     '<div class="dsec">현재 시뮬레이션 상태</div>'+facilityReadings(item)+

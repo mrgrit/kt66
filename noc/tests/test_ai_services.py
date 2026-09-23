@@ -121,7 +121,7 @@ class FacilityLayoutTests(unittest.TestCase):
                     self.assertIsNone(item['floor'])
                     self.assertEqual(len(item['site_pos']), 2)
                 else:
-                    self.assertIn(item['floor'], ['1F','2F','3F','4F'])
+                    self.assertIn(item['floor'], ['B1','1F','2F','3F','4F'])
         self.assertEqual(len(outside), 12)
         self.assertTrue({'ct-01','ct-02','gen-01','tank-fuel-01','wx-01','guard-01'} <= outside)
         self.assertNotIn('chiller-01', outside)
@@ -134,6 +134,7 @@ class FacilityLayoutTests(unittest.TestCase):
         for rows in indoor['facility'].values():
             for item in rows if isinstance(rows,list) else [rows]:
                 if item.get('location') == 'outdoor': item['floor'] = '1F'
+                if item.get('floor') == 'B1': item['floor'] = '1F'
         with patch('model.time.time', return_value=1000):
             a, b = Simulator(assets), Simulator(indoor)
         for fault, target in [('cooling_tower_fail','*'), ('utility_fail','*'), ('generator_fail','*')]:
@@ -142,6 +143,23 @@ class FacilityLayoutTests(unittest.TestCase):
             a.tick({}); b.tick({})
         for section in ['power','plant','aisles','fuel','battery']:
             self.assertEqual(a.state()[section], b.state()[section], section)
+
+    def test_lobby_contains_only_access_and_fire_panel_with_plant_in_basement(self):
+        assets = yaml.safe_load((ROOT/'envsim/assets.yaml').read_text())
+        items = [i for rows in assets['facility'].values()
+                 for i in (rows if isinstance(rows, list) else [rows])]
+        self.assertEqual([f['id'] for f in assets['floors']], ['B1','1F','2F','3F','4F'])
+        self.assertEqual({i['id'] for i in items if i.get('floor') == '1F'},
+                         {'door-main','cctv-01','mantrap-01','mdet-01','fp-01'})
+        by_id = {i['id']:i for i in items}
+        for kind in ['switchgear','transformer','ats','ups','battery','chiller','pump','heat_exchanger','economizer']:
+            for item in assets['facility'][kind]:
+                self.assertEqual(item['floor'], 'B1', item['id'])
+        self.assertEqual(by_id['fm200-01']['floor'], 'B1')
+        roster = yaml.safe_load((ROOT/'agents/roster.yaml').read_text())
+        workers = {w['id']:w for w in roster['workers']}
+        self.assertEqual(workers['facility-engineer']['floor'], 'B1')
+        self.assertEqual(workers['physical-security']['floor'], '1F')
 
 
 class ServiceRoutingTests(unittest.IsolatedAsyncioTestCase):

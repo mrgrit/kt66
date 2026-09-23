@@ -14,11 +14,11 @@ module.exports=async(page,{screenshots='/tmp/kt66-inspect-ui'}={})=>{
  assert.equal(await page.$$eval('#scene [data-facility]',n=>n.length),12);
  assert.match(await page.$eval('#scene-floor-code',e=>e.textContent),/OUTDOOR/);
  await page.screenshot({path:screenshots+'/facility-outdoor.png'});
- for(const mode of ['SITE','1F','2F','3F','4F']){
+ for(const mode of ['SITE','B1','1F','2F','3F','4F']){
   await page.evaluate(mode=>mode==='SITE'?enterSite():enterFloor(mode),mode);
   const ids=await page.$$eval('#scene [data-facility]',n=>n.map(e=>e.dataset.facility));
   assert.equal(new Set(ids).size,ids.length);
-  if(mode==='1F'){assert.ok(!ids.includes('ct-01'));assert.ok(ids.includes('chiller-01'));await page.screenshot({path:screenshots+'/facility-indoor.png'})}
+  if(mode==='B1'){assert.ok(!ids.includes('ct-01'));assert.ok(ids.includes('chiller-01'));await page.screenshot({path:screenshots+'/facility-indoor.png'})}
   for(const id of ids){
    await page.$eval('#scene [data-facility="'+id+'"]',e=>e.focus());await page.keyboard.press('Enter');
    const text=await page.$eval('#dr-body',e=>e.textContent);
@@ -62,7 +62,7 @@ module.exports=async(page,{screenshots='/tmp/kt66-inspect-ui'}={})=>{
  const sizes=[];
  for(const [width,height] of [[1440,1000],[1366,768],[390,844],[320,568]]){
   await page.setViewport({width,height});
-  for(const mode of ['1F','SITE','BUILDING']){
+  for(const mode of ['B1','1F','SITE','BUILDING']){
    await page.evaluate(mode=>mode==='SITE'?enterSite():mode==='BUILDING'?enterBuilding():enterFloor(mode),mode);
    await new Promise(r=>setTimeout(r,200));
    const fit=await page.evaluate(()=>{

@@ -180,7 +180,7 @@ security:
       tools: [env_read, simulator_control]
       capabilities: []
       env_sections: [floors, aisles, power, plant, battery, fuel, efficiency, weather, building]
-      env_assets: ['ups-*', 'pdu-*', 'crac-*', 'chiller-*', 'fm200-*', 'ct-*', 'pump-*', 'hx-*', 'cdu-*', 'cp-*', 'ats-*', 'gen-*', 'batt-*', 'sub-*', 'xfmr-*', 'bus-*', 'tank-*', 'eco-*', 'vesda-*', 'fcu-*', 'cont-*', 'rf-*', 'wx-*', '1F', '2F', '3F', '4F']
+      env_assets: ['ups-*', 'pdu-*', 'crac-*', 'chiller-*', 'fm200-*', 'ct-*', 'pump-*', 'hx-*', 'cdu-*', 'cp-*', 'ats-*', 'gen-*', 'batt-*', 'sub-*', 'xfmr-*', 'bus-*', 'tank-*', 'eco-*', 'vesda-*', 'fcu-*', 'cont-*', 'rf-*', 'wx-*', 'B1', '1F', '2F', '3F', '4F']
     physical:
       label: 출입·CCTV 상태
       duty: operate

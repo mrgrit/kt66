@@ -135,12 +135,18 @@ building:
 # 층은 물리 배치다. grid 는 평면도 좌표계(가로 x, 세로 y, 단위칸).
 # 랙·CRAC·출입문의 pos 가 이 좌표를 쓴다 — 시각화 UI 의 배치도가 여기서 나온다.
 floors:
-  - id: "1F"
-    name: 시설·보안층
+  - id: "B1"
+    name: 지하 설비층
     zone: [ot]
     grid: [12, 8]
-    role: 전력·냉방·소방·물리보안. 여기가 무너지면 위층이 함께 무너진다
+    role: 전기실·기계실·배터리실·소화용기실. 상층 전산실에 전력과 냉각을 공급한다
     curriculum: [W1, W5, W13]
+  - id: "1F"
+    name: 보안 로비
+    zone: [ot]
+    grid: [12, 8]
+    role: 방문객 안내·대기, 출입 검색·인증, 방재 수신과 층간 이동
+    curriculum: [W5, W13, W14]
   - id: "2F"
     name: 일반 전산실
     zone: [ext, pipe, dmz, int]
@@ -238,27 +244,27 @@ facility:
       pos: [0, 1]
   switchgear:                         # 1차 개폐 장치 — 계통을 끊고 붙이는 지점
     - id: swgr-01
-      floor: "1F"
+      floor: "B1"
       name: 특고압 개폐기
       kv: 22.9
       feeds: [tr-01]
-      pos: [1, 0]
+      pos: [0.55, 0.65]
   transformer:                        # 단위 변전소 — 중압을 저압으로 (교재 5.2.1)
     - id: tr-01
-      floor: "1F"
+      floor: "B1"
       name: 주변압기
       primary_kv: 22.9
       secondary_v: 380
       capacity_kw: 60.0
-      efficiency: 0.985               # 손실은 열이 되어 1F 에 남는다
-      pos: [2, 1]
+      efficiency: 0.985               # 손실은 열이 되어 B1 에 남는다
+      pos: [2.52, 0.65]
   ats:                                # 자동 절환 스위치 — 상용↔발전기 (교재 5.2.1 N+1)
     - id: ats-01
-      floor: "1F"
+      floor: "B1"
       name: 자동절체스위치
       sources: [tr-01, gen-01]
       transfer_ms: 200                # 절체 시간. UPS 가 이 구간을 메운다
-      pos: [3, 3]
+      pos: [0.55, 2.52]
   generator:                          # 발전기 — UPS 가 버티는 동안 기동해야 한다
     - id: gen-01
       floor: null
@@ -281,18 +287,18 @@ facility:
       pos: [0, 6]
   ups:
     - id: ups-01
-      floor: "1F"
+      floor: "B1"
       name: 무정전 전원장치
       capacity_kw: 45.0
       battery_kwh: 12.0               # 38kW 부하에서 약 19분 (캡처 설계와 정합)
       topology: double-conversion     # 교재 5.2.3 — 견고하지만 비효율
-      efficiency: 0.96                # 신형 멀티모드 96~98%. 손실은 1F 발열이 된다
+      efficiency: 0.96                # 신형 멀티모드 96~98%. 손실은 B1 발열이 된다
       feeds: [pdu-01, pdu-02, pdu-03, pdu-04]
       battery_string: [batt-01, batt-02]
-      pos: [4, 3]
+      pos: [1.63, 2.52]
   battery:                            # 교재 5.2.3 — Li-ion 은 열폭주로 불이 난다
     - id: batt-01
-      floor: "1F"
+      floor: "B1"
       name: 배터리 스트링 A
       chemistry: LFP                  # 리튬인산철. 납축 대비 방전율·수명 우수
       kwh: 6.0
@@ -300,9 +306,9 @@ facility:
       temp_c: 25.0
       runaway_temp_c: 60.0            # 이 온도를 넘으면 열폭주 — 화재로 간다
       installed: 2024-03
-      pos: [4, 1]
+      pos: [0.5, 5.78]
     - id: batt-02
-      floor: "1F"
+      floor: "B1"
       name: 배터리 스트링 B
       chemistry: LFP
       kwh: 6.0
@@ -310,7 +316,7 @@ facility:
       temp_c: 25.0
       runaway_temp_c: 60.0
       installed: 2024-03
-      pos: [5, 1]
+      pos: [1.36, 5.78]
   microgrid:                          # 교재 5.2.5 — 계량기 뒤(behind the meter) CFE
     - id: pv-01
       floor: null
@@ -384,33 +390,33 @@ facility:
       pos: [11, 5]
   chiller:                            # 교재 5.3.3 — 압축기를 쓴다. 비싸다. 그래서 보조다
     - id: chiller-01
-      floor: "1F"
+      floor: "B1"
       name: 냉동기
       capacity_kw: 55.0
       cop: 5.2                        # 성능계수. 55kW 를 걷어내는 데 10.6kW 를 쓴다
       condenser: ct-01
-      pos: [8, 3]
+      pos: [6.25, 0.82]
   # ── 루프 ② 프로세스수 (중간) ───────────────────────────────────
   pump:                               # 물이 안 돌면 냉동기도 냉각탑도 의미가 없다
-    - { id: pump-pcw-01, floor: "1F", name: 프로세스수 펌프 A, loop: process,   kw: 0.9, lpm: 900, pos: [7, 4] }
-    - { id: pump-pcw-02, floor: "1F", name: 프로세스수 펌프 B, loop: process,   kw: 0.9, lpm: 900, standby: true, pos: [7, 5] }
-    - { id: pump-cw-01,  floor: "1F", name: 응축수 펌프,       loop: condenser, kw: 1.0, lpm: 1100, pos: [9, 6] }
+    - { id: pump-pcw-01, floor: "B1", name: 프로세스수 펌프 A, loop: process,   kw: 0.9, lpm: 900, pos: [6.32, 2.66] }
+    - { id: pump-pcw-02, floor: "B1", name: 프로세스수 펌프 B, loop: process,   kw: 0.9, lpm: 900, standby: true, pos: [7.55, 2.66] }
+    - { id: pump-cw-01,  floor: "B1", name: 응축수 펌프,       loop: condenser, kw: 1.0, lpm: 1100, pos: [9.02, 2.3] }
   heat_exchanger:                     # 교재 5.3.1 — 프로세스수와 응축수를 섞지 않는다
     - id: hx-01
-      floor: "1F"
+      floor: "B1"
       name: 판형 열교환기
       capacity_kw: 45.0
       fouling_pct: 0.0                # 스케일이 끼면 전열 성능이 떨어진다 (유지보수 실습)
-      pos: [8, 5]
+      pos: [9.2, 0.67]
   economizer:                         # 교재 5.3.4 — 자연 냉각. 칠러를 꺼 둘 수 있는 시간
     - id: eco-01
-      floor: "1F"
+      floor: "B1"
       name: 수 이코노마이저
       kind: water                     # 습구 온도를 쓴다. 공기식(air)보다 가동 시간이 길다
       capacity_kw: 45.0
       enable_wetbulb_c: 12.0          # 습구가 이 아래면 냉동기 없이 전량 처리 가능
       damper_ok: true
-      pos: [9, 3]
+      pos: [10.45, 0.67]
   # ── 루프 ① 공기 (가장 안쪽, 아일에 직접 작용) ──────────────────
   crac:                               # 교재 5.3.2 — 1990년대 방식. 2F·4F 는 아직 이것이다
     - { id: crac-01, floor: "2F", aisle: A, name: 항온항습기 A, capacity_kw: 18.0, kind: chilled-water, fan_kw: 0.9, pos: [9, 4] }
@@ -489,22 +495,22 @@ facility:
     pos: [0, 0]
   # ── 소방 (교재 5.1.2 내화 구조 · 5.2.3 리튬 화재) ───────────────
   fire:
-    - { id: fm200-01, floor: "1F", agent: FM-200, name: 소화설비 1F, zone_covered: [battery, ups], pos: [10, 6] }
+    - { id: fm200-01, floor: "B1", agent: FM-200, name: 지하 소화설비, zone_covered: [battery, ups], pos: [8.85, 5.85] }
     - { id: fm200-02, floor: "2F", agent: FM-200, name: 소화설비 2F, zone_covered: [aisle-A],      pos: [10, 6] }
     - { id: fm200-03, floor: "3F", agent: FM-200, name: 소화설비 3F, zone_covered: [aisle-B],      pos: [10, 6] }
-    - { id: vesda-01, floor: "1F", kind: aspirating, name: 조기연기감지(VESDA), sensitivity: high, pos: [9, 7] }
+    - { id: vesda-01, floor: "B1", kind: aspirating, name: 조기연기감지(VESDA), sensitivity: high, pos: [4.72, 0.18] }
     - { id: vesda-02, floor: "3F", kind: aspirating, name: 조기연기감지(VESDA), sensitivity: high, pos: [9, 7] }
-    - { id: fp-01,    floor: "1F", kind: panel,      name: 소방 수신반, pos: [2, 7] }
+    - { id: fp-01,    floor: "1F", kind: panel,      name: 소방 수신반, pos: [4.1, 0.18] }
   # ── 물리보안 (교재 5.1.2 — 회전문·금속탐지기·경비·카메라망) ────
   security:
-    - { id: door-main, floor: "1F", name: 정문 출입구,      kind: door, pos: [0, 4] }
+    - { id: door-main, floor: "1F", name: 정문 출입구,      kind: door, pos: [8, 7.91] }
     - { id: door-2f,   floor: "2F", name: 전산실 출입문,    kind: door, pos: [0, 4] }
     - { id: door-3f,   floor: "3F", name: AI 전산실 출입문, kind: door, pos: [0, 4] }
-    - { id: cctv-01,   floor: "1F", name: 로비 CCTV,        kind: cctv, pos: [11, 1] }
+    - { id: cctv-01,   floor: "1F", name: 로비 CCTV,        kind: cctv, pos: [10.65, 3.18] }
     - { id: cctv-02,   floor: "2F", name: 전산실 CCTV,      kind: cctv, pos: [11, 1] }
     - { id: cctv-03,   floor: "3F", name: AI 전산실 CCTV,   kind: cctv, pos: [11, 1] }
-    - { id: mantrap-01,  floor: "1F", name: 원형 회전문(맨트랩), kind: mantrap,        pos: [0, 3] }
-    - { id: mdet-01,     floor: "1F", name: 금속탐지기,          kind: metal_detector, pos: [0, 2] }
+    - { id: mantrap-01,  floor: "1F", name: 인터록 포털(맨트랩), kind: mantrap,        pos: [8.2, 2.9] }
+    - { id: mdet-01,     floor: "1F", name: 금속탐지기,          kind: metal_detector, pos: [8.36, 5.3] }
     - { id: guard-01,    floor: null, location: outdoor, site_pos: [8.8, 5.5], name: 경비 초소,            kind: guard_post,     pos: [1, 3] }
     - { id: badge-3f,    floor: "3F", name: AI 전산실 카드리더,   kind: badge_reader,   pos: [0, 5] }
   # ── 물리 자동화 (교재 5.4.3) — 추적성이 곧 감사 증거다 ──────────
@@ -517,12 +523,12 @@ facility:
       status: idle
       pos: [6, 7]
     - id: shred-01
-      floor: "1F"
+      floor: "B1"
       kind: disk_shredder
       name: 디스크 파쇄기
       verification_hood: true         # 부품번호를 읽고 파괴 대상이 맞는지 검증한다
       cod_log: true                   # 파괴증명서(COD) 근거 데이터
-      pos: [3, 7]
+      pos: [3.67, 6.51]
 
 # ── IT 자산 ───────────────────────────────────────────────────────
 # container 가 있으면 실재한다 — docker 로 실제 CPU 를 읽는다.
