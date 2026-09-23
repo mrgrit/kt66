@@ -2,7 +2,7 @@
 import concurrent.futures, datetime, fcntl, hashlib, json, os, pathlib, signal, sqlite3, time, uuid
 from zoneinfo import ZoneInfo
 import yaml
-import harness_compiler, session_cli, adaptive_monitor, work_requests
+import harness_compiler, session_cli, adaptive_monitor, work_requests, xoc, research_lab
 from harness_tools import atomic
 ROOT=pathlib.Path(__file__).resolve().parent
 STOP=False
@@ -80,6 +80,9 @@ def poll(db,cfg):
     host="127.0.0.1"
     for line in (ROOT.parent/".env").read_text().splitlines():
         if line.startswith("INT_HOST_IP="):host=line.split("=",1)[1].strip().strip("\"'")
+    # 환경 시뮬레이터 장애 중에도 로컬 증적 관제와 연구 평가 대기는 확인한다.
+    local_loops = [lp for lp in loops if lp.get('monitor', {}).get('probe') in ('agent_risk', 'research')]
+    adaptive_monitor.poll(db,local_loops,cfg,adaptive_monitor.Probes(ROOT,host,observe,time.time()),enqueue)
     alarms=observe("http://"+host+":8010/alarms").get("active",[])
     injections=observe("http://"+host+":8020/api/inj/active").get("active",[])
     events=alarms+[{"id":"INJ:"+i["handle"],"source":"instructor","injection":i,"since":i.get("started")} for i in injections]
@@ -111,10 +114,16 @@ def poll(db,cfg):
         request=json.loads(p.read_text())
         if request["worker"] in workers:enqueue(db,"delegation:"+p.stem,request["worker"],"delegated",request)
     db.execute("INSERT OR REPLACE INTO metadata VALUES('active_events',?)",(json.dumps(active_ids),));db.commit()
-    adaptive_monitor.poll(db,loops,cfg,adaptive_monitor.Probes(ROOT,host,observe,time.time()),enqueue,
+    adaptive_monitor.poll(db,[lp for lp in loops if lp not in local_loops],cfg,adaptive_monitor.Probes(ROOT,host,observe,time.time()),enqueue,
                           notified_workers=notified_workers)
 
 def execute(job):
+    import xoc
+    if xoc.held(ROOT, job['worker']):
+        return {'status': 'held', 'error': 'xoc_hold'}
+    if job['kind'] == 'lab_evaluation':
+        import research_lab
+        return research_lab.evaluate(ROOT, job)
     if job["kind"] == "user_request":
         return work_requests.execute(ROOT, job)
     wid=job["worker"]
@@ -150,7 +159,7 @@ def execute(job):
         receipts=[json.loads(l) for l in toolfile.read_text().splitlines()] if toolfile.exists() else []
         # Tool receipts are independent of the model's claims.
         observed=any(r['tool'] in ('env_read','log_read','approval_inbox','infrastructure_read','firewall_read',
-                                  'disk_usage','agent_activity','work_status') and
+                                  'disk_usage','agent_activity','work_status','xoc_read','lab_read','compliance_read') and
                      r.get('result',{}).get('status') not in ('denied','approval_required','failed','unavailable')
                      for r in receipts)
         result["verification"]={"tool_calls":len(receipts),"observed_live_evidence":observed,
@@ -193,19 +202,29 @@ def run():
                 db.commit();del futures[future]
             error=None
             if cfg.get("enabled",True):
+                import xoc, research_lab
+                try:research_lab.poll(ROOT, db, enqueue)
+                except Exception as e:error="연구 평가 대기: "+type(e).__name__+": "+str(e)[:200]
                 try:work_requests.poll(ROOT,db,enqueue)
                 except Exception as e:error="업무 요청: "+type(e).__name__+": "+str(e)[:200]
                 try:poll(db,cfg)
                 except Exception as e:error=type(e).__name__+": "+str(e)[:200]
                 busy={j["worker"] for j in futures.values()}
                 cap=max(1,min(4,int(cfg.get("max_concurrent_sessions",2))))
-                rows=db.execute("SELECT * FROM jobs WHERE status IN ('queued','retry','waiting_capacity') AND not_before<=? ORDER BY created",(time.time(),)).fetchall()
+                rows=db.execute("SELECT * FROM jobs WHERE status IN ('queued','retry','waiting_capacity','held') AND not_before<=? ORDER BY created",(time.time(),)).fetchall()
                 # Alternate routine and event/approval work to avoid starvation.
                 rows=sorted(rows,key=lambda j:(j["kind"] not in ("approval","post_action_review"),j["kind"].startswith("periodic:")==last_kind,j["created"]))
                 limit=cfg.get("daily_session_limit")
                 used=db.execute("SELECT COUNT(*) FROM session_attempts WHERE started>=?",(time.time()-86400,)).fetchone()[0]
                 runtime_by_worker={w["id"]:w.get("runtime","claude") for w in yaml.safe_load((ROOT/"roster.yaml").read_text())["workers"]}
                 for row in rows:
+                    if xoc.held(ROOT, row['worker']):
+                        continue
+                    worker_limit = cfg.get('worker_daily_limits', {}).get(row['worker'])
+                    if worker_limit is not None and row['kind'] != 'user_request':
+                        count = db.execute("SELECT COUNT(*) FROM session_attempts s JOIN jobs j ON s.job_id=j.id WHERE j.worker=? AND j.kind!='user_request' AND s.started>=?", (row['worker'], time.time()-86400)).fetchone()[0]
+                        if count >= worker_limit:
+                            continue
                     cooldown=db.execute("SELECT value FROM metadata WHERE key=?",("cooldown:"+runtime_by_worker.get(row["worker"],""),)).fetchone()
                     if cooldown and float(cooldown[0])>time.time():continue
                     if len(futures)>=cap or (limit is not None and used>=int(limit)):break
@@ -216,6 +235,7 @@ def run():
                     futures[pool.submit(execute,job)]=job;busy.add(job["worker"]);used+=1
                     last_kind=job["kind"].startswith("periodic:")
             atomic(ROOT/"tickets"/"loop-engine-status.json",{"pid":os.getpid(),"at":time.time(),"status":"running",
+                   "holds":[{'worker':h['worker'],'until':h['until']} for h in xoc.stored_state(ROOT)['holds'].values() if h['until']>time.time()],
                    "active_workers":[j["worker"] for j in futures.values()],"error":error,
                    "monitoring":{"enabled":cfg.get('adaptive',{}).get('enabled',False),
                                  "loops":adaptive_monitor.summary(db)},

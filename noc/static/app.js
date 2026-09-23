@@ -32,6 +32,7 @@ const WORKER_STATE_STYLES = Object.freeze({
   waiting:{label:'재시도·한도 대기',color:'#e9b46f'},
   attention:{label:'실패·검토 필요',color:'#f48181'},
   stopped:{label:'실행기 중지',color:'#b3a0db',dash:'6 3'},
+  held:{label:'xOC 실행 보류',color:'#e3a383',dash:'5 3'},
   unknown:{label:'상태 미확인',color:'#a0acb5',dash:'2 3'},
 });
 function workerActivity(id) {
@@ -74,7 +75,7 @@ function refreshCrewActivity() {
 let INJCAT = { injections: [] }, INJACT = { active: [] };
 let VIEW = { mode: 'floor', floor: '2F', zoom: 1, panx: 0, pany: 0 };
 const requestedFloor = new URLSearchParams(location.search).get('floor');
-if (['B1','1F','2F','3F','4F'].includes(requestedFloor)) VIEW.floor = requestedFloor;
+if (['B1','1F','2F','3F','4F','5F','XOC'].includes(requestedFloor)) VIEW.floor = requestedFloor;
 if(new URLSearchParams(location.search).get('view')==='site'){VIEW.mode='site';VIEW.floor=null;}
 let SELECTED_FACILITY = null;
 let BASE_VB = null, SELECTED = null, upsDismissed = false;
@@ -390,7 +391,7 @@ function prepareScene(svg, building) {
     // Fan the floors sideways on landscape displays; keep the vertical stack
     // on narrow screens. Equipment proportions stay the same in every room.
     STAGGER.dy = Math.max(90, Math.min(170, 170 - (aspect - 1.25) * 55));
-    const steps = Math.max(1, floors().length - 1);
+    const steps = Math.max(1, floors().filter(f=>!['5F','XOC'].includes(f.id)).length - 1);
     STAGGER.dx = Math.max(130, (aspect * (350 + steps * STAGGER.dy) - (GW + GD) * XS) / steps);
   } else {
     // Lower the camera elevation when width is available. Cabinet heights and
@@ -404,26 +405,58 @@ function drawBuilding() {
   svg.replaceChildren(); LBL = []; TIPS.clear(); tipSeq = 0;
   svg.appendChild(sceneDefs());
   const root = el('g'); svg.appendChild(root);
+  const mainFloors=floors().filter(f=>!['5F','XOC'].includes(f.id));
+  // 연구소와 대외비 구역은 오른쪽 여백에 분리 표시한다. 층을 계속 위로
+  // 늘려 전체 그림을 축소하거나 xOC의 실제 층 번호를 만들어 내지 않는다.
+  const positions=new Map(mainFloors.map((f,i)=>[f.id,[i*STAGGER.dx,-i*STAGGER.dy]]));
+  const last=Math.max(1,mainFloors.length-1);
+  // 실제 장비·벽·근무자를 포함한 경계로 독립 공간을 배치한다.
+  // 화면 비율에 따라 층간 간격만 줄이면 연구소와 운영실이 겹치게 된다.
+  const rooms=new Map(floors().map(f=>[f.id,el('g',{},[drawFloorContent(f.id,false)])]));
+  rooms.forEach(room=>root.appendChild(room));
+  const bounds=new Map([...rooms].map(([id,room])=>[id,room.getBBox()]));
+  const placed=(id,dx,dy)=>{const b=bounds.get(id);return {x:b.x+dx,y:b.y+dy,width:b.width,height:b.height}};
+  const obstacles=mainFloors.map(f=>placed(f.id,...positions.get(f.id)));
+  const lab=bounds.get('5F'),xoc=bounds.get('XOC'),office=placed('4F',...positions.get('4F'));
+  const gap=48,labY=office.y+office.height+gap-lab.y;
+  const candidates=['column','row'].map(mode=>{
+    let labX=last*STAGGER.dx;
+    const relativeX=mode==='row'?lab.x+lab.width+gap-xoc.x:0;
+    const xocY=mode==='column'?labY+lab.y+lab.height+gap-xoc.y:labY+lab.y-xoc.y;
+    for(const [id,offset,y] of [['5F',0,labY],['XOC',relativeX,xocY]]){
+      const b=bounds.get(id);
+      for(const o of obstacles)if(y+b.y<o.y+o.height+gap&&y+b.y+b.height+gap>o.y)
+        labX=Math.max(labX,o.x+o.width+gap-b.x-offset);
+    }
+    const all=[...obstacles,placed('5F',labX,labY),placed('XOC',labX+relativeX,xocY)];
+    const width=Math.max(...all.map(b=>b.x+b.width))-Math.min(...all.map(b=>b.x));
+    const height=Math.max(...all.map(b=>b.y+b.height))-Math.min(...all.map(b=>b.y));
+    const frame=sceneFrame(svg);
+    return {lab:[labX,labY],xoc:[labX+relativeX,xocY],scale:Math.min(frame.width/width,frame.height/height)};
+  }).sort((a,b)=>b.scale-a.scale)[0];
+  positions.set('5F',candidates.lab);positions.set('XOC',candidates.xoc);
+  root.replaceChildren();
   // Riser routes are behind the cutaway rooms.
-  for (let i = 0; i + 1 < floors().length; i++) {
+  for (let i = 0; i + 1 < mainFloors.length; i++) {
     const a = iso(.2, .2, 1.7), b = iso(.2, .2, .22);
     root.appendChild(el('line', { x1:a[0]+i*STAGGER.dx, y1:a[1]-i*STAGGER.dy,
       x2:b[0]+(i+1)*STAGGER.dx, y2:b[1]-(i+1)*STAGGER.dy,
       stroke:'#688b9e', 'stroke-width':1.3, 'stroke-dasharray':'4 5', opacity:.45 }));
   }
-  floors().forEach((f, i) => {
+  floors().slice().sort((a,b)=>positions.get(a.id)[1]-positions.get(b.id)[1]).forEach(f => {
+    const [dx,dy]=positions.get(f.id);
     root.appendChild(el('g', {
-      transform: `translate(${i * STAGGER.dx},${-i * STAGGER.dy})`,
+      transform: `translate(${dx},${dy})`,
       'data-building-floor': f.id,
-      class: 'hit', on: { click: () => enterFloor(f.id) } }, [drawFloorContent(f.id, false)]));
+      class: 'hit', on: { click: () => enterFloor(f.id) } }, [rooms.get(f.id)]));
     const [sx,sy] = iso(GW-.3, GD-.2, .22);
-    pill(sx+i*STAGGER.dx, sy-i*STAGGER.dy+5, `${f.id} · ${f.name}`, {
+    pill(sx+dx, sy+dy+5, f.id==='XOC'?'xOC · 제한구역':`${f.id} · ${f.name}`, {
       anchor:'mid', sub: compactLabels?null:`${racksOf(f.id).length} RACKS / 근무자 ${crewOf(f.id).length}명`,
       color:floorAlarms(f.id).length?'#f49797':'#bfd5e2', size:compactLabels?9:10, gap:3 });
   });
   // 벌려 놓은 층의 왼쪽 위 빈 공간을 쓴다. 옥외를 건물 외곽으로 밀어내면
   // 화면 맞춤의 경계가 커져 모든 층이 불필요하게 작아진다.
-  const siteX=0,siteY=-Math.max(0,floors().length-1)*STAGGER.dy-Math.max(0,220-STAGGER.dx)*.45;
+  const siteX=0,siteY=-Math.max(0,mainFloors.length-1)*STAGGER.dy-Math.max(0,220-STAGGER.dx)*.45;
   root.appendChild(el('g',{'data-building-site':'outdoor',transform:'translate('+siteX+','+siteY+')',class:'hit',on:{click:enterSite}},[drawOutdoor(false)]));
   const siteLabel=iso(GW-.3,GD-.2,.13);
   pill(siteLabel[0]+siteX,siteLabel[1]+siteY+8,'옥외 · 전력·냉각 설비',{anchor:'mid',sub:compactLabels?null:'OUTDOOR / 층 구분 없음',color:'#d1dfc5',size:compactLabels?9:10,gap:3});

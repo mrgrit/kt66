@@ -160,11 +160,39 @@ floors:
     role: GPU 존 — 추론·학습. 랙당 전력밀도가 다른 층의 5~10배
     curriculum: [W3, W7, W12]
   - id: "4F"
-    name: 운영층 (NOC/SOC)
+    name: 운영 사무실
     zone: [mgmt, dmz, ext, ot]
     grid: [12, 8]
-    role: 사람(에이전트)이 일하는 곳. 서버가 아니라 운영이 있는 층
+    role: 운영 리드 독립실·서비스데스크·개발·컴플라이언스
     curriculum: [W4, W6, W8, W14, W15]
+
+  - id: 5F
+    name: AI 연구소
+    zone:
+    - mgmt
+    grid:
+    - 12
+    - 8
+    role: 공개 문헌 연구·스킬 개발·독립 평가·성과와 비용 비교
+    curriculum:
+    - W10
+    - W14
+    - W15
+  - id: XOC
+    name: xOC · 제한구역
+    zone:
+    - mgmt
+    grid:
+    - 12
+    - 8
+    role: AI Agent Operations Center + Security Operations Center · 층 번호 대외비
+    restricted: true
+    physical_floor: null
+    curriculum:
+    - W10
+    - W11
+    - W14
+    - W15
 
 # ── 랙 ────────────────────────────────────────────────────────────
 # 냉방은 랙이 아니라 '아일(aisle)' 단위로 작동한다. 핫아일을 공유하는 랙끼리 열이

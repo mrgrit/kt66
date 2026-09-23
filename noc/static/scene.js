@@ -247,6 +247,7 @@ function drawWorkstation(worker,x,y,z,detail) {
 function drawRoom(fid,detail) {
   if(fid==='B1')return drawFacilityFloor(detail);
   if(fid==='1F')return drawLobbyFloor(detail);
+  if(fid==='5F'||fid==='XOC')return drawControlCenterRoom(fid,detail);
   const g=el('g'),z=.22, racks=racksOf(fid), fac=physicalFacilitiesOf(fid);
   g.appendChild(el('g',{filter:'url(#plateShadow)'},[prism(0,0,0,GW,GD,z,'#647c8b',{flat:true})]));
   g.appendChild(quad(0,0,z+.004,GW,GD,{fill:'#647e8c'}));
@@ -313,13 +314,13 @@ function drawRoom(fid,detail) {
       assetsOf(fid).slice(0,5).forEach((a,k)=>f.appendChild(roomRect(.15,.16+k*.10,Math.max(.04,Math.min(assetState(a.id).util,1)*1.1),.035,n===1?'#a7c883':'#6a9fb9')));
       g.appendChild(f);
     }
-    const control=el('a',{href:'/agent-control','aria-label':'4층 AI 에이전트 관제실 열기'});
+    const control=el('a',{href:dcURL('agentops'),'aria-label':'운영 사무실 근무자 운영 열기'});
     // The wall uses positive z-up coordinates; lettering needs a y-down face.
     // Starting at the sign's top edge keeps the plate and text upright together.
     const [signX,signY]=iso(2,.24,z+2.27);
     const sign=el('g',{'data-office-sign':'agent-control',transform:`matrix(${XS},${YS},0,${ZS},${signX},${signY})`});
     sign.appendChild(roomRect(0,0,4.65,.34,'#223b32',{rx:.04}));
-    sign.appendChild(el('text',{x:.2,y:.235,'font-size':.205,'font-family':'sans-serif','font-weight':600,fill:'#dcf2c4',text:'AI Agent Control  ›'}));
+    sign.appendChild(el('text',{x:.2,y:.235,'font-size':.205,'font-family':'sans-serif','font-weight':600,fill:'#dcf2c4',text:'OPERATIONS OFFICE  ›'}));
     control.appendChild(sign);g.appendChild(control);
   } else {
     const workers=crewOf(fid),columns=Math.min(workers.length,3);

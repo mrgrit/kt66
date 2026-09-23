@@ -63,8 +63,8 @@ class ConfigurationApi(unittest.TestCase):
     def test_defaults_and_effective_role_are_consistent(self):
         org = self.call("GET", "/api/org")
         self.assertEqual(org["errors"], [])
-        self.assertEqual(len(org["roster"]["workers"]), 10)
-        self.assertEqual(len(org["loop_details"]), 12)
+        self.assertEqual(len(org["roster"]["workers"]), 13)
+        self.assertEqual(len(org["loop_details"]), 15)
         detail = self.detail("network-engineer")
         self.assertNotIn("disk_usage", str(detail["available_tools"]))
         self.assertIn("network", str(detail["authorization"]))

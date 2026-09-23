@@ -16,6 +16,9 @@
     'soc-analyst':           {shirt:'#607b9e',sleeve:'#4b607e',collar:'#9bb8cf',trousers:'#34445c',hair:'#303239',skin:'#d4a27e',cut:'short',glasses:true},
     'ops-lead':              {shirt:'#657a88',sleeve:'#4e626f',collar:'#bcc9c9',trousers:'#33424d',hair:'#7d8589',skin:'#dbb58f',cut:'side',beard:true},
     'compliance-auditor':    {shirt:'#708d7e',sleeve:'#567061',collar:'#b3c8b4',trousers:'#3c4d47',hair:'#8f8982',skin:'#e2bd96',cut:'bob',glasses:true},
+    'skill-researcher':      {shirt:'#9b8cba',sleeve:'#796b98',collar:'#d4c9e8',trousers:'#42435f',hair:'#49414b',skin:'#e2bd96',cut:'bob',glasses:true},
+    'skill-evaluator':       {shirt:'#809fa7',sleeve:'#5e7d89',collar:'#c3d7d8',trousers:'#374c5a',hair:'#695349',skin:'#d4a27e',cut:'side'},
+    'agent-supervisor':      {shirt:'#5b9691',sleeve:'#417774',collar:'#a5d3c7',trousers:'#304d53',hair:'#3a3942',skin:'#dbb58f',cut:'short',glasses:true},
   };
   const caps={L0:'#626d7b',L1:'#3e9c96',L2:'#5c87be',L3:'#9772b8',approver:'#b49a63'};
   const runtimeColors={claude:'#cf9971',codex:'#72b8a4',bastion:'#77aaca',hermes:'#a18bbe'};

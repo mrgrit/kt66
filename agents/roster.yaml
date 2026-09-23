@@ -33,6 +33,24 @@ models:
     name: default
     tier: reasoning
     note: New ChatGPT-authenticated Codex session; CLI default model; usage limits apply
+  codex-research:
+    endpoint: codex-cli
+    name: gpt-6-astra
+    tier: frontier
+    reasoning_effort: high
+    note: ChatGPT 구독 CLI · 역할별 모델/추론 등급 고정 · 사용량은 실행 증적으로 측정
+  codex-evaluation:
+    endpoint: codex-cli
+    name: gpt-6-sol
+    tier: reasoning
+    reasoning_effort: medium
+    note: ChatGPT 구독 CLI · 역할별 모델/추론 등급 고정 · 사용량은 실행 증적으로 측정
+  codex-watch:
+    endpoint: codex-cli
+    name: gpt-6-luna
+    tier: small
+    reasoning_effort: medium
+    note: ChatGPT 구독 CLI · 역할별 모델/추론 등급 고정 · 사용량은 실행 증적으로 측정
 runtimes:
   claude:
     name: Claude Code
@@ -142,7 +160,7 @@ workers:
   - id: soc-analyst
     security_role: soc
     name: SOC 분석가
-    floor: 4F
+    floor: XOC
     zone: mgmt
     runtime: claude
     autonomy: L1
@@ -191,3 +209,57 @@ workers:
     loops: []
     assets: [request-workspace]
     curriculum: [W8, W10, W14]
+  - id: skill-researcher
+    name: 스킬 연구원
+    security_role: research
+    floor: 5F
+    zone: mgmt
+    team: research-team
+    runtime: codex
+    model: codex-research
+    autonomy: L1
+    loops:
+      - skill-research-daily
+    assets:
+      - skill-candidates
+      - public-research
+    curriculum:
+      - W10
+      - W14
+      - W15
+  - id: skill-evaluator
+    name: 스킬 평가원
+    security_role: evaluation
+    floor: 5F
+    zone: mgmt
+    team: evaluation-team
+    runtime: codex
+    model: codex-evaluation
+    autonomy: L1
+    loops:
+      - skill-evaluation-watch
+    assets:
+      - skill-benchmarks
+      - evaluation-evidence
+    curriculum:
+      - W10
+      - W14
+      - W15
+  - id: agent-supervisor
+    name: AI 에이전트 관제원
+    security_role: supervision
+    floor: XOC
+    zone: mgmt
+    team: agent-control-team
+    runtime: codex
+    model: codex-watch
+    autonomy: L1
+    loops:
+      - agent-risk-watch
+    assets:
+      - agent-evidence
+      - xoc-findings
+    curriculum:
+      - W10
+      - W14
+      - W15

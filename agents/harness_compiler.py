@@ -104,9 +104,11 @@ def _compile_worker(wid, root=ROOT):
                "role_skills": {name: skill_metadata(name, body) for name, body in role_skills.items()}}
     payload['available_tools'] = authorization.visible(payload, TOOLS)
     hashes = {p: digest(b) for p, b in sources.items()}
-    implementation = {f: digest((ROOT / f).read_bytes()) for f in ("harness_compiler.py", "harness_tools.py", "activity_audit.py", "storage_probe.py", "tool_approvals.py", "authorization.py", "request_runtime.py", "request_tools.py") if (ROOT / f).exists()}
+    implementation = {f: digest((ROOT / f).read_bytes()) for f in ("harness_compiler.py", "harness_tools.py", "activity_audit.py", "storage_probe.py", "tool_approvals.py", "authorization.py", "request_runtime.py", "request_tools.py", "session_cli.py", "xoc.py", "research_lab.py") if (ROOT / f).exists()}
     version = digest(json.dumps({"sources": hashes, "implementation": implementation, "worker": wid}, sort_keys=True).encode())
     payload.update(version=version, source_hashes=hashes, implementation_hashes=implementation)
+    # 무결성 해시는 서버가 검증한다. 무작위 해시 목록을 매 모델 턴에 반복하지 않는다.
+    context = {k: v for k, v in payload.items() if k not in ('source_hashes', 'implementation_hashes')}
     instructions = (
         "# KT66 active organizational harness\n\nVersion: " + version +
         "\n\nAct within the organization below. Company principles outrank local guidance. "
@@ -124,7 +126,7 @@ def _compile_worker(wid, root=ROOT):
         "총괄은 검토·승인, 서비스데스크는 분배, 감사인은 증거 조회만 합니다.\n\n"
         "role_skills는 배정된 업무 스킬 목록입니다. 실제 해당 업무를 시작할 때 skill_read로 본문을 한 번 읽고 적용하세요. "
         "스킬에 적힌 도구·수치는 실제 제공 기능이나 측정 결과를 대신하지 않습니다.\n\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        + json.dumps(context, ensure_ascii=False, separators=(',', ':')) + "\n")
     dest = root / "runtimes" / runtime / "versions" / wid / version
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not dest.exists():

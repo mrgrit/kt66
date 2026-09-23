@@ -104,7 +104,7 @@ teams:
 
   - id: soc-team
     name: SOC팀
-    department: ops
+    department: xoc
     members: [soc-analyst]
     kpi:
       - {id: K-SOC-1, metric: alert_triage_min, target: "< 10", weight: 3}
@@ -134,6 +134,60 @@ teams:
     experience_graph: graph/experience.json
 
 # ── 학생이 만져 볼 지점 ────────────────────────────────────────────
+  - id: research-team
+    name: 스킬 연구팀
+    department: research
+    members:
+      - skill-researcher
+    kpi:
+      - id: K-RESEARCH-TEAM
+        metric: verified_method_improvement
+        target: '> 0'
+        weight: 3
+      - id: K-SHARED-SKILL
+        metric: quality_per_observed_token
+        target: 개선 전후 비교
+        weight: 2
+        shared_with:
+          - evaluation-team
+          - agent-control-team
+    experience_graph: graph/experience.json
+  - id: evaluation-team
+    name: 독립 평가팀
+    department: research
+    members:
+      - skill-evaluator
+    kpi:
+      - id: K-EVALUATION-TEAM
+        metric: safety_regressions
+        target: '0'
+        weight: 3
+      - id: K-SHARED-SKILL
+        metric: quality_per_observed_token
+        target: 개선 전후 비교
+        weight: 2
+        shared_with:
+          - research-team
+          - agent-control-team
+    experience_graph: graph/experience.json
+  - id: agent-control-team
+    name: AI 에이전트 관제팀
+    department: xoc
+    members:
+      - agent-supervisor
+    kpi:
+      - id: K-AGENT-CONTROL-TEAM
+        metric: unreviewed_high_risk_findings
+        target: '0'
+        weight: 3
+      - id: K-SHARED-SKILL
+        metric: quality_per_observed_token
+        target: 개선 전후 비교
+        weight: 2
+        shared_with:
+          - research-team
+          - evaluation-team
+    experience_graph: graph/experience.json
 levers:
   - "K-SHARED-* 를 빼면? — 팀이 자기 지표만 지키고 사고가 난다. 넣고 빼며 비교해 본다"
   - "weight 를 바꾸면? — 충돌 시 어느 쪽을 포기하는지가 바뀐다"

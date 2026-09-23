@@ -71,6 +71,8 @@ agents/tickets/approvals/
 agents/tickets/delegations/
 agents/tickets/worker-memory/
 agents/tickets/cycle-state/
+agents/tickets/xoc/
+agents/tickets/research-lab/
 
 # Local diagnostic runs (existing tracked teaching examples are retained)
 agents/tickets/20*.md

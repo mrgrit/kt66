@@ -100,6 +100,8 @@ def allowed(manifest, name):
     if name in REQUEST and not context:
         return False
     if context:
+        if (context.get('mode') == 'conversation' or context.get('scope') == 'read') and name in ('lab_propose', 'lab_evaluate', 'xoc_review', 'xoc_contain'):
+            return False
         if name in ('request_plan', 'request_agent_create') and context['phase'] != 'plan':
             return False
         if name == 'simulator_control' or name in ('approve_request', 'delegate_work'):

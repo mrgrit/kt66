@@ -52,5 +52,28 @@ departments:
       기술적 조치를 직접 수행하지 않는다. 판정하고 승인한다 —
       승인자가 실행자를 겸하면 승인이 형식이 된다
     owns_goals: [G4]
-    teams: [servicedesk-team, soc-team, audit-team, ops-lead-team]
-    escalates_to: null            # 최상위. 여기서 막히면 사람에게 간다
+    teams:
+      - servicedesk-team
+      - audit-team
+      - ops-lead-team
+    escalates_to:                 # 최상위. 여기서 막히면 사람에게 간다
+  - id: research
+    name: AI 연구소
+    floor: 5F
+    mission: 검증 가능한 실무 방법론을 스킬로 이식하고 품질·안전·비용을 함께 개선한다
+    owns_goals:
+      - G4
+    teams:
+      - research-team
+      - evaluation-team
+    escalates_to: ops
+  - id: xoc
+    name: xOC 통합관제
+    floor: XOC
+    mission: 제한구역. AI 에이전트 관제와 보안 관제를 독립된 직무로 운영한다. 실제 층 번호는 보관하지 않는다
+    owns_goals:
+      - G4
+    teams:
+      - soc-team
+      - agent-control-team
+    escalates_to: ops

@@ -1,0 +1,19 @@
+id: agent-risk-watch
+owner: agent-supervisor
+autonomy: L1
+cadence: '*/10 * * * *'
+budget:
+  max_tokens: 40000
+  max_tool_calls: 16
+state:
+- reviewed_findings
+steps:
+- do: agent-incident-review를 읽고 xoc_read로 신규 발견을 확인한다
+- do: 높은 위험 최대 3건을 근거와 대조해 판정한다. 같은 경보를 반복 조사하지 않는다
+- do: xoc_review로 근거를 남기고 검증된 권한 위반만 기한부 보류한다
+gates:
+- name: 근거와직무분리
+  rule: 미확인·미측정은 그대로 기록한다. 역할 밖 도구·운영 적용을 실행하지 않는다
+monitor:
+  mode: adaptive
+  probe: agent_risk

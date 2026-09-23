@@ -61,11 +61,11 @@ def authenticated(runtime, cli, env):
     return {"method": "chatgpt"}
 
 
-def run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidence_dir=None):
+def run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidence_dir=None, reasoning_effort=None):
     record(evidence_dir, "request", {"runtime": runtime, "model": model, "prompt": prompt,
                                     "timeout_seconds": timeout, "source": "session_cli"})
     try:
-        result = _run(runtime, model, prompt, timeout, schema, harness, evidence_dir)
+        result = _run(runtime, model, prompt, timeout, schema, harness, evidence_dir, reasoning_effort)
     except Exception as exc:
         failure = {"status":"failed", "runtime":runtime, "error":str(exc) if isinstance(exc, SessionError) else type(exc).__name__}
         record(evidence_dir, "session.failed", failure)
@@ -80,17 +80,26 @@ def run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidence
     return result
 
 
-def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidence_dir=None):
+def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidence_dir=None, reasoning_effort=None):
     cli, env = executable(runtime), clean_env()
     auth = authenticated(runtime, cli, env)
+    web_research = False
     with tempfile.TemporaryDirectory(prefix="kt66-worker-session-") as td:
         session_cwd = td
         if harness is not None:
             harness = pathlib.Path(harness)
             manifest = json.loads((harness / "manifest.json").read_text())
+            from xoc import held
+            worker_id = manifest.get('worker', {}).get('id')
+            if worker_id and held(pathlib.Path(__file__).resolve().parent, worker_id):
+                raise SessionError('xoc_hold')
+            reasoning_effort = manifest.get('model', {}).get('reasoning_effort', reasoning_effort)
+            web_research = manifest.get('authorization', {}).get('role') == 'research' and manifest.get('authorization', {}).get('web_research') is True
             evidence_dir = pathlib.Path(evidence_dir)
             evidence_dir.mkdir(parents=True, exist_ok=True)
-            session_cwd = str(harness)
+            # Codex에는 같은 문서를 developer_instructions로 한 번 전달한다.
+            # 격리 cwd로 AGENTS.md 자동 탐색에 의한 동일 문서 중복 적재를 피한다.
+            session_cwd = str(harness) if runtime == 'claude' else td
             instructions = (harness / ("AGENTS.md" if manifest.get("native") else "HARNESS.md")).read_text()
             (evidence_dir / "manifest-snapshot.json").write_text(json.dumps(scrub(manifest), ensure_ascii=False))
             mcp = {"mcpServers": {"kt66": {"command": "/usr/bin/python3", "args": [
@@ -146,10 +155,14 @@ def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidenc
                    "--sandbox", "read-only", "--json",
                    "-c", 'forced_login_method="chatgpt"',
                    "-c", 'model_provider="openai"',
-                   "-c", 'web_search="disabled"',
+                   "-c", 'web_search="live"' if web_research else 'web_search="disabled"',
                    "--disable", "shell_tool", "--disable", "shell_snapshot",
                    "--disable", "hooks", "--disable", "multi_agent",
                    "-o", str(final)]
+            if reasoning_effort is not None:
+                if reasoning_effort not in ('low', 'medium', 'high', 'xhigh', 'max'):
+                    raise SessionError('invalid_reasoning_effort')
+                cmd += ['-c', 'model_reasoning_effort=' + json.dumps(reasoning_effort)]
             if harness is not None:
                 cmd += ["-c", "developer_instructions=" + json.dumps(instructions),
                         "-c", 'mcp_servers.kt66.command="/usr/bin/python3"',
@@ -176,6 +189,10 @@ def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidenc
                 raise SessionError("invalid_session_output")
             if any(e.get("type") in ("turn.failed", "error") for e in events):
                 raise session_failure(p.stdout, "session_error")
+            for event in events:
+                item = event.get('item', {})
+                if event.get('type') == 'item.completed' and item.get('type') == 'web_search':
+                    record(evidence_dir, 'research.web_search', {'action': item.get('action'), 'query': item.get('query'), 'source': 'Codex CLI'})
             sid = next((e.get("thread_id") for e in events if e.get("type") == "thread.started"), None)
             complete = next((e for e in events if e.get("type") == "turn.completed"), None)
             if not sid or complete is None or not final.is_file():
@@ -186,6 +203,8 @@ def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidenc
         raise SessionError("empty_response")
     result["body"] = result["body"].strip()
     result.update(runtime=runtime, model=model, auth=auth, fresh_session=True)
+    if runtime == 'codex':
+        result.update(reasoning_effort=reasoning_effort, web_research=web_research)
     if harness is not None:
         result.update(harness_version=manifest["version"], evidence_dir=str(evidence_dir))
     return result

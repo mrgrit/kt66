@@ -114,6 +114,15 @@ class Probes:
         kind = loop['monitor']['probe']
         signals, problems, sources = {}, [], []
         try:
+            if kind == 'agent_risk':
+                import xoc
+                return xoc.probe(self.root)
+            if kind == 'research':
+                import research_lab
+                rows = research_lab.catalog(self.root)['candidates']
+                drafts = sorted(c['id'] for c in rows if c['status'] == 'draft')
+                # 대기 후보가 없으면 결과 보고의 변화만으로 평가원을 다시 깨우지 않는다.
+                return {'signals': {'drafts': drafts}, 'problems': drafts, 'sources': ['local:research-lab']}
             state = self.get('/api/state')
             if not isinstance(state.get('alarms'), list) or not isinstance(state.get('containers'), dict):
                 raise ValueError('invalid operational state')
@@ -239,6 +248,9 @@ def poll(db, loops, cfg, probes, enqueue, now=None, notified_workers=()):
             continue
         observation = probes.collect(loop)
         data, invoke = advance(old, observation, now, cfg)
+        if loop.get('monitor', {}).get('probe') == 'research' and not observation.get('signals', {}).get('drafts'):
+            data['pending'] = False
+            invoke = False
         busy = db.execute("SELECT 1 FROM jobs WHERE worker=? AND status IN ('queued','retry','waiting_capacity','running')", (worker,)).fetchone()
         if notified:
             # The newly enqueued event already wakes this owner; do not duplicate it.

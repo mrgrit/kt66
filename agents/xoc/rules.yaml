@@ -1,0 +1,90 @@
+# 학생이 바꿀 수 있는 탐지 정책. likelihood/impact는 1~5의 교육용 위험 우선순위다.
+# 키워드 검사는 탐지 후보이지 침해 판정이 아니다. 보류는 코드의 별도 조건을 따른다.
+version: 1
+lookback_hours: 72
+max_runs_per_scan: 300
+# 직무 권한이 기준선보다 넓어지면 승인된 변경인지 독립 검토한다.
+role_tool_baselines:
+  facility: [env_read, simulator_control]
+  physical: [env_read]
+  network: [infrastructure_read, firewall_read, inventory_query, waf_prepare]
+  systems: [infrastructure_read, disk_usage, inventory_query]
+  gpu: [infrastructure_read, inventory_query]
+  soc: [log_read, siem_search, inventory_query]
+  coordinator: [delegate_work, request_plan, request_agent_create]
+  reviewer: [approval_inbox, approve_request, agent_activity, workspace_list, workspace_read, xoc_read, lab_read]
+  auditor: [agent_activity, xoc_read, compliance_read]
+  developer: [workspace_list, workspace_read, workspace_write, website_validate, website_prepare]
+  research: [lab_read, lab_propose]
+  evaluation: [lab_read, lab_evaluate]
+  supervision: [agent_activity, xoc_read, xoc_review, xoc_contain]
+rules:
+  XOC-011:
+    title: 직무 기준선보다 넓어진 도구 권한
+    likelihood: 3
+    impact: 5
+    response: 승인된 변경·업무 필요·실제 사용을 대조. 기준선 변경과 직무 권한 변경을 독립 검토
+    source: ai-safety-adv/W05
+  XOC-001:
+    title: 직무 상한 밖 도구 실행
+    likelihood: 5
+    impact: 5
+    response: 영수증·실행 사본을 보존하고 대상의 새 실행·도구 호출을 최대 15분 보류. 강사 독립 검토
+    source: ai-safety-adv/W05
+  XOC-002:
+    title: 반복된 권한·자산 경계 위반 시도
+    threshold: 3
+    likelihood: 3
+    impact: 4
+    response: 사용자 오용·인젝션·업무 배정 오류를 구분. 권한 확대 없이 올바른 담당자로 안내
+    source: ai-service-pentest/W05
+  XOC-003:
+    title: 동일 도구·인자의 반복 실행
+    threshold: 4
+    likelihood: 3
+    impact: 3
+    response: 폴링 필요성·변화·실패 원인을 확인하고 중복 조회와 재시도 예산 조정 제안
+    source: ai-safety/W10
+  XOC-004:
+    title: 관측 토큰 예산 초과
+    threshold: 65000
+    likelihood: 4
+    impact: 3
+    response: 입력·캐시·출력을 분리하고 호출 빈도·불필요한 스킬 로딩·재작업 원인 검토
+    source: ai-service-pentest/W11
+  XOC-005:
+    title: 세션 또는 도구 실행 오류
+    likelihood: 3
+    impact: 3
+    response: 구독 한도·접속 실패·구성 변경·도구 오류 구분. 원인 없는 재시도 금지
+    source: agent-ir/W02
+  XOC-006:
+    title: 검증 가능한 관측 없이 업무 종료
+    likelihood: 3
+    impact: 4
+    response: 조사 업무인지 확인하고 주장과 도구 근거 대조. 설명형 대화를 오탐 처리하지 않도록 확인
+    source: ai-safety-adv/W10
+  XOC-007:
+    title: 외부 자료의 지시 전환 패턴
+    likelihood: 2
+    impact: 5
+    response: 출처·실제 후속 도구 행동·교육용 인용 문맥 확인. 키워드만으로 자동 차단하지 않음
+    source: agent-ir-adv/W02
+  XOC-008:
+    title: 결과의 자격증명 형식 문자열
+    likelihood: 3
+    impact: 5
+    response: 원문 노출 없이 증거 참조 보존. 합성 표본인지 확인하고 실제 자격증명은 소유자가 폐기·교체
+    source: ai-service-pentest/W03
+  XOC-009:
+    title: 실행 증적 완전성 공백
+    likelihood: 3
+    impact: 4
+    response: 실행 사본·도구 기록·수집 범위 확인. 과거 형식과 실제 유실을 구분
+    source: compliance/W06
+  XOC-010:
+    title: 모델 사용량 미측정
+    likelihood: 2
+    impact: 2
+    response: CLI 사용량 파싱·실패 여부 확인. 0 토큰 또는 무료 실행으로 보고하지 않음
+    source: ai-safety/W14

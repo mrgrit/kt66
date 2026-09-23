@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ 'xOC 통합관제' if center == 'xoc' else 'AI 연구소' }} · KT66</title>
+<link rel="stylesheet" href="/ui/console.css"><link rel="stylesheet" href="/static/control-centers.css?v=1"></head>
+<body data-console="{{ center }}"><main class="center-shell">
+<header><div><p class="eyebrow">{{ 'RESTRICTED · FLOOR CLASSIFIED' if center == 'xoc' else '5F · RESEARCH & VALIDATION' }}</p>
+<h1>{{ 'xOC 통합관제' if center == 'xoc' else 'AI 연구소' }}</h1>
+<p>{{ '에이전트의 행동과 보안 사건을 근거로 연결합니다.' if center == 'xoc' else '전문가의 일하는 방법을 검증된 스킬로 발전시킵니다.' }}</p></div>
+<form id="unlock"><label>강사 키<input id="center-key" type="password" autocomplete="off" required></label><button>제한구역 열기</button></form></header>
+<p id="message" role="status" aria-live="polite">강사 인증 후 운영 증적을 볼 수 있습니다. 화면 조회는 AI를 호출하지 않습니다.</p>
+<section class="intro-grid">
+{% if center == 'xoc' %}
+<article><span>AI AGENT OPERATIONS</span><h2>활동 · 품질 · 권한 · 비용</h2><p>실행 사본과 도구 영수증으로 탐지하고, 판정과 조치 이유를 남깁니다.</p><a data-console-link="agentcontrol">실행 타임라인 →</a></article>
+<article><span>SECURITY OPERATIONS</span><h2>SOC 분석가</h2><p>보안 경보 트리아지 → 이상 정밀 분석 → 하루 두 번 위험 보고</p><a id="soc-chat">SOC와 대화 →</a><a data-console-link="siem">SIEM 경보 →</a></article>
+{% else %}
+<article><span>RESEARCH · CODEX ASTRA</span><h2>실무 방법론 연구</h2><p>공개 문헌과 현장 사례를 비교해 적용 조건·판단 기준·실패 대응을 추출합니다.</p><a id="research-chat">연구원과 대화 →</a></article>
+<article><span>EVALUATION · CODEX SOL</span><h2>독립된 A/B 평가</h2><p>같은 사례로 기존·후보 스킬을 비교하고 안전·성능·실측 토큰을 함께 확인합니다.</p><a data-console-link="agentops">운영 스킬·R&R 관리 →</a></article>
+{% endif %}</section>
+<section id="workspace" hidden><div class="toolbar"><h2 id="list-title"></h2><select id="filter" aria-label="상태 필터"><option value="all">전체 상태</option></select><button id="refresh">새로고침</button><button id="create" {% if center == 'xoc' %}hidden{% endif %}>스킬 후보 등록</button></div>
+<div id="metrics" class="metrics"></div><p id="coverage" class="muted"></p><div id="holds"></div><div id="cards" class="cards"></div>
+<details><summary>{{ '탐지 규칙 · 위험 평가' if center == 'xoc' else '연구 출처 · 적용 원칙' }}</summary><div id="policy"></div></details></section>
+<dialog id="detail"><div class="dialog-head"><h2 id="detail-title"></h2><button id="close" aria-label="닫기">닫기</button></div><div id="detail-body"></div></dialog>
+<dialog id="candidate-dialog"><form id="candidate-form"><div class="dialog-head"><h2>새 스킬 후보</h2><button type="button" id="candidate-close">닫기</button></div>
+<label>스킬 이름<input name="name" pattern="[a-z][a-z0-9-]{0,63}" required placeholder="soc-evidence-triage"></label>
+<label>대상 근무자<select name="target_worker" id="candidate-worker"></select></label>
+<label>개선 가설<textarea name="hypothesis" minlength="10" required placeholder="어떤 업무의 무엇을 개선하며 어떻게 비교할까요?"></textarea></label>
+<label>원문 출처 URL (줄마다 하나)<textarea name="sources" required placeholder="https://..."></textarea></label>
+<label>SKILL.md 전체<textarea name="content" id="candidate-content" rows="14" required placeholder="---&#10;name: soc-evidence-triage&#10;description: ...&#10;---&#10;&#10;업무 절차"></textarea></label>
+<p class="muted">후보 등록은 운영 적용이 아닙니다. 평가 후 적용 내용과 결과를 검토하세요.</p><button type="submit">초안 등록</button></form></dialog>
+</main><script src="/ui/console.js?v=research-xoc-1"></script><script src="/static/control-centers.js?v=1"></script></body></html>

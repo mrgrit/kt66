@@ -68,17 +68,17 @@ function renderFloorSelector() {
   const box=$('#lift');
   const signature = `${VIEW.mode}:${VIEW.floor}:${floors().map(f=>f.id).join(',')}`;
   if (box.dataset.signature !== signature) {
-  box.innerHTML=`<button class="all ${VIEW.mode==='building'?'on':''}" data-f="" aria-pressed="${VIEW.mode==='building'}">전체</button>`+floors().map(f=>`<button class="${VIEW.floor===f.id?'on':''}" data-f="${safeText(f.id)}" aria-pressed="${VIEW.floor===f.id}"><span class="fl">${safeText(f.id)}</span><span class="fn">${safeText({'B1':'설비','1F':'로비','2F':'전산실','3F':'AI','4F':'운영'}[f.id] || '')}</span></button>`).join('');
+  box.innerHTML=`<button class="all ${VIEW.mode==='building'?'on':''}" data-f="" aria-pressed="${VIEW.mode==='building'}">전체</button>`+floors().map(f=>`<button class="${VIEW.floor===f.id?'on':''}" data-f="${safeText(f.id)}" aria-pressed="${VIEW.floor===f.id}"><span class="fl">${safeText(f.id)}</span><span class="fn">${safeText({'B1':'설비','1F':'로비','2F':'전산실','3F':'AI','4F':'운영','5F':'연구소','XOC':'제한구역'}[f.id] || '')}</span></button>`).join('');
   $$('[data-f]',box).forEach(b=>b.onclick=()=>b.dataset.f?enterFloor(b.dataset.f):enterBuilding());
   const site=document.createElement('button');site.textContent='옥외';site.dataset.view='site';
   site.classList.toggle('on',VIEW.mode==='site');site.setAttribute('aria-pressed',String(VIEW.mode==='site'));site.onclick=enterSite;box.appendChild(site);
   box.dataset.signature = signature;
   }
   const floor=floors().find(f=>f.id===VIEW.floor),pool=floor?assetsOf(floor.id):LAYOUT.it_assets;
-  $('#view-title').textContent=floor?.id==='4F'?'AI 에이전트 관제 · 운영층':floor?floor.name:'데이터센터 전체 배치';
-  $('#agent-control-link').hidden=VIEW.floor!=='4F';
-  $('#scene-floor-code').textContent=floor?`${floor.id} / ${({'B1':'PLANT ROOMS','1F':'SECURITY LOBBY','2F':'SERVER HALL','3F':'AI COMPUTE','4F':'OPERATIONS'}[floor.id] || '')}`:'KT66 / BUILDING';
-  $('#scene-floor-note').textContent=VIEW.floor==='3F'?'NVIDIA 7대 · 실물 장비의 교육용 배치도':VIEW.floor==='4F'?'운영 리드 전용 공간 · 역할별 근무석':'자산 대장 기반 개념 배치도';
+  $('#view-title').textContent=floor?floor.name:'데이터센터 전체 배치';
+  const centerLink=$('#agent-control-link');centerLink.hidden=!['5F','XOC'].includes(VIEW.floor);centerLink.href=dcURL(VIEW.floor==='5F'?'researchlab':'xoc');centerLink.textContent=VIEW.floor==='5F'?'연구·평가 관리 ↗':'xOC 관제 ↗';
+  $('#scene-floor-code').textContent=floor?`${floor.id} / ${({'B1':'PLANT ROOMS','1F':'SECURITY LOBBY','2F':'SERVER HALL','3F':'AI COMPUTE','4F':'OPERATIONS','5F':'AI RESEARCH','XOC':'RESTRICTED / 층 번호 대외비'}[floor.id] || '')}`:'KT66 / BUILDING';
+  $('#scene-floor-note').textContent=VIEW.floor==='3F'?'NVIDIA 7대 · 실물 장비의 교육용 배치도':VIEW.floor==='5F'?'실무 방법론 연구 → 독립 평가 → 검토 후 적용':VIEW.floor==='XOC'?'AI 에이전트 관제 · SOC / 접근 권한 분리':VIEW.floor==='4F'?'운영 리드 전용 공간 · 역할별 근무석':'자산 대장 기반 개념 배치도';
   $('#scene-summary').textContent=`${floor?racksOf(floor.id).length:LAYOUT.racks.length} RACKS / ${pool.length} ASSETS / 근무자 ${floor?crewOf(floor.id).length:ROSTER.workers.length}명`;
   if(VIEW.mode==='site') {
     $('#view-title').textContent='옥외 전력·냉각 설비';

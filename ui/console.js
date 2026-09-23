@@ -15,6 +15,8 @@
   window.dcURL = (name) => {
     if(name==='requests')return window.dcURL('agentops')+'requests';
     if(name==='agentcontrol')return window.dcURL('noc')+'agent-control';
+    if(name==='xoc')return window.dcURL('agentops')+'xoc';
+    if(name==='researchlab')return window.dcURL('agentops')+'research-lab';
     const ports = {noc:8020, portal:8000, agentops:8050, modelops:8060, infraops:8070, siem:5601, landing:80};
     const host = location.hostname;
     if (host.endsWith('.kt66.lab')) return `${name === 'siem' ? 'https:' : location.protocol}//${name === 'landing' ? 'kt66.lab' : name + '.kt66.lab'}/`;
@@ -31,7 +33,9 @@
     <div class="dc-nav-caption">WORKSPACE</div>
     <nav aria-label="콘솔 이동">
       ${nav('noc','통합 관제','Overview','overview')}
-      ${nav('agentcontrol','AI 에이전트 관제','4F · Agent control','activity')}
+      ${nav('xoc','xOC 통합관제','제한구역 · AI + SOC','shield')}
+      ${nav('researchlab','AI 연구소','5F · Skills & evaluation','model')}
+      ${nav('agentcontrol','에이전트 실행 증적','Activity & evidence','activity')}
       ${nav('requests','업무 요청','Requests & projects','book')}
       ${nav('portal','인프라 자산','Infrastructure','server')}
       ${nav('agentops','근무자 운영','Agent operations','crew')}

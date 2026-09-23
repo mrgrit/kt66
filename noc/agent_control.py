@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import pathlib
@@ -16,7 +17,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 from activity_audit import VERSION, scrub
 
 SLUG = re.compile(r"(?:loop|session)-[a-zA-Z0-9_-]{1,170}\Z")
@@ -238,7 +239,9 @@ class Observatory:
         active=engine.get("active_workers")
         valid_active=isinstance(active,list) and all(isinstance(w,str) for w in active)
         active=set(active) if valid_active else set()
+        holds={h['worker']: h for h in engine.get('holds', []) if isinstance(h,dict) and h.get('until',0)>now and isinstance(h.get('worker'),str)}
         grouped={w:[] for w in active}
+        grouped.update({w:[] for w in holds})
         for job in jobs:
             grouped.setdefault(job["worker"],[]).append(job)
         items=[]
@@ -255,6 +258,8 @@ class Observatory:
                 state,reason="stopped","자동 실행기의 중지가 확인됐습니다."
             elif engine.get("status")!="running" or not valid_active or engine.get("error"):
                 state,reason="unknown","자동 실행기의 상태를 확인할 수 없습니다."
+            elif worker in holds:
+                state,reason="held","xOC 기한부 보류: 새 세션과 다음 도구 호출이 제한됩니다."
             elif worker in active:
                 state,reason="working","자동 실행기가 이 에이전트의 작업을 실행하고 있습니다."
             elif counts["running"]:
@@ -272,7 +277,7 @@ class Observatory:
         return self.public({"schema_version":VERSION,"items":items,"collected_at":health["at"],
                             "engine_at":heartbeat or None,"source":health,
                             "scope":"automatic scheduler; not standalone CLI sessions",
-                            "priority":["unknown","stopped","working","attention","waiting","idle"]})
+                            "priority":["unknown","stopped","held","working","attention","waiting","idle"]})
 
     def list(self, worker="", status="", trigger="", q="", hours=24, limit=40, cursor="", updated_since=0):
         self.refresh()
@@ -441,9 +446,13 @@ class Observatory:
         if not any(r["id"]==rid for r in self.rows):raise HTTPException(404,"실행 기록이 없습니다")
 
 
-def router(root):
+def router(root, key=""):
     store=Observatory(root)
     api=APIRouter(prefix="/api/agent-control",tags=["AI agent control"])
+    def evidence_auth(request: Request, response: Response):
+        if not key or not hmac.compare_digest(request.headers.get('x-api-key',''), key):
+            raise HTTPException(401, '실행 증적은 제한구역입니다. 강사 키를 입력하세요')
+        response.headers['Cache-Control'] = 'private, no-store'
 
     @api.get("/schema")
     def schema():
@@ -455,23 +464,23 @@ def router(root):
                 "stages":["request","agent.situation","agent.plan","agent.decision","tool","agent.review","session.completed","session.failed"],
                 "finding_contract":{"id":"stable run_id:rule","rule":"rule identifier","severity":"info|medium|high","evidence_refs":"source file + line","detector":"deterministic.v1"},
                 "monitor_policy":{"automatic_model_calls":False,"can_approve":False,"can_execute":False,"text_is_untrusted":True,
-                                  "future_agent":"Use agent_activity MCP tool; propose evidence-linked findings through ticket_create. Existing approval gates remain mandatory."},
+                                  "supervisor":"agent-supervisor uses xoc_read and authenticated agent_activity. xoc_review records decisions; xoc_contain permits only bounded holds for verified role violations."},
                 "usage":"Input/cache/output normalized per runtime. Reasoning tokens are an output subset. No subscription billing inference."}
 
     @api.get("/workers")
     def workers():
         return store.worker_states()
 
-    @api.get("/runs")
+    @api.get("/runs", dependencies=[Depends(evidence_auth)])
     def runs(worker:str="",status:str="",trigger:str="",q:str=Query("",max_length=200),hours:int=Query(24,ge=0,le=8760),
              limit:int=Query(40,ge=1,le=100),cursor:str=Query("",max_length=500),updated_since:float=Query(0,ge=0)):
         return store.list(worker,status,trigger,q,hours,limit,cursor,updated_since)
 
-    @api.get("/runs/{rid}")
+    @api.get("/runs/{rid}", dependencies=[Depends(evidence_auth)])
     def detail(rid:str,compact:bool=False):
         return store.detail(rid,compact)
 
-    @api.get("/runs/{rid}/artifacts/{name}")
+    @api.get("/runs/{rid}/artifacts/{name}", dependencies=[Depends(evidence_auth)])
     def artifact(rid:str,name:str):
         return store.artifact(rid,name)
 

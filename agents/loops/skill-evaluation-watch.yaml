@@ -1,0 +1,18 @@
+id: skill-evaluation-watch
+owner: skill-evaluator
+autonomy: L1
+cadence: '*/10 * * * *'
+budget:
+  max_tokens: 40000
+  max_tool_calls: 16
+state:
+- last_candidate
+steps:
+- do: skill-evaluation을 읽고 lab_read로 신규 후보를 확인한다
+- do: 기존 평가 없는 후보 최대 하나를 lab_evaluate로 요청한다. 완료 결과는 다시 호출해 반복 평가하지 않는다
+gates:
+- name: 근거와직무분리
+  rule: 미확인·미측정은 그대로 기록한다. 역할 밖 도구·운영 적용을 실행하지 않는다
+monitor:
+  mode: adaptive
+  probe: research

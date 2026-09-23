@@ -73,7 +73,7 @@ UI_DIR = pathlib.Path(__file__).resolve().parent / "ui"
 if not UI_DIR.is_dir():
     UI_DIR = pathlib.Path(__file__).resolve().parent.parent / "ui"
 app.mount("/ui", StaticFiles(directory=UI_DIR), name="ui")
-app.include_router(agent_control_router(ROSTER_PATH.parent))
+app.include_router(agent_control_router(ROSTER_PATH.parent, API_KEY))
 
 
 @app.get("/agent-control", include_in_schema=False)

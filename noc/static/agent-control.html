@@ -2,14 +2,15 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>4F AI 에이전트 관제 · kt66</title>
+<title>xOC 에이전트 실행 증적 · kt66</title>
 <link rel="stylesheet" href="/ui/console.css"><link rel="stylesheet" href="/agent-control.css?v=adaptive-5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23c6f582'/%3E%3Ctext x='5' y='23' font-size='20' font-family='sans-serif'%3EAI%3C/text%3E%3C/svg%3E">
 </head>
 <body data-console="agentcontrol">
 <a class="skip" href="#cases">실행 기록으로 이동</a>
-<header class="control-header"><div><div class="eyebrow">4F / AGENT CONTROL ROOM</div><h1>AI 에이전트 관제 <span>실행을 증거로 확인하다</span></h1></div><div class="header-actions"><span id="sync" role="status">기록 연결 중</span><button id="pause" aria-pressed="false">자동 갱신 켜짐</button><button id="integration">관제 AI 연동</button><a class="button" href="/?floor=4F">4F 배치도 ↗</a></div></header>
+<header class="control-header"><div><div class="eyebrow">xOC / AGENT EVIDENCE</div><h1>AI 에이전트 관제 <span>실행을 증거로 확인하다</span></h1></div><div class="header-actions"><span id="sync" role="status">기록 연결 중</span><button id="pause" aria-pressed="false">자동 갱신 켜짐</button><button id="integration">관제 AI 연동</button><a class="button" href="/?floor=XOC">xOC 배치도 ↗</a></div></header>
 <main class="control-main">
+<form id="evidence-auth" class="filters"><label>강사 키 <input id="evidence-key" type="password" autocomplete="off" required></label><button type="submit">실행 증적 열기</button></form>
 <div class="collection-error" id="error" role="alert" hidden></div>
 <section class="overview" aria-label="수집 범위와 실행 현황"><div class="metric"><span>조회 범위 실행</span><strong id="stat-runs">—</strong><small id="stat-scope">최근 24시간 · 모든 에이전트</small></div><div class="metric"><span>실행 중 / 대기</span><strong id="stat-active">—</strong><small id="engine">실행기 상태 확인 중</small></div><div class="metric"><span>실행기 검토 대상</span><strong id="stat-review">—</strong><small>실패 · 근거 부족 · 종료 미확인</small></div><div class="metric tokens"><span>작업별 관측 토큰</span><strong id="stat-tokens">—</strong><small id="stat-coverage">CLI 사용량 · 구독 차감액 아님</small></div></section>
 <section class="crew-strip" id="crew-strip" aria-label="에이전트별 기록"></section>
@@ -22,6 +23,6 @@
 <div class="control-foot"><span><i></i> 증거 기반 관제 · 조회만으로 모델을 호출하지 않습니다</span><span id="source-count">실행기 DB + 세션 증거</span></div>
 </main>
 <dialog id="evidence-dialog"><div class="dialog-head"><h2 id="evidence-title">증거 파일</h2><button data-close="evidence-dialog" aria-label="증거 닫기">닫기 ×</button></div><div id="evidence-meta" class="muted"></div><pre id="evidence-content"></pre></dialog>
-<dialog id="integration-dialog"><div class="dialog-head"><div><div class="eyebrow">OBSERVER INTERFACE / V1</div><h2>관제 에이전트를 위한 증거 인터페이스</h2></div><button data-close="integration-dialog">닫기 ×</button></div><p>사람과 관제 AI가 같은 실행 ID, 타임라인, 증거를 조회합니다. 현재 화면의 탐지는 명시된 규칙으로 동작하며 추가 모델 호출이 없습니다.</p><div class="info-block"><b>관찰 → 조사 → 근거를 붙인 보고 → 기존 승인 체계</b><p><code>agent_activity</code> 도구로 실행을 조회하고, <code>ticket_create</code>로 근거를 포함한 검토 결과를 남길 수 있습니다. 관측 기록이 실행 권한이나 승인을 부여하지 않습니다.</p></div><dl class="facts"><dt>목록 / 변경분</dt><dd><a href="/api/agent-control/runs?limit=5" target="_blank" rel="noopener">GET /api/agent-control/runs ↗</a><br>worker · trigger · status · hours · cursor · updated_since</dd><dt>한 건의 조사</dt><dd><code>GET /api/agent-control/runs/{id}?compact=true</code></dd><dt>계약 및 정책</dt><dd><a href="/api/agent-control/schema" target="_blank" rel="noopener">kt66.activity.v1 스키마 ↗</a></dd><dt>수집 원칙</dt><dd>에이전트의 판단 요약과 도구 영수증을 구분합니다. 비공개 내부 추론은 수집하지 않습니다. 미수집값은 정상·0건으로 간주하지 않습니다.</dd><dt>운영 경계</dt><dd>관제 AI의 자동 주기 실행은 아직 활성화하지 않았습니다. 활성화 시 담당자·관제 범위·호출 예산을 별도로 지정하고, 관제 조회를 다시 감시하는 순환 호출을 제외해야 합니다.</dd></dl></dialog>
-<script src="/ui/console.js"></script><script src="/agent-sprites.js?v=pixel-staff-3"></script><script src="/agent-control.js?v=adaptive-5"></script>
+<dialog id="integration-dialog"><div class="dialog-head"><div><div class="eyebrow">OBSERVER INTERFACE / V1</div><h2>관제 에이전트를 위한 증거 인터페이스</h2></div><button data-close="integration-dialog">닫기 ×</button></div><p>사람과 관제 AI가 같은 실행 ID, 타임라인, 증거를 조회합니다. 현재 화면의 탐지는 명시된 규칙으로 동작하며 추가 모델 호출이 없습니다.</p><div class="info-block"><b>관찰 → 조사 → 근거를 붙인 보고 → 기존 승인 체계</b><p><code>agent_activity</code> 도구로 실행을 조회하고, <code>ticket_create</code>로 근거를 포함한 검토 결과를 남길 수 있습니다. 관측 기록이 실행 권한이나 승인을 부여하지 않습니다.</p></div><dl class="facts"><dt>목록 / 변경분</dt><dd><a href="/api/agent-control/runs?limit=5" target="_blank" rel="noopener">GET /api/agent-control/runs ↗</a><br>worker · trigger · status · hours · cursor · updated_since</dd><dt>한 건의 조사</dt><dd><code>GET /api/agent-control/runs/{id}?compact=true</code></dd><dt>계약 및 정책</dt><dd><a href="/api/agent-control/schema" target="_blank" rel="noopener">kt66.activity.v1 스키마 ↗</a></dd><dt>수집 원칙</dt><dd>에이전트의 판단 요약과 도구 영수증을 구분합니다. 비공개 내부 추론은 수집하지 않습니다. 미수집값은 정상·0건으로 간주하지 않습니다.</dd><dt>운영 경계</dt><dd>xOC 관제원은 코드 탐지의 변화·이상 시에 실행합니다. 관제원 자신의 결과로 자신을 다시 호출하지 않으며, 독립 감사와 강사 검토를 둡니다. 사건 판정·보류는 xOC 통합관제 화면에서 확인합니다.</dd></dl></dialog>
+<script src="/ui/console.js"></script><script src="/agent-sprites.js?v=pixel-staff-3"></script><script src="/agent-control.js?v=xoc-access-1"></script>
 </body></html>

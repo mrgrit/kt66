@@ -150,7 +150,7 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(data['source']['status'],'partial');self.assertFalse(path.exists())
     def test_http_contract_and_bounds(self):
         rid,_=self.run_record()
-        app=FastAPI();app.include_router(router(self.root));client=TestClient(app)
+        app=FastAPI();app.include_router(router(self.root,"test-evidence-key"));client=TestClient(app,headers={"x-api-key":"test-evidence-key"})
         self.assertEqual(client.get('/api/agent-control/schema').json()['mode'],'read_only')
         self.assertEqual(client.get('/api/agent-control/runs?limit=0').status_code,422)
         self.assertEqual(client.get('/api/agent-control/runs?cursor=bad').status_code,400)
@@ -165,5 +165,16 @@ class ControlTests(unittest.TestCase):
         path=self.root/'tickets/loop-engine.sqlite3';path.unlink()
         data=self.store.list(hours=0)
         self.assertEqual(data['source']['status'],'partial');self.assertFalse(path.exists())
+
+    def test_private_evidence_requires_header_key_and_disables_caching(self):
+        rid,_=self.run_record()
+        app=FastAPI();app.include_router(router(self.root,'private-evidence-key'))
+        with TestClient(app) as client:
+            for path in ('/api/agent-control/runs','/api/agent-control/runs/'+rid,'/api/agent-control/runs/'+rid+'/artifacts/job.json'):
+                self.assertEqual(client.get(path).status_code,401)
+                self.assertEqual(client.get(path+'?key=private-evidence-key').status_code,401)
+                response=client.get(path,headers={'x-api-key':'private-evidence-key'})
+                self.assertEqual(response.status_code,200)
+                self.assertIn('no-store',response.headers['cache-control'])
 
 if __name__=='__main__':unittest.main()

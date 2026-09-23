@@ -31,7 +31,7 @@ def compile_request(root, request, task, evidence):
     # Operational changes for a user request go through concrete change artifacts,
     # never through the routine simulator remediation path.
     for name in permissions:
-        if name not in ('env_read', 'metrics_read', 'log_read', 'cmdb_read'):
+        if name not in ('env_read', 'metrics_read', 'log_read', 'cmdb_read', 'xoc_read', 'research_lab'):
             permissions[name] = 'deny'
     permissions['user_request'] = base['policy']['constrain']['permission'].get('user_request', 'allow')
     manifest['policy']['constrain']['autonomy'] = 'L1'

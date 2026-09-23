@@ -227,7 +227,7 @@ persona의 머리말에는 사용할 스킬을 연결한다. 현재 기본값은
 
 ```yaml
 ---
-description: "4F SOC 분석가. 조회, 특이 사건 조사, 정기 종합 분석을 담당한다."
+description: "xOC SOC 분석가. 조회, 특이 사건 조사, 정기 종합 분석을 담당한다."
 skills: [siem-period-analysis, soc-incident-investigation, ip-risk-investigation]
 ---
 ```
@@ -438,3 +438,7 @@ WAF 차단만으로 침해가 없었다거나 파일 변경이 정상 업데이�
 | 자동 실행이 예상보다 많음 | 루프 일정·사건·재시도와 대화 세션 수 확인 |
 
 설치·계정·서비스 문제는 [교수용 매뉴얼](INSTRUCTOR-GUIDE.ko.md), 작업·승인 상태는 [업무 요청 안내](USER-REQUESTS.ko.md), 실행 증거의 의미는 [관제 문서](AGENT-CONTROL.ko.md)를 참고합니다.
+
+## AI 연구소와 xOC 실습
+
+[연구소·관제 실습 안내](AI-RESEARCH-XOC.ko.md)를 따라 같은 사례의 기존/후보 결과를 비교합니다. `:8050/research-lab`에서 출처·가설을 가진 후보를 등록하고 A/B 평가 결과를 읽으세요. 정상·공격·자료 부족 사례를 함께 사용하고 토큰 감소만으로 성공을 판단하지 않습니다. `:8050/xoc`에서는 경보 근거와 실제 도구 기록을 대조해 오탐·조사·조치를 구분합니다. 강사 인증 후 제공된 수업 범위에서 진행합니다.

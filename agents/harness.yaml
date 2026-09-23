@@ -45,6 +45,10 @@ defaults:
       log_purge: deny
       audit_disable: deny
       shutdown_host: deny
+      research_lab: allow
+      xoc_read: allow
+      xoc_review: allow
+      xoc_contain: allow
     sandbox:
       network: lab-only          # 랩 세그먼트 밖으로 못 나간다
       filesystem: workdir        # 자기 작업 디렉터리만
@@ -180,7 +184,7 @@ security:
       tools: [env_read, simulator_control]
       capabilities: []
       env_sections: [floors, aisles, power, plant, battery, fuel, efficiency, weather, building]
-      env_assets: ['ups-*', 'pdu-*', 'crac-*', 'chiller-*', 'fm200-*', 'ct-*', 'pump-*', 'hx-*', 'cdu-*', 'cp-*', 'ats-*', 'gen-*', 'batt-*', 'sub-*', 'xfmr-*', 'bus-*', 'tank-*', 'eco-*', 'vesda-*', 'fcu-*', 'cont-*', 'rf-*', 'wx-*', 'B1', '1F', '2F', '3F', '4F']
+      env_assets: ['ups-*', 'pdu-*', 'crac-*', 'chiller-*', 'fm200-*', 'ct-*', 'pump-*', 'hx-*', 'cdu-*', 'cp-*', 'ats-*', 'gen-*', 'batt-*', 'sub-*', 'xfmr-*', 'bus-*', 'tank-*', 'eco-*', 'vesda-*', 'fcu-*', 'cont-*', 'rf-*', 'wx-*', 'B1', '1F', '2F', '3F', '4F', 5F, XOC]
     physical:
       label: 출입·CCTV 상태
       duty: operate
@@ -228,13 +232,13 @@ security:
       label: 결과 검토·독립 승인
       duty: review
       temporary: false
-      tools: [approval_inbox, approve_request, agent_activity, workspace_list, workspace_read]
+      tools: [approval_inbox, approve_request, agent_activity, workspace_list, workspace_read, xoc_read, lab_read]
       capabilities: []
     auditor:
       label: 실행 증거 감사
       duty: audit
       temporary: false
-      tools: [agent_activity]
+      tools: [agent_activity, xoc_read, compliance_read]
       capabilities: []
     developer:
       label: 요청 작업 공간의 정적 홈페이지 개발
@@ -242,6 +246,33 @@ security:
       temporary: true
       tools: [workspace_list, workspace_read, workspace_write, website_validate, website_prepare]
       capabilities: [workspace, website]
+    research:
+      label: 공개 문헌 조사·스킬 초안
+      duty: develop
+      temporary: false
+      tools:
+        - lab_read
+        - lab_propose
+      capabilities: []
+      web_research: true
+    evaluation:
+      label: 독립된 격리 스킬 평가
+      duty: audit
+      temporary: false
+      tools:
+        - lab_read
+        - lab_evaluate
+      capabilities: []
+    supervision:
+      label: AI 실행 증적 조사·제한된 기한부 보류
+      duty: audit
+      temporary: false
+      tools:
+        - agent_activity
+        - xoc_read
+        - xoc_review
+        - xoc_contain
+      capabilities: []
 
 # Calendar work uses cadence; frequent monitoring uses persisted adaptive checks.
 execution:
@@ -253,7 +284,7 @@ execution:
   retry_backoff_sec: 30
   quota_backoff_sec: 900
   max_catchup_minutes: 30
-  daily_session_limit: null  # optional configured cap; subscription limits still apply
+  daily_session_limit:       # optional configured cap; subscription limits still apply
   dispatcher: service-desk
   adaptive:
     enabled: true
@@ -261,3 +292,7 @@ execution:
     stable_samples: 2
     model_cooldown_sec: 60
     incident_review_sec: 1800
+  worker_daily_limits:
+    skill-researcher: 1
+    skill-evaluator: 3
+    agent-supervisor: 4

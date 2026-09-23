@@ -148,7 +148,7 @@ class FacilityLayoutTests(unittest.TestCase):
         assets = yaml.safe_load((ROOT/'envsim/assets.yaml').read_text())
         items = [i for rows in assets['facility'].values()
                  for i in (rows if isinstance(rows, list) else [rows])]
-        self.assertEqual([f['id'] for f in assets['floors']], ['B1','1F','2F','3F','4F'])
+        self.assertEqual([f['id'] for f in assets['floors']], ['B1','1F','2F','3F','4F','5F','XOC'])
         self.assertEqual({i['id'] for i in items if i.get('floor') == '1F'},
                          {'door-main','cctv-01','mantrap-01','mdet-01','fp-01'})
         by_id = {i['id']:i for i in items}

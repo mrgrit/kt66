@@ -21,8 +21,10 @@
   const initialRun=params.get('run');
   let initialSelection=initialRun;
   const workerName=id=>roster.find(w=>w.id===id)?.name||id;
+  $('#evidence-auth').onsubmit=e=>{e.preventDefault();load()};
   async function api(url) {
-    const response=await fetch(url,{cache:'no-store',signal:AbortSignal.timeout(30000)});
+    const response=await fetch(url,{cache:'no-store',headers:{'x-api-key':$('#evidence-key').value},signal:AbortSignal.timeout(30000)});
+    if(response.status===401)throw new Error('실행 증적은 제한구역입니다. 화면 위에 강사 키를 입력하세요.');
     if(!response.ok)throw new Error(`기록 조회 실패 (${response.status})`);
     return response.json();
   }
@@ -174,8 +176,8 @@
       $('#crew-strip').innerHTML=roster.map(w=>`<button data-worker-filter="${esc(w.id)}" aria-pressed="false" title="${esc(w.name)} 기록"><span class="sprite" data-sprite="${esc(w.id)}"></span><span><b>${esc(w.name)}</b><small>${esc(w.runtime)} · ${esc(w.floor)}</small></span></button>`).join('');
       document.querySelectorAll('[data-sprite]').forEach(n=>n.append(createAgentSprite(roster.find(w=>w.id===n.dataset.sprite))));
     }catch(e){error('에이전트 명단을 읽지 못했습니다. 실행 ID로 기록을 표시합니다.');}
-    await load();
-    setInterval(()=>{if(!paused&&!document.hidden&&!loading)load()},15000);
+    if($('#evidence-key').value)await load();
+    setInterval(()=>{if($('#evidence-key').value&&!paused&&!document.hidden&&!loading)load()},15000);
   }
   init();
 })();

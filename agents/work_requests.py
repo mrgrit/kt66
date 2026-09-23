@@ -457,7 +457,8 @@ def execute(root, job):
             raise ValueError('작업 결과 형식이 잘못됐습니다')
         receipts = [json.loads(line) for line in (evidence / 'tools.jsonl').read_text().splitlines()] if (evidence / 'tools.jsonl').exists() else []
         meaningful = {'inventory_query', 'siem_search', 'workspace_read', 'workspace_write', 'website_validate', 'website_prepare', 'waf_prepare', 'request_plan',
-                      'env_read', 'log_read', 'infrastructure_read', 'firewall_read', 'agent_activity', 'disk_usage'}
+                      'env_read', 'log_read', 'infrastructure_read', 'firewall_read', 'agent_activity', 'disk_usage',
+                      'xoc_read', 'compliance_read', 'lab_read', 'lab_propose', 'lab_evaluate'}
         if task['phase'] == 'review':
             meaningful.add('request_context')
         def observed_receipt(r):

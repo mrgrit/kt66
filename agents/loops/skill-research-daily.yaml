@@ -1,0 +1,18 @@
+id: skill-research-daily
+owner: skill-researcher
+autonomy: L1
+cadence: 0 10 * * *
+budget:
+  max_tokens: 65000
+  max_tool_calls: 24
+state:
+- last_research
+- sources_reviewed
+- candidate_ids
+steps:
+- do: skill-research를 읽고 lab_read로 기존 후보·출처를 확인한다
+- do: 공식 발표·논문·실무 사례를 조사하여 적용 가능한 개선 하나를 선택한다
+- do: 원문·버전·가설·기대 효과·실험 범위·복구 조건을 갖춘 스킬 후보만 lab_propose로 등록한다
+gates:
+- name: 근거와직무분리
+  rule: 미확인·미측정은 그대로 기록한다. 역할 밖 도구·운영 적용을 실행하지 않는다

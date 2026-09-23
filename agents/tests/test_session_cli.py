@@ -152,9 +152,9 @@ class SessionTests(unittest.TestCase):
     def test_roster_retains_operational_workers_and_separate_developer_and_only_session_endpoints(self):
         import yaml
         data=yaml.safe_load((pathlib.Path(__file__).resolve().parents[1]/"roster.yaml").read_text())
-        self.assertEqual(len(data["workers"]),10)
-        self.assertEqual(len({w["id"] for w in data["workers"]}),10)
-        self.assertEqual(sum(len(w.get("loops",[])) for w in data["workers"]),12)
+        self.assertEqual(len(data["workers"]),13)
+        self.assertEqual(len({w["id"] for w in data["workers"]}),13)
+        self.assertEqual(sum(len(w.get("loops",[])) for w in data["workers"]),15)
         for w in data["workers"]:
             self.assertIn(w["runtime"],("claude","codex"))
             model=data["models"][w["model"]]
