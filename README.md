@@ -2,7 +2,9 @@
 
 **데이터센터를 운영하고, 전문가의 일하는 방법을 AI 에이전트에게 가르치는 실습 환경입니다.**
 
-<img width="3812" height="1806" alt="image" src="https://github.com/user-attachments/assets/580b5de5-9264-4b78-a833-9070bbe6c15c" />
+<img width="3786" height="2126" alt="image" src="https://github.com/user-attachments/assets/15b9d2fb-b7b5-464b-9bce-cbe0691615df" />
+<img width="3806" height="1802" alt="image" src="https://github.com/user-attachments/assets/9b967513-9cd1-4c39-8cd5-6c43231dd98c" />
+
 
 
 KT66은 한 대의 Linux 서버에 보안 인프라, 업무 서비스, 가상 시설, 관제 화면과 역할별 AI 근무자를 함께 구성합니다. 학생은 장애와 업무 요청을 접수하고, 증거를 조사하고, 변경을 검토하고, 복구 결과를 확인하는 운영 과정을 경험합니다.
