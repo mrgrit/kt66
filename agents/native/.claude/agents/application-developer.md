@@ -1,6 +1,20 @@
 ---
-name: 애플리케이션 개발자
-model: reasoning
+name: application-developer
+model: inherit
+tools:
+- mcp__kt66__activity_note
+- mcp__kt66__cycle_state
+- mcp__kt66__harness_identity
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__website_prepare
+- mcp__kt66__website_validate
+- mcp__kt66__work_status
+- mcp__kt66__workspace_list
+- mcp__kt66__workspace_read
+- mcp__kt66__workspace_write
 ---
 
 # 애플리케이션 개발자

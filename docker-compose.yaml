@@ -190,6 +190,8 @@ services:
       BASTION_API_IP: 10.20.30.201
     volumes:
       - ./keys:/keys:ro
+      - ./endpoints/user-network.sh:/opt/kt66-user-network.sh:ro
+      - ./fw/entrypoint.sh:/entrypoint.sh:ro
     restart: unless-stopped
 
   # ╭─ IPS: pipe <-> dmz (Suricata inline + ip_forward, masquerade 제거) ──╮
@@ -208,6 +210,8 @@ services:
         ipv4_address: 10.20.50.1      # 3F GPU 존 게이트웨이 — 존 밖 트래픽은 반드시 여기를 지난다
       ot:
         ipv4_address: 10.20.60.1      # B1·1F 시설망(OT) 게이트웨이. IT 망과 분리 — 실제 DC 구조다
+      user:
+        ipv4_address: 10.20.70.1
     cap_add: [NET_ADMIN, NET_RAW]
     sysctls:
       net.ipv4.ip_forward: "1"
@@ -222,8 +226,64 @@ services:
     volumes:
       - ips-suricata-logs:/var/log/suricata
       - ./keys:/keys:ro
+      - ./endpoints/user-network.sh:/opt/kt66-user-network.sh:ro
+      - ./ips/entrypoint.sh:/entrypoint.sh:ro
     depends_on:
       - fw
+    restart: unless-stopped
+
+  # 선택 설치: Linux 컨테이너 안의 KVM Windows 평가판 VM. 네이티브 Windows 컨테이너가 아니다.
+  windows-user:
+    profiles: [windows]
+    container_name: kt66-windows-user
+    image: ${WINDOWS_IMAGE:-dockurr/windows:latest}
+    hostname: windows-user
+    devices: [/dev/kvm, /dev/net/tun]
+    cap_add: [NET_ADMIN]
+    networks:
+      user:
+        ipv4_address: 10.20.70.10
+    dns: [1.1.1.1, 1.0.0.1]
+    environment:
+      VERSION: "11l"
+      LANGUAGE: Korean
+      TZ: Asia/Seoul
+      RAM_SIZE: "4G"
+      CPU_CORES: "2"
+      DISK_SIZE: "64G"
+      USERNAME: kt66student
+      PASSWORD: ${WINDOWS_PASSWORD:-}
+      HOST: KT66-WIN-01
+      PROTECT: "Y"
+      SAMBA: "N"
+      LOG: "Y"
+    entrypoint: [/bin/bash, /opt/kt66-windows-entrypoint.sh]
+    volumes:
+      - windows-user-data:/storage
+      - ./endpoints/windows/media/windows-eval.iso:/custom.iso:ro
+      - ./endpoints/windows/entrypoint.sh:/opt/kt66-windows-entrypoint.sh:ro
+      - ./endpoints/windows/oem:/oem:ro
+    stop_grace_period: 2m
+    restart: unless-stopped
+
+  # internal 브리지의 포트 publish는 Docker가 생략한다. 관리 NIC에만 프록시를 바인딩한다.
+  windows-console:
+    profiles: [windows]
+    container_name: kt66-windows-console
+    image: ${WINDOWS_CONSOLE_IMAGE:-nginx:alpine}
+    network_mode: host
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    environment:
+      CONSOLE_BIND: ${INT_HOST_IP:-127.0.0.1}
+      CONSOLE_PORT: ${PORT_WINDOWS_CONSOLE:-8090}
+    entrypoint: [/bin/sh, /opt/console-entrypoint.sh]
+    volumes:
+      - ./endpoints/windows/console-entrypoint.sh:/opt/console-entrypoint.sh:ro
+      - ./endpoints/windows/console.conf.template:/opt/console.conf.template:ro
     restart: unless-stopped
 
   # ╭─ DMZ tier: WAF(web/ModSec) + 관리/SIEM 서비스 ──────────╮
@@ -788,6 +848,14 @@ services:
 
 
 networks:
+  user:
+    name: kt66-user
+    internal: true
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.70.0/24
+          gateway: 10.20.70.254
   ext:
     name: kt66-ext
     driver: bridge
@@ -840,6 +908,7 @@ networks:
 
 
 volumes:
+  windows-user-data:
   agent-observer-writer:
   agent-observer-reader:
   agent-observer-state:

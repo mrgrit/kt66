@@ -123,8 +123,21 @@ def _run(runtime, model, prompt, timeout=180, schema=None, harness=None, evidenc
             evidence_dir.mkdir(parents=True, exist_ok=True)
             # Codex에는 같은 문서를 developer_instructions로 한 번 전달한다.
             # 격리 cwd로 AGENTS.md 자동 탐색에 의한 동일 문서 중복 적재를 피한다.
-            session_cwd = str(harness) if runtime == 'claude' else td
+            session_cwd = td
             instructions = (harness / ("AGENTS.md" if manifest.get("native") else "HARNESS.md")).read_text()
+            if runtime == 'claude' and manifest.get('native'):
+                profile = harness / '.claude/agents' / (manifest['native']['agent'] + '.md')
+                instructions = profile.read_text().split('---', 2)[2]
+            if runtime == 'codex' and manifest.get('native'):
+                # 생성된 공식 TOML 프로필의 지시를 실제 실행에 사용한다.
+                profile = harness / '.codex/agents' / (manifest['native']['agent'] + '.toml')
+                for line in profile.read_text().splitlines():
+                    key, sep, value = line.partition('=')
+                    if sep and key.strip() == 'developer_instructions':
+                        instructions = json.loads(value.strip())
+                        break
+                else:
+                    raise SessionError('native_role_instructions_missing')
             (evidence_dir / "manifest-snapshot.json").write_text(json.dumps(scrub(manifest), ensure_ascii=False))
             mcp = {"mcpServers": {"kt66": {"command": "/usr/bin/python3", "args": [
                 str(pathlib.Path(__file__).with_name("harness_tools.py")),

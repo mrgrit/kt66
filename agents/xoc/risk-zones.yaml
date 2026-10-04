@@ -23,6 +23,7 @@ tools:
   disk_usage: {primary: Z02, axes: [Z02, Z04, Z09], exposure: 1}
   inventory_query: {primary: Z02, axes: [Z02, Z06], exposure: 1}
   firewall_read: {primary: Z02, axes: [Z02, Z04, Z06], exposure: 2}
+  network_probe: {primary: Z02, axes: [Z02, Z04, Z06, Z09], exposure: 2}
   harness_identity: {primary: Z03, axes: [Z03, Z04], exposure: 1}
   approval_inbox: {primary: Z05, axes: [Z04, Z05], exposure: 2}
   approve_request: {primary: Z05, axes: [Z04, Z05, Z12], exposure: 4}

@@ -123,7 +123,7 @@ workers:
     team: systems-team
     model: codex-default
     loops: [backup-verify, disk-capacity-check]
-    assets: [kt66-neobank, kt66-govportal, kt66-mediforum, kt66-adminconsole, kt66-aicompanion]
+    assets: [kt66-neobank, kt66-govportal, kt66-mediforum, kt66-adminconsole, kt66-aicompanion, kt66-windows-user]
     curriculum: [W7, W9, W10, W12]
 
   # ── 3F AI 전산실 ──────────────────────────────────────────────

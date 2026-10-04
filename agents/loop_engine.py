@@ -158,10 +158,10 @@ def execute(job):
         toolfile=evidence/"tools.jsonl"
         receipts=[json.loads(l) for l in toolfile.read_text().splitlines()] if toolfile.exists() else []
         # Tool receipts are independent of the model's claims.
-        observed=any(r['tool'] in ('env_read','log_read','approval_inbox','infrastructure_read','firewall_read',
-                                  'disk_usage','agent_activity','work_status','xoc_read','lab_read','compliance_read') and
-                     r.get('result',{}).get('status') not in ('denied','approval_required','failed','unavailable')
-                     for r in receipts)
+        from execution_evidence import summarize, successful
+        result['execution_evidence'] = summarize(receipts)
+        observed=bool(result['execution_evidence']['observations']) or any(
+            r['tool'] == 'approval_inbox' and successful(r) for r in receipts)
         result["verification"]={"tool_calls":len(receipts),"observed_live_evidence":observed,
                                 "actions":[r["result"] for r in receipts if r["tool"] in ("simulator_control","approve_request","ticket_create")]}
         atomic(evidence/"result.json",result)

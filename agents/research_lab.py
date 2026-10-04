@@ -60,7 +60,7 @@ def catalog(root):
 def baseline(root, name, target):
     root = Path(root)
     p = root / 'native/.agents/skills' / name / 'SKILL.md'
-    persona = root / 'personas' / (target + '.md')
+    persona = root / 'native/.claude/agents' / (target + '.md')
     if p.is_symlink() or persona.is_symlink() or not p.resolve().is_relative_to((root / 'native').resolve()):
         raise ValueError('심볼릭 링크 후보는 허용하지 않습니다')
     content = p.read_text() if p.exists() else ''
@@ -85,7 +85,7 @@ def reference(root, target):
     root = Path(root)
     if target not in workers(root):
         raise ValueError('등록된 대상 근무자를 선택하세요')
-    persona = (root / 'personas' / (target + '.md')).read_text()
+    persona = (root / 'native/.claude/agents' / (target + '.md')).read_text()
     names = persona_skills(persona)
     return {'worker': target, 'persona': persona, 'authorization': authorization.load(root, target),
             'skills': [{'name': name, 'content': baseline(root, name, target)['content']} for name in names[:8]],
@@ -341,7 +341,7 @@ def apply_candidate(root, cid, rollback, reason, write):
         if not item:
             raise ValueError('후보가 없습니다')
         skill = configuration.skill_path(root, item['name'])
-        persona = root / 'personas' / (item['target_worker'] + '.md')
+        persona = root / 'native/.claude/agents' / (item['target_worker'] + '.md')
         if rollback:
             if item['status'] != 'applied' or sha(skill.read_text()) != item['sha256'] or sha(persona.read_text()) != item['applied_persona_sha256']:
                 raise ValueError('적용 이후 수정된 원본은 자동 복구하지 않습니다. 현재 설정과 비교하세요')
@@ -356,7 +356,7 @@ def apply_candidate(root, cid, rollback, reason, write):
                 or evaluation.get('suite_sha256') != item.get('suite_snapshot', {}).get('sha256')):
                 raise ValueError('평가 이후 스킬·역할·정책·평가 사례가 바뀌었습니다. 새 후보로 재평가하세요')
             # 공용 스킬 변경 영향 범위를 전부 보여 주기 전에는 단일 역할 후보로 덮어쓰지 않는다.
-            affected = [p.stem for p in (root / 'personas').glob('*.md') if item['name'] in harness_compiler.persona_skills(p.read_text())]
+            affected = [p.stem for p in (root / 'native/.claude/agents').glob('*.md') if item['name'] in harness_compiler.persona_skills(p.read_text())]
             if set(affected) - {item['target_worker']} or item['name'] in configuration.automatic_skills():
                 raise ValueError('다른 근무자도 사용하는 공용 스킬입니다. 새 이름의 후보로 분리해 평가하세요')
             meta, body = configuration.split_markdown(persona.read_text(), require_description=False)

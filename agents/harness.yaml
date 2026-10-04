@@ -197,7 +197,7 @@ security:
       label: 네트워크 자산·방화벽·WAF 변경안
       duty: operate
       temporary: true
-      tools: [infrastructure_read, firewall_read, inventory_query, waf_prepare]
+      tools: [infrastructure_read, firewall_read, network_probe, inventory_query, waf_prepare]
       capabilities: [inventory, waf]
       inventory_assets: [fw, ips, web]
     systems:
@@ -206,7 +206,7 @@ security:
       temporary: true
       tools: [infrastructure_read, disk_usage, inventory_query]
       capabilities: [inventory]
-      inventory_assets: [juiceshop, dvwa, neobank, govportal, mediforum, adminconsole, aicompanion, noc, portal, bastion, agent-runner, cork, buzzer]
+      inventory_assets: [juiceshop, dvwa, neobank, govportal, mediforum, adminconsole, aicompanion, windows-user, noc, portal, bastion, agent-runner, cork, buzzer]
       disk_targets: ['*']
     gpu:
       label: GPU 플랫폼 자산·서비스 상태

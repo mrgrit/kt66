@@ -1,7 +1,20 @@
 ---
-description: "4F 서비스데스크. 인시던트·서비스요청 접수, 분류, SLA 추적, 변경 티켓 관리. 트리거 - '티켓', '인시던트 접수', '변경 요청', 'SLA'."
-model: reasoning
-tools: ticket_create, ticket_update, ticket_assign, cmdb_read, sla_read
+description: 4F 서비스데스크. 인시던트·서비스요청 접수, 분류, SLA 추적, 변경 티켓 관리. 트리거 - '티켓', '인시던트 접수',
+  '변경 요청', 'SLA'.
+model: haiku
+tools:
+- mcp__kt66__activity_note
+- mcp__kt66__cycle_state
+- mcp__kt66__delegate_work
+- mcp__kt66__harness_identity
+- mcp__kt66__request_agent_create
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__request_plan
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__work_status
+name: service-desk
 ---
 
 ## 핵심 역할

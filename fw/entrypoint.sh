@@ -40,16 +40,17 @@ nft -f /etc/nftables.conf 2>&1 | sed 's/^/  /' || echo "[fw] WARN: nft apply fai
 # 출처(.202)가 web 까지 그대로 도달 → WAF 가 진짜 공격자를 로깅/차단.
 # 리턴: web→ips→fw→host(conntrack 역추적)→.202  (ips default GW=fw 로 보장).
 WEB_DMZ_IP="${WEB_DMZ_IP:-10.20.32.80}"
+FW_EXT_IP="${FW_EXT_IP:-10.20.30.1}"
 BASTION_API_IP="${BASTION_API_IP:-10.20.30.201}"
 echo "[fw] installing port-split DNAT → web ($WEB_DMZ_IP)"
 # 80/443: Host 헤더 vhost (web/Apache 분기).  8001-8007: 사이트별 포트분기.
-nft add rule ip six_nat prerouting tcp dport 80  dnat to ${WEB_DMZ_IP}:80   2>/dev/null || true
-nft add rule ip six_nat prerouting tcp dport 443 dnat to ${WEB_DMZ_IP}:443  2>/dev/null || true
+nft add rule ip six_nat prerouting ip daddr "$FW_EXT_IP" tcp dport 80 dnat to ${WEB_DMZ_IP}:80 2>/dev/null || true
+nft add rule ip six_nat prerouting ip daddr "$FW_EXT_IP" tcp dport 443 dnat to ${WEB_DMZ_IP}:443 2>/dev/null || true
 for p in 8001 8002 8003 8004 8005 8006 8007; do
-    nft add rule ip six_nat prerouting tcp dport $p dnat to ${WEB_DMZ_IP}:$p 2>/dev/null || true
+    nft add rule ip six_nat prerouting ip daddr "$FW_EXT_IP" tcp dport $p dnat to ${WEB_DMZ_IP}:$p 2>/dev/null || true
 done
 # bastion API (관리) — ext 망 bastion 으로
-nft add rule ip six_nat prerouting tcp dport 9100 dnat to ${BASTION_API_IP}:9100 2>/dev/null || true
+nft add rule ip six_nat prerouting ip daddr "$FW_EXT_IP" tcp dport 9100 dnat to ${BASTION_API_IP}:9100 2>/dev/null || true
 # 이 규칙만 masquerade 한다. 위의 web 행 DNAT 은 출처를 보존해야 WAF 가 진짜 공격자를
 # 보지만, bastion 은 요청이 들어온 ext 인터페이스와 **같은 망**에 있다. 출처를 그대로
 # 두면 bastion 의 응답이 fw 를 거치지 않고 호스트로 곧장 간다 → 호스트는 모르는
@@ -57,6 +58,10 @@ nft add rule ip six_nat prerouting tcp dport 9100 dnat to ${BASTION_API_IP}:9100
 # (curl http://<VM_IP>:9100/health → 000, connect 시간 0). 관리 경로 한 줄이라
 # 출처 보존이 걸린 실습(WAF 로그의 공격자 IP)에는 영향이 없다.
 nft add rule ip six_nat postrouting ip daddr ${BASTION_API_IP} tcp dport 9100 masquerade 2>/dev/null || true
+
+if [ -f /opt/kt66-user-network.sh ]; then
+    bash /opt/kt66-user-network.sh fw
+fi
 
 # ─── Wazuh agent ────────────────────────────────────────
 if [ -d /var/ossec ]; then

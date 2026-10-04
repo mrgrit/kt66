@@ -2,12 +2,12 @@ id: firewall-drift-check
 owner: network-engineer
 autonomy: L2
 cadence: "0 */4 * * *"
-budget: { max_tokens: 35000, max_tool_calls: 25 }
+budget: { max_tokens: 16000, max_tool_calls: 12 }
 state: [baseline_ruleset_hash, known_drifts]
 steps:
-  - read: [nft_ruleset, repo_nftables_conf]
-  - diff: "저장소 정의 vs 실행 중 룰셋"
-  - on_drift: { create_ticket: true, request_approval: ops-lead }
+  - read: "network-diagnosis를 한 번 읽고 network_probe로 실제 증거와 코드 판정을 확인한다"
+  - diff: "저장소 기본 정책·웹 DNAT 검사와 직전 구조 해시 비교를 구분한다. 카운터 변화는 구성 드리프트가 아니다"
+  - report: "현재 범위 정상·장애 관측·근거 부족을 구분한다. 새로운 근거가 있을 때만 티켓을 만든다"
 gates:
   - name: 체인불변
     rule: "attacker→fw→ips→web 순서를 깨는 변경은 승인 요청 없이 즉시 반려"

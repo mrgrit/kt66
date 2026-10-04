@@ -176,7 +176,7 @@ function renderWorkers() {
   $$('[data-persona]').forEach(b => b.onclick = async () => {
     const id = b.dataset.persona;
     $('#persona-box').hidden = false;
-    $('#persona-title').textContent = `personas/${id}.md`;
+    $('#persona-title').textContent = `native/.claude/agents/${id}.md`;
     $('#persona-box').dataset.id = id;
     $('#ed-persona').value = await api('/api/file/persona:' + id);
     $('#persona-box').scrollIntoView({ behavior: 'smooth' });

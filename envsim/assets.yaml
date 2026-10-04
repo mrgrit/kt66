@@ -74,6 +74,14 @@ zones:
     color: "#4fc3f7"
     gateway: 10.20.60.1
     role: 전력·냉방·소방·출입. IT 망과 분리 — ips 가 tcp/8000·ICMP 만 통과시킨다
+  - id: user
+    name: 사용자 엔드포인트
+    cidr: 10.20.70.0/24
+    trust: L1
+    isolated: true
+    color: "#60a5fa"
+    gateway: 10.20.70.1
+    role: Windows 평가판 실습망. 사용자 트래픽은 IPS→FW 경유. 관리 콘솔 응답만 호스트 경로이며 다른 내부망 접근은 차단
   - id: mgmt
     name: 운영 권한 경계
     cidr: null
@@ -91,6 +99,7 @@ zone_chain:
   - { from: dmz,  to: int,  via: web, label: ModSecurity WAF 종료 }
   - { from: pipe, to: app,  via: ips, label: GPU 존 — 터널 구간도 여기를 지난다 }
   - { from: pipe, to: ot,   via: ips, label: 시설망 — tcp/8000 · ICMP 만 }
+  - { from: pipe, to: user, via: ips, label: Windows 실습 엔드포인트 — 제한된 접근 }
 
 building:
   name: kt66 미니 AI데이터센터
@@ -566,6 +575,28 @@ facility:
 # web / ssh 는 관제 UI 의 접속 버튼이 쓴다. ${INT_HOST}(내부전용 NIC)와
 # ${WEB_HOST}(강의실 NIC)는 배포 시 실제 IP 로 치환된다 — 하드코딩하지 않는다.
 it_assets:
+  - id: windows-user
+    name: Windows 11 평가판
+    floor: "2F"
+    rack: R-2F-02
+    zone: user
+    ip: 10.20.70.10
+    container: kt66-windows-user
+    shed_group: business
+    idle_kw: 0.1
+    rated_kw: 0.5
+    u: 1
+    web: "http://${INT_HOST}:8090/"
+    host: "KVM 가상머신 · Docker 실행 컨테이너 · Windows Enterprise LTSC 90일 평가판"
+    endpoint_details:
+      runtime: KVM/QEMU (Linux 네이티브 Windows 컨테이너 아님)
+      resources: 2 vCPU / RAM 4 GiB / 가상 디스크 64 GiB
+      network: 외부→FW→IPS→user. 내부 다른 존 접근 차단. 게스트는 컨테이너 내부 NAT 사용
+      address: 10.20.70.10은 실행 컨테이너 주소. Windows 게스트는 내부 NAT 주소 사용
+      console: 설치·원격 화면 관리 경로 (Windows 사용자 트래픽과 별개)
+      account: kt66student (비밀번호는 강사의 .env WINDOWS_PASSWORD)
+      status_note: 컨테이너 가동 표시만으로 Windows 설치 완료·게스트 정상 여부를 판정하지 않음
+      optional: docker compose --profile windows 선택 서비스. 설치하지 않은 배포에서는 정지 상태
   # 3F — AI 전산실
   - id: dgx-spark-01
     service_via: envsim             # 기존 OT → IPS → GPU 게이트웨이 경로 유지

@@ -6,7 +6,7 @@
 
 웹의 회사·부서·팀·근무자·루프·하네스 저장은 원본 파일을 갱신한 뒤 자동으로 하네스를 생성합니다. 생성 실패는 저장 성공과 구분하여 HTTP 409로 표시합니다. 다음 작업은 원본을 다시 컴파일하여 최신 정책을 사용합니다.
 
-- 원본: company.yaml, departments.yaml, teams.yaml, roster.yaml, harness.yaml, personas/*.md, loops/*.yaml
+- 원본: company.yaml, departments.yaml, teams.yaml, roster.yaml, harness.yaml, native/.claude/agents/*.md, loops/*.yaml
 - 역할 스킬: personas의 `skills` 목록 → native/.agents/skills/<이름>/SKILL.md.
   원본 해시와 불변 사본을 보존하고 정기·사용자 업무에서 `skill_read`로 필요할 때 읽는다.
 - 생성: harness_compiler.py

@@ -1,12 +1,20 @@
 ---
 description: 5F AI 연구소. 작성자와 분리된 스킬 평가원. 후보 A/B 검증·품질·안전·비용 비교에 사용.
-model: reasoning
+model: inherit
 tools:
-- lab_read
-- lab_evaluate
+- mcp__kt66__activity_note
+- mcp__kt66__cycle_state
+- mcp__kt66__harness_identity
+- mcp__kt66__lab_evaluate
+- mcp__kt66__lab_read
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__work_status
 skills:
 - skill-evaluation
-can_write: false
+name: skill-evaluator
 ---
 
 ## 역할과 경계

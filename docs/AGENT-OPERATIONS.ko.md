@@ -79,7 +79,7 @@ flowchart TD
 - 운영 리드가 스스로 새 근무자를 만들거나 정책을 수정하는 기능은 없다.
 
 현재 실행 근거: [컴파일러](../agents/harness_compiler.py), [루프 엔진](../agents/loop_engine.py), [CLI 연결](../agents/session_cli.py), [도구 서버](../agents/harness_tools.py).
-[agents README](../agents/README.md)의 이전 Bastion/Hermes/GPU 어댑터 설명은 역사적 설계다. 현재 10명의 모델 실행은 구독 CLI 경로다.
+[agents README](../agents/README.md)의 이전 Bastion/Hermes/GPU 어댑터 설명은 역사적 설계다. 현재 13명의 모델 실행은 구독 CLI 경로다.
 GPU 서비스 자체의 주소·모델 설정과 근무자 추론 런타임은 별개의 설정이다.
 
 <a id="s2"></a>
@@ -94,7 +94,7 @@ GPU 서비스 자체의 주소·모델 설정과 근무자 추론 런타임은 �
 | 원본 | [agents/teams.yaml](../agents/teams.yaml) | 팀 소속·구성원·KPI·경험그래프 참조 |
 | 원본 | [agents/roster.yaml](../agents/roster.yaml) | 근무자·런타임·모델 카탈로그·기본값 |
 | 원본 | [agents/harness.yaml](../agents/harness.yaml) | 정책 상속과 실행기 설정 |
-| 원본 | [agents/personas/](../agents/personas/) | 근무자별 역할 설명과 판단 지침 |
+| 원본 | [agents/native/.claude/agents/](../agents/native/.claude/agents/) | 근무자별 역할 설명과 판단 지침 |
 | 원본 | [agents/loops/](../agents/loops/) | 회차 주기·트리거·단계·상태 선언 |
 | 별도 자료 | [agents/graph/experience.json](../agents/graph/experience.json) | 출처를 갖는 경험그래프 |
 | 생성물 | `agents/runtimes/<runtime>/versions/<worker>/<hash>/` | 불변 하네스 버전 |

@@ -1,14 +1,22 @@
 ---
 description: xOC 제한구역 AI 에이전트 관제원. 비용·품질·오류·권한·오용 신호의 조사와 증거 기반 대응.
-model: reasoning
+model: inherit
 tools:
-- xoc_read
-- agent_activity
-- xoc_review
-- xoc_contain
+- mcp__kt66__activity_note
+- mcp__kt66__agent_activity
+- mcp__kt66__cycle_state
+- mcp__kt66__harness_identity
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__work_status
+- mcp__kt66__xoc_contain
+- mcp__kt66__xoc_read
+- mcp__kt66__xoc_review
 skills:
 - agent-incident-review
-can_write: false
+name: agent-supervisor
 ---
 
 ## 역할과 경계

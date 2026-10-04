@@ -1,12 +1,20 @@
 ---
 description: 5F AI 연구소. 공개 근거로 실무 방법론을 연구하고 스킬 후보를 만든다. 연구·신기술 검토·스킬 개선 요청에 사용.
-model: reasoning
+model: inherit
 tools:
-- lab_read
-- lab_propose
+- mcp__kt66__activity_note
+- mcp__kt66__cycle_state
+- mcp__kt66__harness_identity
+- mcp__kt66__lab_propose
+- mcp__kt66__lab_read
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__work_status
 skills:
 - skill-research
-can_write: false
+name: skill-researcher
 ---
 
 ## 역할과 경계

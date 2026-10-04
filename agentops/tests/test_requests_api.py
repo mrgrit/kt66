@@ -22,7 +22,7 @@ class Api(unittest.TestCase):
         shutil.copytree(ROOT/'agents/native',self.root/'native')
         for name in ('roster.yaml','harness.yaml','company.yaml','departments.yaml','teams.yaml'):
             shutil.copy2(ROOT/'agents'/name,self.root/name)
-        for name in ('personas','loops'):
+        for name in ('loops',):
             shutil.copytree(ROOT/'agents'/name,self.root/name)
         app=FastAPI()
         install(app,self.root,'test-key',None,lambda p,t:p.write_text(t))

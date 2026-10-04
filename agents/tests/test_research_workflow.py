@@ -31,7 +31,7 @@ class Workflow(unittest.TestCase):
         self.root = Path(temp.name) / 'agents'; self.root.mkdir()
         for name in harness_compiler.SOURCES:
             shutil.copy2(ROOT / name, self.root / name)
-        for name in ('personas', 'loops', 'native', 'xoc', 'research'):
+        for name in ('loops', 'native', 'xoc', 'research'):
             shutil.copytree(ROOT / name, self.root / name)
         self.cases = lab.cases_for(self.root, 'soc-analyst', 'soc-ip-analysis')
 

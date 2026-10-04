@@ -37,14 +37,22 @@ def skill_metadata(name, body):
 
 def read_sources(root):
     paths = [root / f for f in SOURCES]
-    paths += sorted((root / "personas").glob("*.md"))
+    paths += sorted((root / "native/.claude/agents").glob("*.md"))
     paths += sorted((root / "loops").glob("*.yaml"))
-    names = {name for p in (root / 'personas').glob('*.md') for name in persona_skills(p.read_text())}
+    names = {name for p in (root / 'native/.claude/agents').glob('*.md') for name in persona_skills(p.read_text())}
     for name in sorted(names):
         path = root / 'native' / '.agents' / 'skills' / name / 'SKILL.md'
         if not path.is_file() or not path.resolve().is_relative_to((root / 'native').resolve()):
             raise ValueError('역할에 지정된 스킬을 읽을 수 없습니다: ' + name)
         paths.append(path)
+        for folder in ('references', 'scripts'):
+            for resource in sorted((path.parent / folder).glob('*')):
+                if resource.is_symlink() or not resource.resolve().is_relative_to(path.parent.resolve()):
+                    raise ValueError('스킬 자료 경로를 확인하세요: ' + str(resource))
+                if resource.is_file() and resource.suffix in ('.md', '.py', '.json', '.yaml'):
+                    if resource.stat().st_size > 30000:
+                        raise ValueError('스킬 자료는 파일당 30000바이트 이내입니다')
+                    paths.append(resource)
     return {str(p.relative_to(root)): p.read_bytes() for p in paths}
 
 def compile_worker(wid, root=ROOT):
@@ -84,7 +92,7 @@ def _compile_worker(wid, root=ROOT):
     for mode in policy["constrain"].get("permission", {}).values():
         if mode not in ("allow", "ask", "deny"):
             raise ValueError("invalid permission")
-    persona = sources["personas/" + wid + ".md"].decode()
+    persona = sources["native/.claude/agents/" + wid + ".md"].decode()
     role_skills = {name: sources['native/.agents/skills/' + name + '/SKILL.md'].decode()
                    for name in persona_skills(persona)}
     loops = [yaml.safe_load(sources["loops/" + name + ".yaml"]) for name in worker.get("loops", [])]
@@ -104,7 +112,7 @@ def _compile_worker(wid, root=ROOT):
                "role_skills": {name: skill_metadata(name, body) for name, body in role_skills.items()}}
     payload['available_tools'] = authorization.visible(payload, TOOLS)
     hashes = {p: digest(b) for p, b in sources.items()}
-    implementation = {f: digest((ROOT / f).read_bytes()) for f in ("harness_compiler.py", "harness_tools.py", "activity_audit.py", "storage_probe.py", "tool_approvals.py", "authorization.py", "request_runtime.py", "request_tools.py", "session_cli.py", "xoc.py", "research_lab.py", "research_benchmarks.py") if (ROOT / f).exists()}
+    implementation = {f: digest((ROOT / f).read_bytes()) for f in ("harness_compiler.py", "harness_tools.py", "activity_audit.py", "storage_probe.py", "tool_approvals.py", "authorization.py", "request_runtime.py", "request_tools.py", "session_cli.py", "xoc.py", "research_lab.py", "research_benchmarks.py", "network_probe.py", "native_profiles.py", "execution_evidence.py") if (ROOT / f).exists()}
     version = digest(json.dumps({"sources": hashes, "implementation": implementation, "worker": wid}, sort_keys=True).encode())
     payload.update(version=version, source_hashes=hashes, implementation_hashes=implementation)
     # 무결성 해시는 서버가 검증한다. 무작위 해시 목록을 매 모델 턴에 반복하지 않는다.
@@ -132,18 +140,29 @@ def _compile_worker(wid, root=ROOT):
     if not dest.exists():
         with tempfile.TemporaryDirectory(prefix=".compile-", dir=dest.parent) as td:
             staging = pathlib.Path(td)
+            import native_profiles
+            payload['native'] = native_profiles.render(staging, payload, instructions)
             (staging / "manifest.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2))
             (staging / "HARNESS.md").write_text(instructions)
-            (staging / ("CLAUDE.md" if runtime == "claude" else "AGENTS.md")).write_text(instructions)
+            (staging / "AGENTS.md").write_text(instructions)
+            (staging / "CLAUDE.md").write_text('@AGENTS.md\n')
             for name, body in role_skills.items():
                 for prefix in ('.agents', '.claude'):
                     path = staging / prefix / 'skills' / name / 'SKILL.md'
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(body)
+                    source_prefix = 'native/.agents/skills/' + name + '/'
+                    for relative, data in sources.items():
+                        if relative.startswith(source_prefix) and relative != source_prefix + 'SKILL.md':
+                            target = path.parent / relative[len(source_prefix):]
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            target.write_bytes(data)
             # Verify the snapshot remained current throughout compilation.
             if hashes != {p: digest(b) for p, b in read_sources(root).items()}:
                 raise ValueError("source changed during compilation; retry")
             os.rename(staging, dest)
+    else:
+        payload['native'] = json.loads((dest / 'manifest.json').read_text()).get('native', {})
     pointer = root / "runtimes" / runtime / "rendered" / wid
     pointer.parent.mkdir(parents=True, exist_ok=True)
     # Preserve a legacy generated directory; never overwrite user files inside it.

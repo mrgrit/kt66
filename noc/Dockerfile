@@ -16,6 +16,7 @@ COPY noc/risk_map.py ./
 COPY noc/remote_hosts.py ./
 COPY envsim/service_inventory.py ./envsim/service_inventory.py
 COPY agents/activity_audit.py ./
+COPY agents/execution_evidence.py ./
 COPY noc/static ./static
 
 COPY ui/ /app/ui/

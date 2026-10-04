@@ -1,4 +1,5 @@
 .env
+endpoints/windows/media/
 *.log
 .DS_Store
 __pycache__/

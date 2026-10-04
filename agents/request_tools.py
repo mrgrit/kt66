@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import time
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -20,7 +21,7 @@ def schema(properties, required=()):
 
 
 TOOLS = [
-    ('request_finish', '최종 상태와 결과를 기록합니다. 종료 전 필수. 근무자 대화에서는 response_kind를 reply(설명·기존 자료 답변) 또는 investigation(이번 조사)로 지정하세요. 조사 완료는 실제 조회 근거가 필요합니다.', schema({'status': {'type': 'string', 'enum': ['completed', 'waiting_input', 'blocked']}, 'summary': S, 'question': S, 'response_kind': {'type': 'string', 'enum': ['reply', 'investigation']}, 'artifacts': {'type': 'array', 'items': S}}, ['status', 'summary', 'question', 'artifacts'])),
+    ('request_finish', '최종 상태와 결과를 기록합니다. 종료 전 필수. 근무자 대화에서는 response_kind를 reply(설명·기존 자료 답변) 또는 investigation(이번 조사)로 지정하세요. 조사 완료는 실제 조회 근거가 필요합니다. artifacts에는 요청 작업 공간의 상대 파일 경로만 넣으세요. 브로커 증거 경로는 summary에 인용하고 artifacts는 빈 배열로 두세요.', schema({'status': {'type': 'string', 'enum': ['completed', 'waiting_input', 'blocked']}, 'summary': S, 'question': S, 'response_kind': {'type': 'string', 'enum': ['reply', 'investigation']}, 'artifacts': {'type': 'array', 'items': S}}, ['status', 'summary', 'question', 'artifacts'])),
     ('request_context', 'Read the user conversation, assigned tasks, project workers, real capabilities and budget.', schema({})),
     ('request_plan', 'Coordinator only: register a bounded dependency plan using existing or created worker IDs.',
      schema({'tasks': {'type': 'array', 'items': {'type': 'object', 'properties': {
@@ -30,7 +31,7 @@ TOOLS = [
     ('request_agent_create', 'Coordinator only: create a request-lifetime worker for a missing role from a registered worker template.',
      schema({'name': S, 'mission': S, 'template': S, 'capabilities': {'type': 'array', 'items': S}}, ['name', 'mission', 'template', 'capabilities'])),
     ('inventory_query', 'Read configured assets and actual Docker network interface IPs. kind is security or all.', schema({'kind': {'type': 'string', 'enum': ['security', 'all']}})),
-    ('siem_search', 'Search retained Wazuh alerts within an offset-aware ISO time range. Follow next_cursor for all pages; incomplete coverage is explicit.',
+    ('siem_search', '먼저 skill_read(name=siem-period-analysis)를 읽으세요. 기간 내 Wazuh 경보를 조회합니다. timestamp_local은 서버가 변환한 요청 시간대 시각이며 직접 암산하지 마세요. 전체 조회는 next_cursor를 따릅니다.',
      schema({'start': S, 'end': S, 'cursor': S, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200}}, ['start', 'end'])),
     ('workspace_list', 'List this request workspace artifacts.', schema({})),
     ('workspace_read', 'Read a text artifact within this request workspace.', schema({'path': S}, ['path'])),
@@ -124,6 +125,24 @@ def siem_search(root, start, end, cursor='', limit=100):
     return data
 
 
+def localize_alerts(result, timezone):
+    """로그 원문 시각을 보존하고 모델의 시차 계산 대신 명시적인 표시 시각을 붙인다."""
+    zone = ZoneInfo(timezone)
+    result['display_timezone'] = timezone
+    for row in result.get('records', []):
+        try:
+            value = re.sub(r'([+-]\d{2})(\d{2})$', r'\1:\2', row['timestamp'].replace('Z', '+00:00'))
+            at = datetime.datetime.fromisoformat(value)
+            if at.tzinfo is None:
+                raise ValueError('timezone missing')
+            row['timestamp_local'] = at.astimezone(zone).isoformat()
+        except (KeyError, ValueError, TypeError, AttributeError):
+            row['timestamp_local'] = None
+    result['requested_range_local'] = {
+        key: datetime.datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(zone).isoformat()
+        for key, value in result.get('requested_range', {}).items()}
+
+
 def call(broker, root, name, args):
     import authorization
     denied = authorization.require(broker.m,name,args)
@@ -174,6 +193,8 @@ def call(broker, root, name, args):
             origin=dict(parent_run_id=broker.session.name, parent_call_id=getattr(broker, '_call_id', None)))}
     if name in ('inventory_query', 'siem_search'):
         result = inventory(root, allowed_assets=broker.m['authorization'].get('inventory_assets', []), **args) if name == 'inventory_query' else siem_search(root, **args)
+        if name == 'siem_search':
+            localize_alerts(result, broker.m.get('request', {}).get('timezone', 'UTC'))
         artifact = broker.session / (name + '-' + str(time.time_ns()) + '.json')
         artifact.write_text(json.dumps(result, ensure_ascii=False))
         broker.access(artifact, 'write')

@@ -7,7 +7,7 @@ max_runs_per_scan: 300
 role_tool_baselines:
   facility: [env_read, simulator_control]
   physical: [env_read]
-  network: [infrastructure_read, firewall_read, inventory_query, waf_prepare]
+  network: [infrastructure_read, firewall_read, network_probe, inventory_query, waf_prepare]
   systems: [infrastructure_read, disk_usage, inventory_query]
   gpu: [infrastructure_read, inventory_query]
   soc: [log_read, siem_search, inventory_query]

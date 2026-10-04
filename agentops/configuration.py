@@ -91,7 +91,7 @@ def library(root):
     references = {}
     errors = []
     from harness_compiler import persona_skills
-    for p in sorted((root / "personas").glob("*.md")):
+    for p in sorted((root / "native/.claude/agents").glob("*.md")):
         try:
             for name in persona_skills(safe_path(root, str(p.relative_to(root))).read_text()):
                 references.setdefault(name, []).append({
@@ -120,7 +120,7 @@ def library(root):
 def source_documents(root):
     root = Path(root)
     paths = [root / p for p in CORE]
-    paths += list((root / "personas").glob("*.md"))
+    paths += list((root / "native/.claude/agents").glob("*.md"))
     paths += list((root / "loops").glob("*.yaml"))
     paths += list((root / "native").rglob("*.md"))
     return {str(p.relative_to(root)): safe_path(root, str(p.relative_to(root))).read_text()
@@ -170,7 +170,7 @@ def issues(root):
         primary = next((t for t in teams if t["id"] == w.get("team")), None)
         if primary is None or w["id"] not in primary.get("members", []):
             errors.append(f"{w['id']}: 주 소속 팀과 팀의 근무자 명단이 일치하지 않습니다")
-        path = root / "personas" / f"{w['id']}.md"
+        path = root / "native/.claude/agents" / f"{w['id']}.md"
         if not path.is_file():
             errors.append(f"{w['id']}: 페르소나가 없습니다")
         else:
@@ -207,7 +207,7 @@ def preflight(root, updates):
 
 
 def revision(root, worker_id):
-    path = safe_path(root, f"personas/{worker_id}.md")
+    path = safe_path(root, f"native/.claude/agents/{worker_id}.md")
     return sha(path.read_text() + "".join((Path(root) / name).read_text() for name in CORE))
 
 
@@ -221,14 +221,14 @@ def worker_detail(root, worker_id):
         _, manifest = harness_compiler.compile_worker(worker_id, candidate)
     if before != revision(root, worker_id):
         raise ValueError("조회 중 설정이 변경되었습니다. 다시 불러오세요")
-    content = (root / "personas" / f"{worker_id}.md").read_text()
+    content = (root / "native/.claude/agents" / f"{worker_id}.md").read_text()
     meta, body = split_markdown(content, require_description=False)
     return dict(worker=manifest["worker"], department=manifest["department"],
                 team=manifest["team"], authorization=manifest["authorization"],
                 policy=manifest["policy"], available_tools=manifest["available_tools"],
                 description=meta.get("description", meta.get("name", manifest["worker"]["name"])), instructions=body,
                 skills=list(manifest["role_skills"]), sha256=before,
-                sources=[f"personas/{worker_id}.md", "roster.yaml", "teams.yaml", "departments.yaml", "harness.yaml"])
+                sources=[f"native/.claude/agents/{worker_id}.md", "roster.yaml", "teams.yaml", "departments.yaml", "harness.yaml"])
 
 
 def assignment_changes(root, worker_id, body):
@@ -252,7 +252,7 @@ def assignment_changes(root, worker_id, body):
     rt.preserve_quotes = True
     rt.width = 4096
     rt.indent(mapping=2, sequence=4, offset=2)
-    persona = f"personas/{worker_id}.md"
+    persona = f"native/.claude/agents/{worker_id}.md"
     original = safe_path(root, persona).read_text()
     meta = rt.load(original.split("---", 2)[1])
     meta["description"] = description
@@ -301,7 +301,7 @@ def audit(root):
         ("departments.yaml", "조직", "부서 책임·제외 업무·에스컬레이션", "조회·원문 편집"),
         ("teams.yaml", "팀", "팀 구성·KPI·협업 지표", "조회·원문 편집"),
         ("roster.yaml", "근무자", "주 소속·모델·루프·담당 자산", "담당 설정·원문 편집"),
-        ("personas/*.md", "근무자 → R&R·스킬", "역할·업무 경계·협업·스킬 선택", "담당 설정·원문 편집"),
+        ("native/.claude/agents/*.md", "근무자 → R&R·스킬", "역할·업무 경계·협업·스킬 선택", "담당 설정·원문 편집"),
         ("native/.agents/skills/*/SKILL.md", "일하는 방식 → 스킬", "상세 업무 절차", "추가·수정·삭제·근무자 연결"),
         ("loops/*.yaml", "일하는 방식 → 루프", "실행 시점·트리거·절차", "원문 편집·근무자 연결"),
         ("harness.yaml", "일하는 방식", "상속 정책·직무 상한·예산·시간대", "조회·원문 편집"),

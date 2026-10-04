@@ -22,7 +22,7 @@ def fixture(target):
     target.mkdir(parents=True)
     for name in configuration.CORE:
         shutil.copy2(ROOT / "agents" / name, target / name)
-    for name in ("personas", "loops", "native"):
+    for name in ("loops", "native"):
         shutil.copytree(ROOT / "agents" / name, target / name)
 
 
@@ -137,14 +137,14 @@ class ConfigurationApi(unittest.TestCase):
         body["instructions"] += "\n한글 교육용 역할 설명.\n"
         self.call("PUT", "/api/assignments/application-developer", body)
         self.call("PUT", "/api/assignments/application-developer", body, 409)
-        original = (ROOT / "agents/personas/application-developer.md").read_text()
+        original = (ROOT / "agents/native/.claude/agents/application-developer.md").read_text()
         self.call("POST", "/api/file/persona:application-developer?key=test-key", {"text": original})
 
     def test_required_skill_and_retained_persona_references_block_delete(self):
         d = self.call("GET", "/api/skills/inventory-report")
         self.call("DELETE", "/api/skills/inventory-report", {"sha256": d["sha256"]}, 409)
         self.create_skill()
-        (self.root / "personas/retained-worker.md").write_text(
+        (self.root / "native/.claude/agents/retained-worker.md").write_text(
             "---\ndescription: 보관 역할\nskills: [training-check]\n---\n지침\n")
         d = self.call("GET", "/api/skills/training-check")
         self.call("DELETE", "/api/skills/training-check", {"sha256": d["sha256"]}, 409)
@@ -164,17 +164,17 @@ class ConfigurationApi(unittest.TestCase):
         self.assertEqual(outside.read_text(), "외부 파일")
 
     def test_legacy_persona_and_loop_edits_validate_before_write_and_restore_exact_path(self):
-        persona = self.root / "personas/soc-analyst.md"
+        persona = self.root / "native/.claude/agents/soc-analyst.md"
         original = persona.read_text()
         broken = original.replace("skills:", "skills: [missing-skill]\nprevious_skills:", 1)
         self.call("POST", "/api/file/persona:soc-analyst?key=test-key", {"text": broken}, 400)
         self.assertEqual(persona.read_text(), original)
         changed = original + "\n원문 편집 실습.\n"
         self.call("POST", "/api/file/persona:soc-analyst?key=test-key", {"text": changed})
-        backup = next((self.root / ".bak").glob("personas__soc-analyst.md.*"))
+        backup = next((self.root / ".bak").glob("native__.claude__agents__soc-analyst.md.*"))
         self.call("POST", "/api/restore?key=test-key&name=" + backup.name)
         self.assertEqual(persona.read_text(), original)
-        self.assertFalse((self.root / "personas/personas__soc-analyst.md").exists())
+        self.assertFalse((self.root / "native/.claude/agents/personas__soc-analyst.md").exists())
         loop_id = self.detail()["worker"]["loops"][0]
         loop_path = self.root / "loops" / (loop_id + ".yaml")
         original_loop = loop_path.read_text()
@@ -195,7 +195,7 @@ class ConfigurationApi(unittest.TestCase):
         self.call("POST", "/api/worker?key=test-key", {"id": "training-worker", "name": "교육 담당", "team": team, "security_role": "soc"})
         self.assertEqual(self.detail("training-worker")["skills"], [])
         self.call("DELETE", "/api/worker/training-worker?key=test-key&keep_persona=false")
-        self.assertFalse((self.root / "personas/training-worker.md").exists())
+        self.assertFalse((self.root / "native/.claude/agents/training-worker.md").exists())
 
     def test_guide_editor_uses_same_source_and_activation(self):
         path = "/api/request-guides/.agents/skills/siem-period-analysis/SKILL.md"
@@ -221,7 +221,7 @@ class ConfigurationApi(unittest.TestCase):
     def test_audit_detects_external_changes(self):
         harness_compiler.compile_all(self.root)
         self.assertTrue(all(w["current"] for w in self.call("GET", "/api/config-audit")["workers"]))
-        path = self.root / "personas/soc-analyst.md"
+        path = self.root / "native/.claude/agents/soc-analyst.md"
         path.write_text(path.read_text() + "\n외부 수정\n")
         self.assertTrue(all(not w["current"] for w in self.call("GET", "/api/config-audit")["workers"]))
 

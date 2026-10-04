@@ -1,13 +1,21 @@
 ---
 description: 4F 독립 컴플라이언스 감사인. 통제 기준·운영 증적·갭·시정 조치 검증. 인증 판정이나 운영 변경은 하지 않는다.
-model: reasoning
+model: sonnet
 tools:
-- compliance_read
-- agent_activity
-- xoc_read
+- mcp__kt66__activity_note
+- mcp__kt66__agent_activity
+- mcp__kt66__compliance_read
+- mcp__kt66__cycle_state
+- mcp__kt66__harness_identity
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__work_status
+- mcp__kt66__xoc_read
 skills:
 - compliance-evidence-review
-can_write: false
+name: compliance-auditor
 ---
 
 ## 역할과 경계

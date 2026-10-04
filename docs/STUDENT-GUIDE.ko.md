@@ -106,7 +106,7 @@ flowchart LR
 | “오늘 경보에서 무엇을 보여줄까?”, “신규 IP는 어떻게 조회할까?” | 조회 스킬 | [siem-period-analysis/SKILL.md](../agents/native/.agents/skills/siem-period-analysis/SKILL.md) |
 | “이상 징후가 생기면 무엇부터 확인할까?”, “언제 보류할까?” | 사건 조사 스킬 | [soc-incident-investigation/SKILL.md](../agents/native/.agents/skills/soc-incident-investigation/SKILL.md) |
 | “30개 지표를 어떻게 해석하고 고위험 대상을 조사·보고할까?” | 종합 분석 스킬 | [ip-risk-investigation/SKILL.md](../agents/native/.agents/skills/ip-risk-investigation/SKILL.md) |
-| “단순 질문·사건 조사·종합 분석 중 어느 절차를 선택할까?” | 역할 안내 | [personas/soc-analyst.md](../agents/personas/soc-analyst.md) |
+| “단순 질문·사건 조사·종합 분석 중 어느 절차를 선택할까?” | 역할 안내 | [native/.claude/agents/soc-analyst.md](../agents/native/.claude/agents/soc-analyst.md) |
 | “평시에는 언제 점검하고 특이사항에 어떻게 반응할까?” | 평시 루프 | [loops/siem-alert-triage.yaml](../agents/loops/siem-alert-triage.yaml) |
 | “종합 분석을 하루 한 번 할까, 두 번 할까? 몇 시에?” | 종합 분석 루프 | [loops/soc-daily-risk-review.yaml](../agents/loops/soc-daily-risk-review.yaml) |
 | “담당자·모델·실행할 루프를 연결하려면?” | 근무자 명단 | [roster.yaml](../agents/roster.yaml)의 `soc-analyst` 항목 |
@@ -122,7 +122,7 @@ flowchart LR
 
 ```text
 agents/
-├── personas/soc-analyst.md                 # 역할과 필요한 스킬을 고르는 기준
+├── native/.claude/agents/soc-analyst.md                 # 역할과 필요한 스킬을 고르는 기준
 ├── native/
 │   ├── AGENTS.md                          # 사용자 업무의 공통 지침
 │   ├── .claude/agents/kt66-request-worker.md # 사용자 업무 담당자의 공통 역할
@@ -283,7 +283,7 @@ JSON이나 `references/` 파일을 추가한다고 자동으로 읽거나 점수
    예: `agents/examples/soc/skills/soc-monthly-review/` →
    `agents/native/.agents/skills/soc-monthly-review/`.
 2. **근무자·R&R → SOC 분석가 → R&R·스킬·담당 설정**에서 스킬을 선택해 저장한다.
-   이는 `agents/personas/soc-analyst.md`의 기존 `skills` 목록에 해당 이름을 **추가**한다.
+   이는 `agents/native/.claude/agents/soc-analyst.md`의 기존 `skills` 목록에 해당 이름을 **추가**한다.
    본문에도 “명시적인 월간 분석 요청에 `soc-monthly-review`를 사용한다”처럼 선택 기준을 추가한다.
 3. 새 대화에서 같은 실습 자료로 실행하고 `skill_read` 기록과 결과를 확인한다.
    현재 도구로 불가능한 단계는 미수행으로 표시되는지 확인한다.
@@ -393,12 +393,12 @@ WAF 차단만으로 침해가 없었다거나 파일 변경이 정상 업데이�
 
 ## 4. Claude와 Codex는 같은 파일을 사용하나요?
 
-**KT66 안에서는 같은 원본을 공유합니다.** 학생은 `personas`·`SKILL.md`·루프·조직 정책을 한 번 작성합니다. KT66이 각 작업의 런타임에 맞춰 실행 사본과 지침을 만듭니다.
+**KT66 안에서는 같은 원본을 공유합니다.** 학생은 표준 역할 Markdown·`SKILL.md`·루프·조직 정책을 한 번 작성합니다. KT66이 각 작업의 런타임에 맞춰 실행 사본과 지침을 만듭니다.
 
 | 구분 | Claude Code | Codex |
 |---|---|---|
-| 공통 원본 | `agents/personas/`, `agents/native/`, 조직·루프·정책 | 같은 원본 |
-| 사용자 업무 지침 | 생성된 `CLAUDE.md`·역할 Markdown과 명시적 CLI 전달 | 생성된 `AGENTS.md`를 developer 지침으로 전달 |
+| 공통 원본 | `agents/native/.claude/agents/`, `agents/native/`, 조직·루프·정책 | 같은 원본 |
+| 사용자 업무 지침 | 생성된 `CLAUDE.md`·역할 Markdown과 명시적 CLI 전달 | 생성된 `.codex/agents/*.toml`의 developer_instructions 전달 |
 | 상세 스킬 사본 | `.claude/skills/<이름>/SKILL.md` | `.agents/skills/<이름>/SKILL.md` |
 | 도구·권한 | KT66 도구 서버가 검사 | 같은 정책 경로 |
 | 실행 순서·협업 | KT66 큐에서 담당자별 새 세션 | 같은 실행기 |
@@ -453,3 +453,5 @@ WAF 차단만으로 침해가 없었다거나 파일 변경이 정상 업데이�
 리스크 공간 관찰, 반복 경보 묶음과 개별 판정, SOC 시간대 비교 실습은 [리스크 지도와 xOC·SOC 관제](OBSERVABILITY.ko.md#학생-실습)를 따릅니다. 업무 보고서는 참고 기록이며 미종결 경보와 구분합니다.
 
 [Wazuh 에이전트 관제 실습](WAZUH-AGENT-MONITORING.ko.md#5-학생-discover-검색-실습)에서는 요청 ID로 업무를 찾고 도구·승인·파일 접근·결과를 연결해 조사합니다. 저장 검색과 대시보드를 가져오면 컬럼을 처음부터 구성하지 않아도 됩니다. 미측정을 0으로, 세션 종료를 업무 성공으로 해석하지 않는 것이 핵심입니다.
+
+네트워크 진단·정상 대조군·표준 파일 및 Hermes 스킬 내보내기 실습은 [자율 에이전트 실습 안내](AUTONOMOUS-AGENTS.ko.md)를 참고하세요.

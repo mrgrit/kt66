@@ -32,7 +32,7 @@ class Boundaries(unittest.TestCase):
         self.root.mkdir()
         for f in harness_compiler.SOURCES:
             shutil.copy2(ROOT/f, self.root/f)
-        for d in ('personas','loops','native'):
+        for d in ('loops','native'):
             shutil.copytree(ROOT/d, self.root/d)
         (self.root.parent/'.env').write_text('API_KEY=test\n')
         (self.root.parent/'envsim').mkdir()
@@ -54,7 +54,7 @@ class Boundaries(unittest.TestCase):
 
     def test_every_role_has_a_distinct_tool_ceiling(self):
         expected = {
-            'network-engineer': {'firewall_read','infrastructure_read','inventory_query'},
+            'network-engineer': {'firewall_read','infrastructure_read','inventory_query','network_probe'},
             'systems-engineer': {'disk_usage','infrastructure_read','inventory_query'},
             'soc-analyst': {'log_read','siem_search','inventory_query'},
             'service-desk': set(), 'ops-lead': set(), 'compliance-auditor': set(),

@@ -14,7 +14,7 @@ NOC의 **근무자 운영**은 `agents/` 원본을 직접 읽고 수정하는 �
 | 2 조직 | `departments.yaml` | 부서 책임·제외 업무·에스컬레이션 |
 | 3 팀 | `teams.yaml` | 구성원·KPI·협업 지표 |
 | 4 근무자·R&R | `roster.yaml` | 주 소속·런타임·모델·직무·자율성·루프·담당 자산 |
-| 4 → R&R·스킬·담당 설정 | `personas/<id>.md`, `roster.yaml` | 역할·업무 경계·협업·보고·스킬 연결·담당 범위 |
+| 4 → R&R·스킬·담당 설정 | `native/.claude/agents/<id>.md`, `roster.yaml` | 역할·업무 경계·협업·보고·스킬 연결·담당 범위 |
 | 5 일하는 방식 → 스킬 라이브러리 | `native/.agents/skills/<이름>/SKILL.md` | 상세 절차 추가·수정·삭제·근무자 연결 |
 | 5 → 루프 | `loops/*.yaml` | 주기·담당자·트리거·업무 단계 |
 | 5 → harness.yaml 직접 편집 | `harness.yaml` | 상속 정책·직무별 실제 접근 상한·예산·시간대 |

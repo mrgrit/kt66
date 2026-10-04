@@ -28,7 +28,7 @@ class Centers(unittest.TestCase):
         self.root.mkdir()
         for name in harness_compiler.SOURCES:
             shutil.copy2(ROOT / name, self.root / name)
-        for name in ('personas', 'loops', 'native', 'xoc', 'research'):
+        for name in ('loops', 'native', 'xoc', 'research'):
             shutil.copytree(ROOT / name, self.root / name)
         (self.root.parent / '.env').write_text('API_KEY=test\n')
         self.addCleanup(patch.stopall)
@@ -204,14 +204,14 @@ class Centers(unittest.TestCase):
 
     def test_evaluation_apply_and_rollback_preserve_original(self):
         cid = self.candidate()
-        original = (self.root/'personas/soc-analyst.md').read_text()
+        original = (self.root/'native/.claude/agents/soc-analyst.md').read_text()
         self.assertTrue(self.evaluate(cid)['gate_passed'])
         def write(p,s): p.parent.mkdir(parents=True, exist_ok=True);p.write_text(s)
         research_lab.apply_candidate(self.root, cid, False, '평가 통과 및 영향 범위를 독립 검토했습니다', write)
         _, m = harness_compiler.compile_worker('soc-analyst', self.root)
         self.assertIn('lab-test-skill', m['role_skills'])
         research_lab.apply_candidate(self.root, cid, True, '후속 검토에 따라 이전 역할 설정을 복구합니다', write)
-        self.assertEqual((self.root/'personas/soc-analyst.md').read_text(), original)
+        self.assertEqual((self.root/'native/.claude/agents/soc-analyst.md').read_text(), original)
         self.assertFalse((self.root/'native/.agents/skills/lab-test-skill/SKILL.md').exists())
 
     def test_regression_cannot_pass_and_changed_policy_invalidates_evaluation(self):

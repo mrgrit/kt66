@@ -13,10 +13,10 @@ REQUEST = {'request_context', 'request_finish', 'request_plan', 'request_agent_c
            'website_validate', 'website_prepare', 'waf_prepare'}
 CAPS = {'inventory_query': 'inventory', 'siem_search': 'siem', 'workspace_write': 'workspace',
         'website_validate': 'website', 'website_prepare': 'website', 'waf_prepare': 'waf'}
-EXECUTION = {'env_read', 'infrastructure_read', 'disk_usage', 'firewall_read', 'log_read',
+EXECUTION = {'env_read', 'infrastructure_read', 'disk_usage', 'firewall_read', 'network_probe', 'log_read',
              'simulator_control', 'inventory_query', 'siem_search', 'workspace_write',
              'website_validate', 'website_prepare', 'waf_prepare'}
-REFERRALS = {'disk_usage': 'systems-engineer', 'firewall_read': 'network-engineer',
+REFERRALS = {'disk_usage': 'systems-engineer', 'firewall_read': 'network-engineer', 'network_probe': 'network-engineer',
              'waf_prepare': 'network-engineer', 'siem_search': 'soc-analyst', 'log_read': 'soc-analyst',
              'website_prepare': 'application-developer', 'workspace_write': 'application-developer',
              'env_read': 'facility-engineer', 'approve_request': 'ops-lead'}

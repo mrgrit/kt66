@@ -104,7 +104,7 @@ def _read_graph() -> dict:
 
 
 def _personas() -> list[str]:
-    return sorted(p.stem for p in (AGENTS / "personas").glob("*.md"))
+    return sorted(p.stem for p in (AGENTS / "native/.claude/agents").glob("*.md") if p.stem != 'kt66-request-worker')
 
 
 def _loops() -> list[str]:
@@ -190,7 +190,7 @@ def _validate_all(over: dict | None = None) -> list[str]:
         if w.get("runtime") and w["runtime"] not in runtimes:
             err.append(f"근무자 {w['id']} 의 런타임이 없다: {w['runtime']}")
         if w["id"] not in personas:
-            err.append(f"근무자 {w['id']} 의 페르소나 파일이 없다 (personas/{w['id']}.md)")
+            err.append(f"근무자 {w['id']} 의 페르소나 파일이 없다 (native/.claude/agents/{w['id']}.md)")
         for lp in w.get("loops", []):
             if lp not in loops:
                 err.append(f"근무자 {w['id']} 가 없는 루프를 참조한다: {lp}")
@@ -294,7 +294,7 @@ def get_file(name: str):
     if name in FILES:
         p = AGENTS / FILES[name]
     elif name.startswith("persona:"):
-        p = AGENTS / "personas" / f"{name[8:]}.md"
+        p = AGENTS / "native/.claude/agents" / f"{name[8:]}.md"
     elif name.startswith("loop:"):
         p = AGENTS / "loops" / f"{name[5:]}.yaml"
     elif name == "graph":
@@ -331,8 +331,8 @@ def put_file(name: str, key: str = "", body: dict = Body(...)):
         if not ID_RE.match(pid):
             raise HTTPException(400, "페르소나 id 형식이 잘못됐다")
         configuration.split_markdown(text, require_description=False)
-        _preflight({f"personas/{pid}.md": text})
-        _write_text(configuration.safe_path(AGENTS, f"personas/{pid}.md"), text)
+        _preflight({f"native/.claude/agents/{pid}.md": text})
+        _write_text(configuration.safe_path(AGENTS, f"native/.claude/agents/{pid}.md"), text)
     elif name.startswith("loop:"):
         lid = name[5:]
         if not ID_RE.match(lid):
@@ -369,7 +369,9 @@ def put_file(name: str, key: str = "", body: dict = Body(...)):
 
 # ── API: 근무자 추가·삭제 ───────────────────────────────────────────
 PERSONA_TEMPLATE = """---
+name: {id}
 description: {description}
+model: inherit
 skills: []
 ---
 
@@ -424,25 +426,25 @@ def add_worker(key: str = "", w: dict = Body(...)):
             if t["id"] == entry["team"] and wid not in t.get("members", []):
                 t.setdefault("members", []).append(wid)
 
-    persona = AGENTS / "personas" / f"{wid}.md"
-    persona_text = PERSONA_TEMPLATE.format(name=entry["name"],
+    persona = AGENTS / "native/.claude/agents" / f"{wid}.md"
+    persona_text = PERSONA_TEMPLATE.format(id=wid, name=entry["name"],
         description=json.dumps(entry["name"] + "의 역할·업무 선택·보고 기준", ensure_ascii=False))
     errs = validate_all({"roster": roster, "teams": teams})
     # 페르소나 파일은 아직 없으므로 그 오류만 예외로 둔다
-    errs = [e for e in errs if f"personas/{wid}.md" not in e]
+    errs = [e for e in errs if f"native/.claude/agents/{wid}.md" not in e]
     if errs:
         raise HTTPException(400, "조직 정합성 오류:\n" + "\n".join(f"· {e}" for e in errs))
 
     updates = {"roster.yaml": _rt_text(roster), "teams.yaml": _rt_text(teams)}
     if not persona.exists():
-        updates[f"personas/{wid}.md"] = persona_text
+        updates[f"native/.claude/agents/{wid}.md"] = persona_text
     _preflight(updates)
     if not persona.exists():
         _write_text(persona, persona_text)
     _dump_rt("roster", roster)
     _dump_rt("teams", teams)
     return {"ok": True, "id": wid, "errors": validate_all(),
-            "note": "페르소나 뼈대를 personas/%s.md 에 만들었다. 4단계에서 채워라" % wid}
+            "note": "페르소나 뼈대를 native/.claude/agents/%s.md 에 만들었다. 4단계에서 채워라" % wid}
 
 
 @app.delete("/api/worker/{wid}")
@@ -476,13 +478,13 @@ def del_worker(wid: str, key: str = "", keep_persona: bool = True):
 
     updates = {"roster.yaml": _rt_text(roster), "teams.yaml": _rt_text(teams), "harness.yaml": _rt_text(harness)}
     if not keep_persona:
-        updates[f"personas/{wid}.md"] = None
+        updates[f"native/.claude/agents/{wid}.md"] = None
     _preflight(updates)
     _dump_rt("roster", roster)
     _dump_rt("teams", teams)
     _dump_rt("harness", harness)
     if not keep_persona:
-        path = configuration.safe_path(AGENTS, f"personas/{wid}.md")
+        path = configuration.safe_path(AGENTS, f"native/.claude/agents/{wid}.md")
         _backup(path)
         path.unlink(missing_ok=True)
     return {"ok": True, "errors": validate_all()}
@@ -557,7 +559,7 @@ def restore(key: str = "", name: str = ""):
     key_name = next((k for k, v in FILES.items() if v == relative), None)
     if key_name:
         result = put_file(key_name, key, {"text": content}, _already_locked=True)
-    elif relative.startswith("personas/") and dest.suffix == ".md":
+    elif relative.startswith("native/.claude/agents/") and dest.suffix == ".md":
         result = put_file("persona:" + dest.stem, key, {"text": content}, _already_locked=True)
     elif relative.startswith("loops/") and dest.suffix == ".yaml":
         result = put_file("loop:" + dest.stem, key, {"text": content}, _already_locked=True)

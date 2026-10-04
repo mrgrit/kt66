@@ -9,7 +9,7 @@ KT66은 한 대의 Linux 서버에 보안 인프라, 업무 서비스, 가상 �
 
 핵심은 **전문가의 경험을 자연어 업무 절차로 옮기고 실행 결과로 검증하는 것**입니다. 한국어로 작성된 역할·스킬·일정·정책을 수정하면서, 에이전트가 무엇을 조회하고 어떻게 판단하며 어떤 근거를 보고하는지 비교할 수 있습니다. 시설 운영, 시스템·네트워크, SOC, AI 서비스 운영과 에이전트 설계를 하나의 환경에서 연결합니다.
 
-[교수·강사용 매뉴얼](docs/INSTRUCTOR-GUIDE.ko.md) · [학생용 매뉴얼](docs/STUDENT-GUIDE.ko.md) · [에이전트 운영 상세](docs/AGENT-OPERATIONS.ko.md) · [업무 요청·대화](docs/USER-REQUESTS.ko.md)
+[교수·강사용 매뉴얼](docs/INSTRUCTOR-GUIDE.ko.md) · [학생용 매뉴얼](docs/STUDENT-GUIDE.ko.md) · [에이전트 운영 상세](docs/AGENT-OPERATIONS.ko.md) · [업무 요청·대화](docs/USER-REQUESTS.ko.md) · [자율 에이전트 실습](docs/AUTONOMOUS-AGENTS.ko.md) · [Windows 엔드포인트](docs/WINDOWS-ENDPOINT.ko.md) · [해야 할 일](TODO.md)
 
 > 교육용 단일 호스트 실습 환경입니다. 취약 웹앱과 실제 장애 주입 기능을 포함하므로 수업용으로 격리된 서버·네트워크에서 운영합니다. 아래 구성 수와 기본값은 저장소 설정 기준이며, 모든 기능의 운영 검증 완료를 의미하지 않습니다.
 
@@ -18,7 +18,7 @@ KT66은 한 대의 Linux 서버에 보안 인프라, 업무 서비스, 가상 �
 | 활용 영역 | 실습 내용 | 확인할 결과 |
 |---|---|---|
 | 데이터센터 운영 | 전력·냉방·출입 상태와 서버 부하를 함께 관찰 | 설비 이상, 서비스 영향, 대응 우선순위 |
-| 시스템·네트워크 | 실제 디스크 용량, 컨테이너 상태, 자산 IP, 방화벽 정책 조사 | 조회 시각·대상·원본 증거와 미확인 범위 |
+| 시스템·네트워크 | 실제 디스크 용량, 컨테이너 상태, 자산 IP, 방화벽 정책·경로의 코드 검사 | 조회 시각·대상·원본 증거와 미확인 범위 |
 | 보안 운영 | Wazuh 경보 분석, FW·IPS·WAF 관측, 사건 조사 | 실제 공격·오탐·보류 판정과 근거 |
 | AI 서비스 운영 | 모델 설정·지식 자료 수정, 평가, 버전 배포와 지표 비교 | 응답 품질·거부·지연·문맥 제한의 변화 |
 | 자연어 업무 처리 | 근무자에게 질문하거나 여러 담당자의 협업 업무 요청 | 계획, 담당 역할, 산출물, 검토·적용 상태 |
@@ -101,6 +101,7 @@ flowchart LR
 | `app` | `10.20.50.0/24` | GPU·AI 서비스 |
 | `gpu-external` | 별도 내부 대역 없음 | 추가 실물 NVIDIA 장비의 외부 관리 주소 구분 |
 | `ot` | `10.20.60.0/24` | 시설 시뮬레이터 |
+| `user` | `10.20.70.0/24` | FW→IPS 아래 Windows 평가판 엔드포인트 (선택 설치) |
 | `mgmt` | 별도 대역 없음 | 논리적인 운영 권한 구분 |
 
 ### 에이전트 실행 구조
@@ -167,7 +168,7 @@ xOC는 실제 도구 영수증을 11개 규칙으로 먼저 검사합니다. 권
 
 Linux·systemd·Docker Engine/Compose를 사용하는 전용 서버 또는 VM을 준비합니다. 호스트에는 Git, Python 3.10 이상·PyYAML, Node.js, curl·OpenSSL 등이 필요합니다. Wazuh를 포함한 전체 스택은 메모리와 디스크 여유가 필요하므로 [교수용 설치 안내](docs/INSTRUCTOR-GUIDE.ko.md#installation)의 사전 점검을 따릅니다.
 
-[Compose](docker-compose.yaml)에는 **서비스 28개**가 정의되어 있으며, 초기 작업 후 종료되는 서비스도 포함됩니다. 외부 GPU는 선택 사항입니다. GPU 연결이 없으면 관련 실측·장애 실습 범위가 제한됩니다.
+[Compose](docker-compose.yaml)에는 **서비스 30개**가 정의되어 있으며, Windows 선택 프로필 2개와 초기 작업 후 종료되는 서비스도 포함됩니다. 외부 GPU는 선택 사항입니다. GPU 연결이 없으면 관련 실측·장애 실습 범위가 제한됩니다.
 
 ### 1. 저장소와 서버별 설정
 
@@ -279,7 +280,7 @@ systemctl --user status kt66-runner.service
 |---|---|
 | 조직 목적·책임·협업 | [company.yaml](agents/company.yaml), [departments.yaml](agents/departments.yaml), [teams.yaml](agents/teams.yaml) |
 | 담당자·런타임·모델·루프 연결 | [roster.yaml](agents/roster.yaml) |
-| 짧은 역할과 스킬 선택 기준 | [personas/](agents/personas/) |
+| 짧은 역할과 스킬 선택 기준 | [native/.claude/agents/](agents/native/.claude/agents/) |
 | 상세 업무 절차 | [native/.agents/skills/](agents/native/.agents/skills/)의 `SKILL.md` |
 | 언제 무엇을 점검·보고할지 | [loops/](agents/loops/) |
 | 실제 권한·대상·자율성·예산·시간대 | [harness.yaml](agents/harness.yaml) |
@@ -295,6 +296,7 @@ systemctl --user status kt66-runner.service
 
 ## 현재 구현 범위
 
+- **AI 연구소는 부분 구현 상태이며 추가 개발은 보류 중입니다.** 스킬 실험·평가·적용 기반은 있지만, Facebook 로그인용 브라우저·여러 출처의 일일 수집·요약·적용 제안 승인 연결은 미구현입니다. 자동 연구 흐름의 오류 복구를 포함한 [남은 작업과 완료 기준](TODO.md#ai-research)을 기록했습니다.
 - 시설 고장과 실제 IT 장애 주입을 함께 제공합니다. [교육 시나리오](scenarios/README.md)의 `ready / partial / planned`를 확인하고 과제를 선택합니다. 카탈로그에 있다는 이유만으로 전체 자동 대응·채점이 완성된 것은 아닙니다.
 - SIEM 조회는 보관된 경보와 도구의 조회 범위에 한정됩니다. 전체 접근 로그의 장기 집계, IP 평판·지역 정보, 정식 위험 점수 계산기는 별도 연동이 필요합니다.
 - 홈페이지 업무는 **정적 HTML/CSS/JavaScript** 배포를 지원합니다. 서버 프로그램·DB·실결제와 범용 SIEM/IPS 규칙 자동 등록은 현재 실행 기능에 포함되지 않습니다.

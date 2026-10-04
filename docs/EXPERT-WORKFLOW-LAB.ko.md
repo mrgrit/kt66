@@ -127,7 +127,7 @@ cases:
 
 | 파일·디렉터리 | 역할 |
 |---|---|
-| `agents/personas/skill-{researcher,evaluator}.md` | 연구와 평가의 R&R |
+| `agents/native/.claude/agents/skill-{researcher,evaluator}.md` | 연구와 평가의 R&R |
 | `agents/native/.agents/skills/skill-{research,evaluation}/SKILL.md` | 해당 업무가 트리거될 때 읽는 절차 |
 | `agents/research/benchmarks.yaml` | 공통 안전·기존 기본 평가 사례 |
 | `agents/research/suites/soc-ip-analysis.yaml` | Git으로 관리하는 SOC 기본 실습 사례 |

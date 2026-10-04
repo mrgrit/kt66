@@ -53,15 +53,22 @@ def compile_request(root, request, task, evidence):
         skills.append('system-diagnostics')
     library = root / 'native'
     skill_sources = {}
+    resources = {}
     for name in skills:
         p = library / '.agents' / 'skills' / name / 'SKILL.md'
         if not p.is_file():
             raise ValueError('필수 스킬 파일이 없습니다: ' + name)
         skill_sources[name] = (base_dest / '.agents' / 'skills' / name / 'SKILL.md').read_text() if name in role_skills else p.read_text()
+        for resource in p.parent.glob('*/*'):
+            if resource.is_symlink() or not resource.resolve().is_relative_to(library.resolve()):
+                raise ValueError('스킬 자료 경로를 확인하세요')
+            if resource.is_file() and resource.parent.name in ('references', 'scripts') and resource.suffix in ('.md', '.py', '.json', '.yaml'):
+                resources[str(resource.relative_to(library / '.agents/skills'))] = resource.read_bytes()
     manifest['request']['skills'] = skills
     common = (library / 'AGENTS.md').read_text()
     role_source = (library / '.claude' / 'agents' / 'kt66-request-worker.md').read_text()
-    version = hashlib.sha256(json.dumps(dict(manifest=manifest, skills=skill_sources, common=common, role=role_source), sort_keys=True).encode()).hexdigest()
+    version = hashlib.sha256(json.dumps(dict(manifest=manifest, skills=skill_sources, common=common, role=role_source,
+        resources={k: hashlib.sha256(v).hexdigest() for k,v in resources.items()}), sort_keys=True).encode()).hexdigest()
     manifest['version'] = version
     dest = Path(evidence) / 'harness'
     dest.mkdir(parents=True, exist_ok=True)
@@ -69,7 +76,7 @@ def compile_request(root, request, task, evidence):
             + '## 이번에 배정된 작업\n' + task['instructions'] + '\n\n'
             + '## 현재 실행 범위와 정책\n' + json.dumps(dict(
                 request=manifest['request'], company=manifest['company'],
-                policy=manifest['policy'], authorization=manifest['authorization'], task=task), ensure_ascii=False, indent=2))
+                policy=manifest['policy'], authorization=manifest['authorization'], task=task), ensure_ascii=False, separators=(',', ':')))
     if role_skills:
         role += '\n\n## 배정된 역할 스킬\n실제 해당 업무를 시작할 때 skill_read로 본문을 한 번 읽고 적용하세요. 인사·설명에는 불필요한 스킬 조회를 생략하세요.\n'
         role += json.dumps(role_skills, ensure_ascii=False, indent=2)
@@ -82,7 +89,8 @@ def compile_request(root, request, task, evidence):
     _, front, native_body = role_source.split('---', 2)
     fm = yaml.safe_load(front)
     fm.update(name=name, model=manifest['model']['name'] if manifest['worker']['runtime'] == 'claude' else 'inherit',
-              tools=['mcp__kt66__*'], skills=skills, maxTurns=35)
+              tools=['mcp__kt66__*'], maxTurns=35)
+    fm.pop('skills', None)  # 필요한 스킬만 skill_read로 로드하고 영수증을 남긴다.
     (native_dir / (name + '.md')).write_text('---\n' + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True) + '---\n' + native_body + '\n' + common + '\n' + role)
     codex_dir = dest / '.codex' / 'agents'
     codex_dir.mkdir(parents=True)
@@ -94,6 +102,13 @@ def compile_request(root, request, task, evidence):
             p = dest / prefix / 'skills' / skill / 'SKILL.md'
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(body)
+            for resource in (library / '.agents/skills' / skill).glob('*/*'):
+                if resource.is_symlink() or not resource.resolve().is_relative_to(library.resolve()):
+                    raise ValueError('스킬 자료 경로를 확인하세요')
+                if resource.is_file() and resource.parent.name in ('references', 'scripts') and resource.suffix in ('.md', '.py', '.json', '.yaml'):
+                    target = p.parent / resource.parent.name / resource.name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(resources[str(resource.relative_to(library / '.agents/skills'))])
     import harness_tools
     manifest['available_tools'] = authorization.visible(manifest, harness_tools.TOOLS)
     manifest['native'] = dict(agent=name, skills=skills, source_hashes={
@@ -102,5 +117,8 @@ def compile_request(root, request, task, evidence):
         **{'.agents/skills/' + k + '/SKILL.md': hashlib.sha256(v.encode()).hexdigest() for k,v in skill_sources.items()}}, role_files=[
         '.claude/agents/' + name + '.md', '.codex/agents/' + name + '.toml'])
     (dest / 'HARNESS.md').write_text(common + '\n\n' + role)
+    for resource in (dest / '.agents/skills').glob('*/*/*'):
+        if resource.is_file():
+            manifest['native']['source_hashes'][str(resource.relative_to(dest))] = hashlib.sha256(resource.read_bytes()).hexdigest()
     write_json(dest / 'manifest.json', manifest)
     return dest, manifest

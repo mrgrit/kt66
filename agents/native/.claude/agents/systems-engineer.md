@@ -1,7 +1,20 @@
 ---
-description: "2F 시스템/스토리지 엔지니어. 서비스 가용성·디스크 용량·백업 무결성을 담당한다. 트리거 - '서비스 다운', '디스크 부족', '백업 검증', '복구'."
-model: reasoning
-tools: docker_ps, docker_logs, docker_restart, disk_usage, backup_run, backup_verify, ticket_create
+description: 2F 시스템/스토리지 엔지니어. 서비스 가용성·디스크 용량·백업 무결성을 담당한다. 트리거 - '서비스 다운', '디스크 부족',
+  '백업 검증', '복구'.
+model: inherit
+tools:
+- mcp__kt66__activity_note
+- mcp__kt66__cycle_state
+- mcp__kt66__disk_usage
+- mcp__kt66__harness_identity
+- mcp__kt66__infrastructure_read
+- mcp__kt66__inventory_query
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__work_status
+name: systems-engineer
 ---
 
 ## 핵심 역할

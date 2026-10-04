@@ -19,11 +19,12 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 from activity_audit import VERSION, scrub
+from execution_evidence import summarize
 
 SLUG = re.compile(r"(?:loop|session)-[a-zA-Z0-9_-]{1,170}\Z")
 ACTIVE = {"running", "queued", "retry", "waiting_capacity"}
-FILES = re.compile(r"(?:job|result|session-result|failure|loaded-harness|manifest-snapshot)\.json|(?:activity|tools)\.jsonl|finding-[a-f0-9]+\.md|(?:infrastructure-[a-f0-9]+\.txt|siem-[a-f0-9]+\.jsonl)")
-TOOL_PERMISSIONS = {"disk_usage":"metrics_read", "env_read":"env_read", "log_read":"log_read", "infrastructure_read":"metrics_read", "firewall_read":"metrics_read", "work_status":"cmdb_read", "agent_activity":"cmdb_read", "cycle_state":"ticket_update", "ticket_create":"ticket_create", "delegate_work":"delegate_work", "simulator_control":"simulation_control", "approve_request":"approve_request", "approval_inbox":"approve_request"}
+FILES = re.compile(r"(?:job|result|session-result|failure|loaded-harness|manifest-snapshot)\.json|(?:activity|tools)\.jsonl|finding-[a-f0-9]+\.md|(?:infrastructure-[a-f0-9]+\.txt|siem-[a-f0-9]+\.jsonl|network-[a-f0-9]+\.json|(?:siem_search|inventory_query)-[0-9]+\.json)")
+TOOL_PERMISSIONS = {"network_probe":"metrics_read", "disk_usage":"metrics_read", "env_read":"env_read", "log_read":"log_read", "infrastructure_read":"metrics_read", "firewall_read":"metrics_read", "work_status":"cmdb_read", "agent_activity":"cmdb_read", "cycle_state":"ticket_update", "ticket_create":"ticket_create", "delegate_work":"delegate_work", "simulator_control":"simulation_control", "approve_request":"approve_request", "approval_inbox":"approve_request"}
 
 
 def parsed(text, default=None):
@@ -176,6 +177,7 @@ class Observatory:
                           "error":failure.get("error",result.get("error")),"attempt":context.get("attempt"),
                           "retry_reason":context.get("retry_reason"),"has_result":bool(result),
                           "harness_version":result.get("harness_version",loaded.get("version"))}
+                    base['execution_evidence'] = summarize(self.lines(directory/'tools.jsonl')[0])
                     self.cache[directory.name]=(fingerprint,base)
                 row=dict(base)
                 job=jobs.get(row["job_id"])
@@ -401,8 +403,10 @@ class Observatory:
              "trigger_payload":context.get("observation") or parsed(job.get("payload"),{}),"kind":row["kind"],
              "source":"activity.jsonl" if request else "job.json / jobs.payload", "requested_at":context.get("requested_at",job.get("created"))},
              "context":context,"declared":declared,"timeline":timeline,
+             "execution_evidence":summarize(tools),
              "outcome":{"body":result.get("body"),"verification":result.get("verification"),"source":"result.json" if (directory/"result.json").is_file() else "session-result.json","assertion":"agent_declared; verification is broker evidence only"},
              "policy":{"version":loaded.get("version"),"effective":permission,"available_tools":manifest.get("available_tools",[]),
+                       "native":manifest.get('native', {}),
                        "source_files":manifest.get("source_hashes",{}),"instruction_hash":loaded.get("instructions_sha256"),"source":"manifest-snapshot.json" if (directory/"manifest-snapshot.json").is_file() else "historical manifest"},
              "accesses":accesses,"artifacts":artifacts,"attempts":related,"relations":relations,
              "previous_cycle":pathlib.Path(prior).name if prior else None,

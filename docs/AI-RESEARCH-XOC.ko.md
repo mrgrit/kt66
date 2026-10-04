@@ -1,5 +1,9 @@
 # AI 연구소와 xOC 운영 안내
 
+> AI 연구소는 부분 구현 상태이며, 2026-10-04 사용자 요청으로 추가 개발을 보류했습니다.
+> 외부 자료 수집·Facebook 로그인·적용 제안 승인 연결과 기존 자동 연구 흐름의 보완 사항은
+> [해야 할 일 목록](../TODO.md#ai-research)에 기록했습니다. 아래는 현재 구현된 기능의 안내입니다.
+
 5층 연구·평가 화면은 **전문가 업무 방식 실험실**로 확장되었습니다.
 [SOC 예제 시작, 사례 편집, 정량 채점, 적용·복구 안내](EXPERT-WORKFLOW-LAB.ko.md)를 참고하세요.
 
@@ -116,7 +120,7 @@ Codex는 격리 작업 디렉토리에서 실행하고 생성된 역할 문서�
 | 내용 | 파일 |
 |---|---|
 | 모델과 역할 배치 | `agents/roster.yaml`, `departments.yaml`, `teams.yaml` |
-| 역할 선택 기준·경계 | `agents/personas/{skill-researcher,skill-evaluator,agent-supervisor,compliance-auditor}.md` |
+| 역할 선택 기준·경계 | `agents/native/.claude/agents/{skill-researcher,skill-evaluator,agent-supervisor,compliance-auditor}.md` |
 | 상세 연구·평가·조사·감사 절차 | `agents/native/.agents/skills/{skill-research,skill-evaluation,agent-incident-review,compliance-evidence-review}/SKILL.md` |
 | 자동 실행 시점 | `agents/loops/{skill-research-daily,skill-evaluation-watch,agent-risk-watch,evidence-collection}.yaml` |
 | 실제 도구 권한·자동 작업 한도 | `agents/harness.yaml` |

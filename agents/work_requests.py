@@ -339,7 +339,10 @@ def poll(root, db, enqueue):
                     if failed_result.get('type') == 'JSONDecodeError' and evidence and (evidence / 'request-outcome.json').is_file() and (evidence / 'session-result.json').is_file():
                         outcome = json.loads((evidence / 'request-outcome.json').read_text())
                         receipts = [json.loads(line) for line in (evidence / 'tools.jsonl').read_text().splitlines()]
-                        observed = task['phase'] == 'review' or any(r['tool'] in ('request_plan', 'inventory_query', 'siem_search', 'workspace_read', 'workspace_write', 'website_validate', 'website_prepare', 'waf_prepare') and r.get('result', {}).get('status') not in ('denied', 'approval_required') for r in receipts)
+                        from execution_evidence import OBSERVATIONS, successful
+                        observed = task['phase'] == 'review' or any(
+                            r['tool'] in OBSERVATIONS | {'request_plan', 'workspace_read', 'workspace_write', 'website_validate', 'website_prepare', 'waf_prepare'}
+                            and successful(r) for r in receipts)
                         if outcome.get('status') == 'completed' and not observed:
                             outcome.update(status='blocked', summary='실행 근거가 없어 완료 판정을 보류했습니다.')
                         if outcome.get('status') in ('completed', 'waiting_input', 'blocked') and any(r['tool'] == 'request_finish' and r.get('result', {}).get('recorded') for r in receipts):
@@ -460,11 +463,14 @@ def execute(root, job):
             raise ValueError('작업 결과 형식이 잘못됐습니다')
         receipts = [json.loads(line) for line in (evidence / 'tools.jsonl').read_text().splitlines()] if (evidence / 'tools.jsonl').exists() else []
         meaningful = {'inventory_query', 'siem_search', 'workspace_read', 'workspace_write', 'website_validate', 'website_prepare', 'waf_prepare', 'request_plan',
-                      'env_read', 'log_read', 'infrastructure_read', 'firewall_read', 'agent_activity', 'disk_usage',
+                      'env_read', 'log_read', 'infrastructure_read', 'firewall_read', 'agent_activity', 'disk_usage', 'network_probe',
                       'xoc_read', 'compliance_read', 'lab_read', 'lab_propose', 'lab_evaluate'}
         if task['phase'] == 'review':
             meaningful.add('request_context')
         def observed_receipt(r):
+            from execution_evidence import successful
+            if not successful(r):
+                return False
             res = r.get('result', {})
             if r['tool'] not in meaningful or res.get('status') in ('denied', 'approval_required', 'failed', 'unavailable'):
                 return False
@@ -485,6 +491,8 @@ def execute(root, job):
             tools=list(dict.fromkeys(r['tool'] for r in receipts if observed_receipt(r))),
             queries=[r['arguments'] for r in receipts if r['tool'] == 'siem_search'])
         result['request_outcome'] = outcome
+        from execution_evidence import summarize
+        result['execution_evidence'] = summarize(receipts)
         write_json(evidence / 'result.json', result)
         return dict(status='completed', evidence=str(evidence), session_id=result['session_id'],
                     request_outcome=outcome, verification=result['verification'])

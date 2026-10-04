@@ -108,6 +108,10 @@ fi
 # 10.20.32.80 (web) terminates there.
 
 # ─── Suricata 룰 update + sniff both pipe + dmz ────────────
+if [ -f /opt/kt66-user-network.sh ]; then
+    bash /opt/kt66-user-network.sh ips
+fi
+
 echo "[ips] updating Suricata rules (5-10s)"
 suricata-update --no-test 2>&1 | tail -3 || true
 

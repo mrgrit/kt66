@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """agentctl — kt66 근무자 에이전트 제어 CLI.
 
-중립 스펙(personas/ + loops/ + roster.yaml)을 각 런타임 형식으로 렌더한다.
+표준 역할 파일(native/.claude/agents/ + loops/ + roster.yaml)을 각 런타임 형식으로 렌더한다.
 포털은 이 CLI 하나만 호출하므로 UI 는 뒤에 어떤 런타임이 있는지 알 필요가 없다.
 
     ./agentctl list
     ./agentctl render <persona> | --all
-    ./agentctl runtime <persona> <bastion|hermes|claude>
+    ./agentctl runtime <persona> <claude|codex>
     ./agentctl diff <persona>
 """
 import argparse
@@ -16,9 +16,9 @@ import shutil
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
-PERSONAS = ROOT / "personas"
+PERSONAS = ROOT / "native/.claude/agents"
 LOOPS = ROOT / "loops"
-SKILLS = ROOT / "skills"
+SKILLS = ROOT / "native/.agents/skills"
 OUT = ROOT / "runtimes"
 ROSTER = ROOT / "roster.yaml"
 
@@ -151,7 +151,7 @@ def render_bastion(worker, meta, body, loops, dest):
 
 
 def render_hermes(worker, meta, body, loops, dest):
-    """hermes — SOUL.md(정체성) + skills/ + cron/(루프)."""
+    """Hermes 표준 스킬 내보내기. KT66 자동 실행 연결을 의미하지 않는다."""
     dest.mkdir(parents=True, exist_ok=True)
     soul = (
         f"# {get(worker, 'name', worker['id'])} ({worker['id']})\n\n"
@@ -171,17 +171,27 @@ def render_hermes(worker, meta, body, loops, dest):
 
     written = [dest / "SOUL.md"]
     if loops:
-        cron = dest / "cron"
+        cron = dest / "kt66-reference-loops"
         cron.mkdir(exist_ok=True)
         for n, text in loops:
             (cron / f"{n}.yaml").write_text(text, encoding="utf-8")
             written.append(cron / f"{n}.yaml")
-    if SKILLS.exists():
-        sk = dest / "skills"
-        if sk.exists():
-            shutil.rmtree(sk)
-        shutil.copytree(SKILLS, sk)
-        written.append(sk)
+    import harness_compiler
+    names = harness_compiler.persona_skills((PERSONAS / (worker['id'] + '.md')).read_text())
+    for name in names:
+        source, target = SKILLS / name, dest / 'skills' / name
+        if any(p.is_symlink() for p in source.rglob('*')):
+            raise ValueError('심볼릭 링크가 있는 스킬은 내보낼 수 없습니다')
+        shutil.copytree(source, target)
+        written.append(target / 'SKILL.md')
+    (dest / 'README.md').write_text(
+        '# Hermes 학습용 내보내기\n\n'
+        'skills/<이름>/SKILL.md는 Hermes의 ~/.hermes/skills/에 복사할 표준 스킬입니다.\n'
+        '이 내보내기는 Hermes를 설치·로그인·실행하거나 KT66 MCP 권한을 부여하지 않습니다.\n'
+        'kt66-reference-loops는 KT66 일정 참고 자료이며 Hermes cron 등록 파일이 아닙니다.\n'
+        'KT66의 현재 자동 실행은 Claude Code와 Codex 구독 CLI만 지원합니다.\n'
+        '스킬의 KT66 도구는 별도 게이트웨이 연결 없이는 실행되지 않습니다.\n')
+    written.append(dest / 'README.md')
     return written
 
 
@@ -292,6 +302,8 @@ def cmd_render(args):
 
 
 def cmd_runtime(args):
+    if args.runtime not in ('claude', 'codex'):
+        sys.exit('[agentctl] 자동 실행은 claude/codex만 지원합니다. Hermes는 render --runtime hermes로 내보내세요.')
     if args.runtime not in RUNTIMES:
         sys.exit(f"[agentctl] 가능한 런타임: {', '.join(RUNTIMES)}")
     text = ROSTER.read_text(encoding="utf-8")

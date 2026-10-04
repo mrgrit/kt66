@@ -27,7 +27,7 @@ class Approvals(unittest.TestCase):
         self.root=Path(self.temp.name)/'agents';self.root.mkdir()
         for name in ('company.yaml','departments.yaml','teams.yaml','roster.yaml','harness.yaml'):
             shutil.copy2(ROOT/name,self.root/name)
-        for name in ('personas','loops','native'):
+        for name in ('loops','native'):
             shutil.copytree(ROOT/name,self.root/name,ignore=shutil.ignore_patterns('.edit.lock'))
         (self.root.parent/'.env').write_text('API_KEY=test-key\nINT_HOST_IP=127.0.0.1\n')
         config=yaml.safe_load((self.root/'harness.yaml').read_text())

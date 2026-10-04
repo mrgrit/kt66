@@ -731,6 +731,7 @@ function openAsset(id) {
       '<div class="bar"><i style="width:'+Math.min(st.util*100,100)+'%;background:var(--cyan)"></i></div>'+
       kv('환산 전력',st.kw.toFixed(2)+' kW ('+a.idle_kw+'~'+a.rated_kw+')'))+
     aiServicesMarkup(a)+hardwareDetails(a)+
+    (a.endpoint_details?'<h3>Windows 실습 엔드포인트</h3>'+Object.entries(a.endpoint_details).map(([key,value])=>kv(esc({runtime:'실행 방식',resources:'자원',network:'접근 경로',address:'주소 구분',console:'관리 화면',account:'로그인 계정',status_note:'상태 해석',optional:'선택 설치'}[key]||key),esc(value))).join(''):'')+
     (a.zone==='gpu-external'?'<div class="note">외부 관리 IP입니다. 내부 AI 존의 터널·방화벽·IPS 경로에 편입된 장비라는 뜻은 아닙니다.</div>':'')+
     (grp?kv('부하 그룹',esc(grp.name)+' · 우선순위 '+grp.priority):'')+
     (inventory?'<div class="note">현재 부하 차단 시뮬레이션으로 이 외부 장비의 전원을 제어하지 않습니다.</div>':

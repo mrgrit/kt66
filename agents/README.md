@@ -5,12 +5,14 @@
 **[SOC 예제로 배우는 지침 작성과 비교 실습](../docs/STUDENT-GUIDE.ko.md#agent-learning)** — 교육 목적,
 어떤 내용을 어느 파일에 쓰는지, 기본 설정과 월간 분석·규칙 관리 확장 예시, 수정 전후 비교 방법.
 
+**[표준 파일·실행 검증·Hermes 내보내기](../docs/AUTONOMOUS-AGENTS.ko.md)** — 현재 역할 원본은 `native/.claude/agents/`, 스킬 원본은 `native/.agents/skills/`입니다.
+
 **[한국어 상세 운영 매뉴얼](../docs/AGENT-OPERATIONS.ko.md)** — 처음 설정하는 운영자를 위한 개념·웹 절차·회차 실행·승인·증거·문제 해결 안내.
 
 **[직무 권한 분리·위험 평가](../docs/agent-security-design.ko.md)** — 2026-09-22부터
 직무별 도구·대상을 서버에서 제한합니다. 네트워크의 디스크 조회는 거절하고 시스템
 담당자를 안내합니다. 대화 승인은 직무 상한 안에서만 유효합니다. 개발 전용 근무자를
-추가하여 현재 10명이며, 분배·실행·검토·감사를 분리합니다.
+추가하였으며 현재 연구소·xOC를 포함한 13명으로, 분배·실행·검토·감사를 분리합니다.
 
 조직 설정을 상속한 불변 하네스와 상시 평시/사건 루프를 사용합니다. 현재 동작·권한·운영 방법은 [RUNNER.md](RUNNER.md)를 따릅니다. 아래의 이전 분석 전용/GPU 어댑터 설명은 역사적 설명입니다.
 
@@ -18,7 +20,7 @@
 > 직접 모델 API·API 키 인증·API fallback은 금지한다. 아래의 GPU/Bastion/Hermes 설명은 이전 설계 기록이다.
 > 현재 운영 명령·세션 증적·제약은 [RUNNER.md](RUNNER.md)가 기준이다.
 
-# kt66 근무자 에이전트 — 런타임 중립 스펙
+# 이전 설계 기록 — 런타임 중립 스펙
 
 데이터센터에는 사람이 근무한다. kt66 에서는 그 자리를 **에이전트**가 채운다. 시설 담당,
 네트워크 엔지니어, GPU 플랫폼 엔지니어, 서비스데스크, SOC 분석가, 운영 리드, 감사인 —
@@ -29,7 +31,7 @@
 한 번 쓰고, 어댑터가 각 런타임 형식으로 렌더한다.**
 
 ```
-      personas/*.md  loops/*.yaml  skills/*/SKILL.md      ← 한 번만 쓴다
+      native/.claude/agents/*.md  loops/*.yaml  skills/*/SKILL.md      ← 한 번만 쓴다
                           │
                      roster.yaml                          ← 여기서 런타임을 고른다
                           │
@@ -272,7 +274,7 @@ loop-engineering 의 등급을 그대로 쓴다. `roster.yaml` 의 `autonomy` �
 ```
 agents/
   roster.yaml          근무자 명단 — 층·역할·런타임·자율성·루프 바인딩
-  personas/*.md        런타임 중립 페르소나 (frontmatter + 본문)
+  native/.claude/agents/*.md        표준 Markdown 역할 원본 (frontmatter + 본문)
   loops/*.yaml         일상 작업 — cadence·트리거·예산·승인 게이트
   skills/*/SKILL.md    3런타임 공통 (같은 관례를 쓴다)
   runtimes/            어댑터

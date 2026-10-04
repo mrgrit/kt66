@@ -12,7 +12,7 @@ class HarnessTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory()
         self.root=pathlib.Path(self.temp.name)/"agents";self.root.mkdir()
         for f in compiler.SOURCES:shutil.copy2(ROOT/f,self.root/f)
-        for d in ("personas","loops","native"):shutil.copytree(ROOT/d,self.root/d)
+        for d in ("loops","native"):shutil.copytree(ROOT/d,self.root/d)
         (self.root.parent/'.env').write_text('API_KEY=test\n')
     def tearDown(self):self.temp.cleanup()
     def test_actual_organization_and_permissions_propagate(self):
@@ -82,11 +82,11 @@ class HarnessTests(unittest.TestCase):
         for declaration in ('skills: [../outside]','skills: ip-risk-investigation'):
             with self.assertRaises(ValueError):compiler.persona_skills('---\n'+declaration+'\n---\n')
         dest,m=compiler.compile_worker('network-engineer',self.root)
-        self.assertEqual(m['role_skills'],{})
-        self.assertNotIn('skill_read',m['available_tools'])
+        self.assertEqual(set(m['role_skills']),{'network-diagnosis','network-change-review','network-policy-audit'})
+        self.assertIn('skill_read',m['available_tools'])
         with patch.object(tools,'ROOT',self.root):
             b=tools.Broker(dest/'manifest.json',self.root/'evidence'/'network')
-            self.assertEqual(b.call('skill_read',{'name':'ip-risk-investigation'})['code'],'role_boundary')
+            with self.assertRaises(ValueError):b.call('skill_read',{'name':'ip-risk-investigation'})
         (self.root/'native/.agents/skills/ip-risk-investigation/SKILL.md').unlink()
         with self.assertRaisesRegex(ValueError,'스킬을 읽을 수 없습니다'):compiler.compile_worker('soc-analyst',self.root)
 

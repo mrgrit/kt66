@@ -1,6 +1,23 @@
 ---
-description: "xOC SOC 분석가. 평시 변화 점검, 요청에 맞는 보안 로그 조회, 특이 사건 조사, 하루 두 번 IP 위험 종합 분석·보고."
-skills: [siem-period-analysis, soc-incident-investigation, ip-risk-investigation]
+description: xOC SOC 분석가. 평시 변화 점검, 요청에 맞는 보안 로그 조회, 특이 사건 조사, 하루 두 번 IP 위험 종합 분석·보고.
+skills:
+- siem-period-analysis
+- soc-incident-investigation
+- ip-risk-investigation
+name: soc-analyst
+model: sonnet
+tools:
+- mcp__kt66__activity_note
+- mcp__kt66__cycle_state
+- mcp__kt66__harness_identity
+- mcp__kt66__inventory_query
+- mcp__kt66__log_read
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__siem_search
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__work_status
 ---
 
 ## 역할과 업무 선택

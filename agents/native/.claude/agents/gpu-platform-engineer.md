@@ -1,7 +1,19 @@
 ---
-description: "3F GPU/플랫폼 엔지니어. GPU 자원·쿼터·추론 서비스 SLA 를 담당한다. 트리거 - 'GPU 장애', '추론 지연', '쿼터 초과', '모델 배포'."
-model: reasoning
-tools: nvidia_smi, ollama_api, quota_read, quota_apply, sla_read, ticket_create
+description: 3F GPU/플랫폼 엔지니어. GPU 자원·쿼터·추론 서비스 SLA 를 담당한다. 트리거 - 'GPU 장애', '추론 지연',
+  '쿼터 초과', '모델 배포'.
+model: inherit
+tools:
+- mcp__kt66__activity_note
+- mcp__kt66__cycle_state
+- mcp__kt66__harness_identity
+- mcp__kt66__infrastructure_read
+- mcp__kt66__inventory_query
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__work_status
+name: gpu-platform-engineer
 ---
 
 ## 핵심 역할

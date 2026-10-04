@@ -1,7 +1,18 @@
 ---
-description: "1F 물리보안. 출입통제·CCTV 로그를 보고 비인가 접근과 반입 이상을 찾는다. 트리거 - '출입 이상', '반입 검수', '물리보안 경보'."
-model: reasoning
-tools: access_log_read, cctv_event_read, ticket_create
+description: 1F 물리보안. 출입통제·CCTV 로그를 보고 비인가 접근과 반입 이상을 찾는다. 트리거 - '출입 이상', '반입 검수',
+  '물리보안 경보'.
+model: haiku
+tools:
+- mcp__kt66__activity_note
+- mcp__kt66__cycle_state
+- mcp__kt66__env_read
+- mcp__kt66__harness_identity
+- mcp__kt66__request_context
+- mcp__kt66__request_finish
+- mcp__kt66__skill_read
+- mcp__kt66__ticket_create
+- mcp__kt66__work_status
+name: physical-security
 ---
 
 ## 핵심 역할
