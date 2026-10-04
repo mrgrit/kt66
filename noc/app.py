@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 import os
 import pathlib
 import re
@@ -88,7 +89,12 @@ _ai_services = AIServiceInventory(ttl=60)
 def _sub(obj):
     """${INT_HOST}/${WEB_HOST} 치환. 대장에 IP 를 박아두면 배포마다 깨진다."""
     if isinstance(obj, str):
-        return obj.replace("${INT_HOST}", INT_HOST).replace("${WEB_HOST}", WEB_HOST)
+        domain = os.getenv("LAB_DOMAIN", "kt66.lab")
+        try:
+            domain = json.loads((UI_DIR / "deployment.json").read_text())["domain"]
+        except (OSError, ValueError, KeyError):
+            pass
+        return obj.replace("${INT_HOST}", INT_HOST).replace("${WEB_HOST}", WEB_HOST).replace("${LAB_DOMAIN}", domain)
     if isinstance(obj, dict):
         return {k: _sub(v) for k, v in obj.items()}
     if isinstance(obj, list):

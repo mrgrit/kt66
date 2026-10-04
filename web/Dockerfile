@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openssh-server sudo iputils-ping iproute2 \
         apache2 libapache2-mod-security2 modsecurity-crs \
         ssl-cert openssl ca-certificates gnupg lsb-release tzdata \
-        curl wget jq vim less && \
+        curl wget jq vim less python3 && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
     rm -rf /var/lib/apt/lists/*
 
@@ -76,6 +76,8 @@ COPY web/wazuh-agent.conf.append /tmp/wazuh-agent.conf.append
 # entrypoint 가 :8080 으로 자동 기동 → down/up·재부팅 후 waf-gui.kt66.lab 즉시 접속 가능.
 COPY secuops-easy-deploy/gui/modsec_edu_gui/ /opt/modsec_edu_gui/
 
+COPY ui/ /opt/kt66-ui/
+COPY web/configure-domain.py /opt/kt66-configure-domain.py
 COPY web/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

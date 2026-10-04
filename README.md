@@ -168,7 +168,9 @@ xOC는 실제 도구 영수증을 11개 규칙으로 먼저 검사합니다. 권
 
 Linux·systemd·Docker Engine/Compose를 사용하는 전용 서버 또는 VM을 준비합니다. 호스트에는 Git, Python 3.10 이상·PyYAML, Node.js, curl·OpenSSL 등이 필요합니다. Wazuh를 포함한 전체 스택은 메모리와 디스크 여유가 필요하므로 [교수용 설치 안내](docs/INSTRUCTOR-GUIDE.ko.md#installation)의 사전 점검을 따릅니다.
 
-[Compose](docker-compose.yaml)에는 **서비스 30개**가 정의되어 있으며, Windows 선택 프로필 2개와 초기 작업 후 종료되는 서비스도 포함됩니다. 외부 GPU는 선택 사항입니다. GPU 연결이 없으면 관련 실측·장애 실습 범위가 제한됩니다.
+[Compose](docker-compose.yaml)에는 **서비스 33개**가 정의되어 있으며, Windows 선택 프로필 2개와 초기 작업 후 종료되는 서비스도 포함됩니다. 외부 GPU는 선택 사항입니다. GPU 연결이 없으면 관련 실측·장애 실습 범위가 제한됩니다.
+
+메일 서버(Postfix·Dovecot), 한국어 웹메일(Roundcube), 내부 DNS를 제공합니다. 설치 시 내부 도메인 하나를 입력하면 웹 주소·메일 주소·DNS에 함께 적용합니다. Windows 설치는 **기본 No**이며 필요해지면 `./kt66.sh windows`로 추가할 수 있습니다. [도메인·메일·선택 설치 안내](docs/MAIL-DOMAIN.ko.md)
 
 ### 1. 저장소와 서버별 설정
 
@@ -189,6 +191,8 @@ nano .env
 |---|---|
 | `WEB_HOST_IP` | 학생이 접속할 서버의 실제 IP |
 | `INT_HOST_IP` | 관리 콘솔 바인딩 IP. 간단한 수업 구성에서는 서버의 같은 실제 IP 사용 |
+| `LAB_DOMAIN` | 웹 서비스·DNS·메일 주소 공통 내부 도메인. 최초 설치 시 질의 |
+| `WINDOWS_ENABLED` | Windows 선택 설치. 최초 기본 No, 이후 선택 유지 |
 | `API_KEY` | 강사·관리 화면의 제어 키. 예제 문자열을 임의의 긴 값으로 교체 |
 | `SSH_USER`, `SSH_PASS` | 실습 컨테이너 SSH 계정. 예제 기본값 변경 |
 | `TZ` | 컨테이너 시간대. 기본 `Asia/Seoul` |

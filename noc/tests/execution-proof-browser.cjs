@@ -26,7 +26,7 @@ module.exports=async page=>{
     await page.screenshot({path:'/tmp/kt66-inspect-ui/execution-proof-'+width+'.png',fullPage:true});
   }
   await page.setViewport({width:1440,height:1000});
-  await page.goto('http://192.168.12.100:8020/?floor=2F',{waitUntil:'networkidle2'});
+  await page.goto('http://192.168.12.100:8020/?floor=4F',{waitUntil:'networkidle2'});
   await page.waitForFunction(()=>typeof LAYOUT!=='undefined'&&LAYOUT?.it_assets?.some(a=>a.id==='windows-user'));
   await page.waitForSelector('#scene [data-asset="windows-user"]');
   await page.click('#scene [data-asset="windows-user"]');

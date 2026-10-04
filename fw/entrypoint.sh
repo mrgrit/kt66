@@ -49,6 +49,11 @@ nft add rule ip six_nat prerouting ip daddr "$FW_EXT_IP" tcp dport 443 dnat to $
 for p in 8001 8002 8003 8004 8005 8006 8007; do
     nft add rule ip six_nat prerouting ip daddr "$FW_EXT_IP" tcp dport $p dnat to ${WEB_DMZ_IP}:$p 2>/dev/null || true
 done
+# 내부 메일/웹메일: HTTP는 WAF로, SMTP/IMAPS는 IPS를 거쳐 메일 서버로.
+for p in 25 587 993; do
+    nft add rule ip six_nat prerouting ip daddr "$FW_EXT_IP" tcp dport "$p" dnat to 10.20.32.25:"$p"
+done
+nft add rule ip six_nat prerouting ip daddr "$FW_EXT_IP" tcp dport 8091 dnat to ${WEB_DMZ_IP}:8091
 # bastion API (관리) — ext 망 bastion 으로
 nft add rule ip six_nat prerouting ip daddr "$FW_EXT_IP" tcp dport 9100 dnat to ${BASTION_API_IP}:9100 2>/dev/null || true
 # 이 규칙만 masquerade 한다. 위의 web 행 DNAT 은 출처를 보존해야 WAF 가 진짜 공격자를

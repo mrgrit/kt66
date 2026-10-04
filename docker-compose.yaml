@@ -68,6 +68,7 @@ services:
       context: .
       dockerfile: bastion/Dockerfile
     hostname: bastion
+    dns: [10.20.32.53]
     networks:
       ext:
         ipv4_address: 10.20.30.201
@@ -84,14 +85,14 @@ services:
       LLM_SUBAGENT_MODEL: ${LLM_SUBAGENT_MODEL}
       DEFAULT_GW: 10.20.30.1
     extra_hosts:
-      - "juice.kt66.lab:10.20.30.1"
-      - "dvwa.kt66.lab:10.20.30.1"
-      - "neobank.kt66.lab:10.20.30.1"
-      - "govportal.kt66.lab:10.20.30.1"
-      - "mediforum.kt66.lab:10.20.30.1"
-      - "adminconsole.kt66.lab:10.20.30.1"
-      - "aicompanion.kt66.lab:10.20.30.1"
-      - "siem.kt66.lab:10.20.30.1"
+      - "juice.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "dvwa.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "neobank.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "govportal.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "mediforum.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "adminconsole.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "aicompanion.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "siem.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
     volumes:
       - bastion-data:/var/lib/bastion
       - bastion-ssh-host:/var/lib/bastion/ssh-host-keys
@@ -106,6 +107,7 @@ services:
       context: .
       dockerfile: attacker/Dockerfile
     hostname: attacker
+    dns: [10.20.32.53]
     networks:
       ext:
         ipv4_address: 10.20.30.202
@@ -117,14 +119,14 @@ services:
       SSH_PASS: ${SSH_PASS:-ccc}
       DEFAULT_GW: 10.20.30.1
     extra_hosts:
-      - "juice.kt66.lab:10.20.30.1"
-      - "dvwa.kt66.lab:10.20.30.1"
-      - "neobank.kt66.lab:10.20.30.1"
-      - "govportal.kt66.lab:10.20.30.1"
-      - "mediforum.kt66.lab:10.20.30.1"
-      - "adminconsole.kt66.lab:10.20.30.1"
-      - "aicompanion.kt66.lab:10.20.30.1"
-      - "siem.kt66.lab:10.20.30.1"
+      - "juice.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "dvwa.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "neobank.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "govportal.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "mediforum.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "adminconsole.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "aicompanion.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
+      - "siem.${LAB_DOMAIN:-kt66.lab}:10.20.30.1"
     volumes:
       - attacker-home:/home/ccc
       - attacker-ssh-host:/var/lib/ssh-host-keys
@@ -170,6 +172,10 @@ services:
       - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE5:-8005}:8005"
       - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE6:-8006}:8006"
       - "${WEB_HOST_IP:-0.0.0.0}:${PORT_SITE7:-8007}:8007"
+      - "${INT_HOST_IP:-127.0.0.1}:25:25"
+      - "${INT_HOST_IP:-127.0.0.1}:587:587"
+      - "${INT_HOST_IP:-127.0.0.1}:993:993"
+      - "${WEB_HOST_IP:-127.0.0.1}:8091:8091"
       - "${WEB_HOST_IP:-0.0.0.0}:9100:9100"   # bastion API (관리)
       # ── INT_HOST_IP 기본값 주의 ────────────────────────────────────────────
       # 예전 기본값은 192.168.136.145(el34 에서 물려받은 dummy NIC)였다. .env 에 값을
@@ -243,7 +249,7 @@ services:
     networks:
       user:
         ipv4_address: 10.20.70.10
-    dns: [1.1.1.1, 1.0.0.1]
+    dns: [10.20.32.53]
     environment:
       VERSION: "11l"
       LANGUAGE: Korean
@@ -303,6 +309,7 @@ services:
       SSH_USER: ${SSH_USER:-ccc}
       SSH_PASS: ${SSH_PASS:-ccc}
       WAZUH_MANAGER: 10.20.32.100
+      LAB_DOMAIN: ${LAB_DOMAIN:-kt66.lab}
       DEFAULT_GW: 10.20.32.1   # via ips — 출처(.202)로의 응답 경로
     ports:
       - "${INT_HOST_IP:-0.0.0.0}:8083:8080"  # WAF(ModSec) 보안콘솔 GUI — INT_HOST_IP 바인딩
@@ -312,11 +319,14 @@ services:
       # 랜딩 페이지와 vhost 는 이미지에도 구워져 있지만(Dockerfile 의 COPY) 여기서 덮어쓴다.
       # web 이미지는 apt 로 Apache·ModSecurity·CRS·osquery·Wazuh agent 를 다 받는다 —
       # 링크 한 줄 고치려고 그걸 다시 굽게 하면 아무도 안 고친다.
-      # 랜딩은 새로고침만으로, vhost 는 `docker exec kt66-web apache2ctl graceful` 로 반영된다.
+      # 랜딩은 새로고침으로 반영된다. vhost 변경은 configure-domain.py 실행 후 Apache graceful이 필요하다.
       # 이미지 안의 사본은 그대로 두었다: 이 저장소 없이 이미지만 돌려도 랜딩은 떠야 한다.
       # ⚠ sites-available 통째로 덮으므로 저장소의 vhost 집합이 곧 활성 집합이다
       #   (a2ensite 심볼릭 링크는 sites-enabled 에 있고 빌드 때 걸린다 — 파일을 새로
       #   추가하면 이미지를 다시 구워야 활성화된다).
+      - ./web/entrypoint.sh:/entrypoint.sh:ro
+      - ./web/configure-domain.py:/opt/kt66-configure-domain.py:ro
+      - ./ui:/opt/kt66-ui:ro
       - ./web/landing:/var/www/landing:ro
       - ./web/vhosts:/etc/apache2/sites-available:ro
       - ./web/request-rules:/etc/modsecurity/kt66-requests:ro
@@ -330,6 +340,82 @@ services:
       - mediforum
       - adminconsole
       - aicompanion
+    restart: unless-stopped
+
+  # 실제 SMTP/IMAP 사서함 + 웹메일. 인터넷 수신자 릴레이는 인증 여부와 무관하게 거부.
+  mail:
+    container_name: kt66-mail
+    build:
+      context: .
+      dockerfile: mail/Dockerfile
+    hostname: mail
+    environment:
+      LAB_DOMAIN: ${LAB_DOMAIN:-kt66.lab}
+      TZ: Asia/Seoul
+    cap_add: [NET_ADMIN]
+    dns: [10.20.32.53]
+    networks:
+      dmz:
+        ipv4_address: 10.20.32.25
+        aliases: ["mail.${LAB_DOMAIN:-kt66.lab}"]
+    volumes:
+      - ./mail/accounts.json:/config/accounts.json:ro
+      - mail-data:/var/mail/vhosts
+      - mail-queue:/var/spool/postfix
+      - mail-tls:/var/lib/kt66-mail
+    healthcheck:
+      test: [CMD, python3, /opt/kt66-mail/health.py]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on: [lab-dns]
+    restart: unless-stopped
+
+  webmail:
+    container_name: kt66-webmail
+    image: ${ROUNDCUBE_IMAGE:-roundcube/roundcubemail:latest-apache}
+    hostname: webmail
+    entrypoint: [/bin/sh, /opt/kt66-webmail-entrypoint.sh]
+    command: [apache2-foreground]
+    environment:
+      LAB_DOMAIN: ${LAB_DOMAIN:-kt66.lab}
+      ROUNDCUBEMAIL_DB_TYPE: sqlite
+      ROUNDCUBEMAIL_DEFAULT_HOST: ssl://mail
+      ROUNDCUBEMAIL_DEFAULT_PORT: 993
+      ROUNDCUBEMAIL_SMTP_SERVER: tls://mail
+      ROUNDCUBEMAIL_SMTP_PORT: 587
+      ROUNDCUBEMAIL_USERNAME_DOMAIN: ${LAB_DOMAIN:-kt66.lab}
+      ROUNDCUBEMAIL_UPLOAD_MAX_FILESIZE: 10M
+      ROUNDCUBEMAIL_PLUGINS: archive,zipdownload
+    networks:
+      dmz:
+        ipv4_address: 10.20.32.26
+    volumes:
+      - ./mail/webmail-entrypoint.sh:/opt/kt66-webmail-entrypoint.sh:ro
+      - ./mail/roundcube:/var/roundcube/config:ro
+      - webmail-db:/var/roundcube/db
+      - mail-tls:/mail-tls:ro
+    secrets: [kt66_roundcube_seed]
+    depends_on:
+      mail:
+        condition: service_healthy
+    restart: unless-stopped
+
+  lab-dns:
+    container_name: kt66-dns
+    build:
+      context: .
+      dockerfile: dns/Dockerfile
+    hostname: lab-dns
+    cap_add: [NET_ADMIN]
+    volumes:
+      - ./deployment/runtime:/config:ro
+    ports:
+      - "${WEB_HOST_IP:-127.0.0.1}:53:1053/udp"
+      - "${WEB_HOST_IP:-127.0.0.1}:53:1053/tcp"
+    networks:
+      dmz:
+        ipv4_address: 10.20.32.53
     restart: unless-stopped
 
   wazuh-indexer:
@@ -723,6 +809,7 @@ services:
       # http://0.0.0.0:8020 이 된다. 미설정이면 웹 진입 IP 를 쓴다.
       INT_HOST: ${INT_HOST_IP:-${WEB_HOST_IP:-192.168.12.100}}
       WEB_HOST: ${WEB_HOST_IP:-192.168.12.100}
+      LAB_DOMAIN: ${LAB_DOMAIN:-kt66.lab}
       API_KEY: ${API_KEY:?Set API_KEY in .env}
       TZ: Asia/Seoul
     volumes:
@@ -907,7 +994,15 @@ networks:
           gateway: 10.20.60.254
 
 
+secrets:
+  kt66_roundcube_seed:
+    file: ./mail/roundcube-key
+
 volumes:
+  mail-data:
+  mail-queue:
+  mail-tls:
+  webmail-db:
   windows-user-data:
   agent-observer-writer:
   agent-observer-reader:

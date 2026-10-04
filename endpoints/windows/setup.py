@@ -17,6 +17,11 @@ def main():
     if not Path('/dev/kvm').exists():
         raise SystemExit('호스트 KVM이 필요합니다. 가상화 없는 소프트웨어 에뮬레이션으로 전환하지 않습니다.')
     env = ROOT / '.env'
+    import sys
+    sys.path.insert(0, str(ROOT / 'deployment'))
+    from configure import configure, persist
+    configure()
+    persist(ROOT, 'WINDOWS_ENABLED', 'yes')
     iso = ROOT / 'endpoints/windows/media/windows-eval.iso'
     provenance = iso.parent / 'source.json'
     if not iso.is_file() or not provenance.is_file():

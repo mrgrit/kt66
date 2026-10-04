@@ -18,16 +18,21 @@
     if(name==='xoc')return window.dcURL('agentops')+'xoc';
     if(name==='soc')return window.dcURL('agentops')+'soc';
     if(name==='researchlab')return window.dcURL('agentops')+'research-lab';
-    const ports = {noc:8020, portal:8000, agentops:8050, modelops:8060, infraops:8070, siem:5601, landing:80};
+    const ports = {noc:8020, portal:8000, agentops:8050, modelops:8060, infraops:8070, siem:5601, webmail:8091, landing:80};
     const host = location.hostname;
-    if (host.endsWith('.kt66.lab')) return `${name === 'siem' ? 'https:' : location.protocol}//${name === 'landing' ? 'kt66.lab' : name + '.kt66.lab'}/`;
+    const domain = window.kt66Deployment?.domain || host.match(/^(?:noc|portal|agentops|modelops|infraops|siem|webmail)\.(.+)$/)?.[1] || 'kt66.lab';
+    if (host === domain || host.endsWith('.'+domain)) return `${location.protocol}//${name === 'landing' ? domain : name + '.' + domain}/`;
     return `${name === 'siem' ? 'https:' : 'http:'}//${host.includes(':') ? '['+host+']' : host}${ports[name] === 80 ? '' : ':'+ports[name]}/`;
   };
+  fetch('/ui/deployment.json').then(r=>r.ok?r.json():null).then(config=>{
+    if(!config)return; window.kt66Deployment=config;
+    document.querySelectorAll('[data-console-link]').forEach(a=>a.href=dcURL(a.dataset.consoleLink));
+  }).catch(()=>{});
   const current = document.body.dataset.console;
   if (!current) return;
   const sidebar = document.createElement('aside');
   sidebar.className = 'dc-sidebar'; sidebar.id = 'dc-sidebar';
-  const nav = (name, title, subtitle, icon) => `<a class="dc-nav-link ${current === name ? 'is-current' : ''}" href="${dcURL(name)}" ${current === name ? 'aria-current="page"' : ''}>${dcIcon(icon)}<span>${title}<small>${subtitle}</small></span>${current === name ? '<i class="dc-nav-marker"></i>' : ''}</a>`;
+  const nav = (name, title, subtitle, icon) => `<a data-console-link="${name}" class="dc-nav-link ${current === name ? 'is-current' : ''}" href="${dcURL(name)}" ${current === name ? 'aria-current="page"' : ''}>${dcIcon(icon)}<span>${title}<small>${subtitle}</small></span>${current === name ? '<i class="dc-nav-marker"></i>' : ''}</a>`;
   sidebar.innerHTML = `
     <a class="dc-brand" href="${dcURL('noc')}" aria-label="kt66 관제 홈"><span class="dc-logomark">k<span>t</span></span><span>kt66<span class="dc-brand-sub">DATACENTER</span></span></a>
     <div class="dc-site"><span class="dc-site-icon">${dcIcon('server')}</span><span>교육 데이터센터<small>INFRASTRUCTURE LAB</small></span><span class="dc-site-dot"></span></div>
@@ -46,6 +51,7 @@
     <div class="dc-nav-caption">SECURITY & LEARNING</div>
     <nav aria-label="보안과 실습">
       ${nav('siem','보안 관제','Wazuh SIEM','shield')}
+      ${nav('webmail','내부 메일','Training mail','book')}
       ${nav('landing','실습 환경','Lab directory','book')}
     </nav>
     <div class="dc-sidebar-foot"><div class="dc-mini-grid"><i></i><i></i><i></i><i></i><i></i><i></i></div><b>하나의 랩, 하나의 데이터센터.</b><p>관측하고, 판단하고, 운영합니다.</p><span>KT66 / OPERATIONS PLATFORM</span></div>`;

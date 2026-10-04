@@ -81,8 +81,8 @@ resolve_web_host_ip() {
     local ans="" ip=""
     if [ -t 0 ]; then
         echo   "[kt66] ── 웹 진입 고정 IP 지정 ──────────────────────────────"
-        echo   "  랜딩페이지/취약사이트(kt66.lab)를 이 IP 로 노출하고, 이후 계속 이 값을 씁니다."
-        echo   "  · 학생 PC hosts 파일: 'kt66.lab juice.kt66.lab ... → 이 IP' 로 매핑"
+        echo   "  랜딩페이지/취약사이트를 이 IP 로 노출하고, 이후 계속 이 값을 씁니다."
+        echo   "  · 학생 PC hosts 파일: '내부도메인 및 하위 서비스 이름 → 이 IP' 로 매핑"
         echo   "  · 강의실 DHCP 환경이면 VM 에 이 IP 를 고정(static/DHCP 예약)해 두세요"
         echo   "  · 0.0.0.0 입력 시 모든 인터페이스 바인딩(VM 실제 IP 로 접속)"
         while :; do
@@ -122,6 +122,48 @@ resolve_int_host_ip() {
     else
         printf 'INT_HOST_IP=%s\n' "$INT_HOST_IP" >> .env
     fi
+}
+
+# 설치 최초 1회 도메인을 물어본다. 비대화형/기존 설치는 저장값을 유지한다.
+resolve_lab_domain() {
+    local args=()
+    if [ -t 0 ] && { ! grep -qE '^LAB_DOMAIN=.+$' .env || [ -n "${LAB_DOMAIN_FORCE:-}" ]; } && [ -z "${LAB_DOMAIN:-}" ]; then
+        args+=(--prompt)
+    fi
+    python3 deployment/configure.py "${args[@]}"
+    if [ "$(id -u)" = 0 ]; then
+        chown "$REAL_USER:$REAL_USER" .env mail/accounts.json mail/credentials.local.json mail/roundcube-key ui/deployment.json deployment/runtime deployment/runtime/*
+    fi
+    LAB_DOMAIN="$(grep '^LAB_DOMAIN=' .env | tail -1 | cut -d= -f2-)"
+    export LAB_DOMAIN
+}
+
+# Windows는 선택 설치다. 신규 비대화형 설치도 No이며, 기존 VM 선택은 보존한다.
+resolve_windows_option() {
+    local existing answer selected
+    existing="$(grep '^WINDOWS_ENABLED=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+    selected="${WINDOWS_ENABLED:-$existing}"
+    if [ -z "$selected" ]; then
+        if docker inspect kt66-windows-user >/dev/null 2>&1; then
+            selected=yes
+            echo "[kt66] 기존 Windows 설치를 유지합니다."
+        elif [ -t 0 ]; then
+            printf '  Windows 실습 PC도 설치할까요? (RAM 4 GiB · KVM 필요 · 공식 ISO 다운로드) [y/N]: '
+            read -r answer || answer=''
+            case "$answer" in y|Y|yes|YES) selected=yes ;; *) selected=no ;; esac
+        else
+            selected=no
+        fi
+    fi
+    case "$selected" in yes|no) ;; *) echo '[kt66] WINDOWS_ENABLED는 yes 또는 no여야 합니다.' >&2; return 1 ;; esac
+    if grep -q '^WINDOWS_ENABLED=' .env; then
+        sed -i "s/^WINDOWS_ENABLED=.*/WINDOWS_ENABLED=$selected/" .env
+    else
+        printf '\nWINDOWS_ENABLED=%s\n' "$selected" >> .env
+    fi
+    if [ "$(id -u)" = 0 ]; then chown "$REAL_USER:$REAL_USER" .env; fi
+    WINDOWS_ENABLED="$selected"
+    echo "[kt66] Windows 선택: $WINDOWS_ENABLED (기본 No)"
 }
 
 # 구독 이상의 과금이 열릴 수 있는 환경을 짚는다.
@@ -333,6 +375,9 @@ cmd_install() {
     echo "[kt66] docker: $(docker --version 2>/dev/null)  userland-proxy=false 적용"
     # 최초 setup: 웹 진입 고정 IP 를 사용자에게 1회 질의 → .env 에 고정(이후 up/재부팅 재사용)
     resolve_web_host_ip
+    resolve_int_host_ip
+    resolve_lab_domain
+    resolve_windows_option
     # 입력한 IP 를 유선 IF 에 netplan static 으로 고정(확인 후, 무선/0.0.0.0 은 자동 skip)
     netplan_static "$WEB_HOST_IP"
     echo "[kt66] install 완료 — 다음: (docker 그룹 반영 위해 새 셸에서) ./kt66.sh up"
@@ -378,13 +423,16 @@ cmd_up() {
     ensure_env; ensure_ssh_keys; ensure_certs
     resolve_web_host_ip  # install 에서 고정한 웹 진입 IP 사용(.env). 미설정이면 여기서 1회 질의.
     resolve_int_host_ip  # 내부 GUI(관제·주입기·SIEM…) 바인딩 IP. 미설정이면 웹 진입 IP 를 따른다.
+    resolve_lab_domain
+    resolve_windows_option
+    python3 deployment/apply-hosts.py
     # compose 가 바인딩하는 호스트 IP(웹외부 WEB_HOST_IP / 내부GUI INT_HOST_IP) 보장 — 없으면 core up 이
     # "cannot assign requested address" 로 실패. 실 NIC/DHCP IP 면 멱등 skip.
     WEB_HOST_IP="$WEB_HOST_IP" INT_HOST_IP="$INT_HOST_IP" ./kt66-hostip.sh
     echo "[kt66] === build (최초 ~수GB pull) ==="
     docker compose $OVERLAY $ENVF build
     echo "[kt66] === core up ==="
-    docker compose $OVERLAY $ENVF up -d
+    COMPOSE_PROFILES= docker compose $OVERLAY $ENVF up -d
     # netglue 는 한 번 돌고 끝나는 서비스라 이미 '종료됨' 상태면 up -d 가 다시 안 돌린다.
     # 그런데 매번 돌아야 한다 — docker 데몬이 뜰 때마다 sysctl 이 되돌아가기 때문이다.
     docker compose $OVERLAY $ENVF up -d --force-recreate netglue >/dev/null 2>&1 || true
@@ -393,6 +441,10 @@ cmd_up() {
     ./kt66-net.sh --check; _c=$?
     [ "$_c" = 1 ] && echo "[kt66] WARN: 망 글루 미적용 — 웹 입구가 죽어 있다"
     [ "$_c" = 2 ] && echo "[kt66] 참고: 룰 확인에 root 가 필요하다 — sudo ./kt66-net.sh --check"
+    if [ "$WINDOWS_ENABLED" = yes ]; then
+        python3 endpoints/windows/download.py
+        python3 endpoints/windows/setup.py
+    fi
     install_systemd
     echo "[kt66] === sigma 적재 ==="
     cmd_sigma || echo "[kt66] WARN: sigma 적재 실패(나중에 ./kt66.sh sigma)"
@@ -402,18 +454,38 @@ cmd_up() {
     check_no_metered_llm
     echo "[kt66] ✅ up 완료. 웹 진입 http://${WEB_HOST_IP}:8001.. / 내부 GUI http://${INT_HOST_IP}:{5601,8000,8081-8083}"
     echo "[kt66]    데이터센터 http://${INT_HOST_IP}:{8010,8020,8030,8050,8060,8070} — 관제는 :8020"
-    echo "[kt66]    이름으로도 열린다(학생 hosts 3번째 줄): http://noc.kt66.lab/ 등 — README 참고"
+    echo "[kt66]    이름으로도 열린다(학생 hosts 3번째 줄): http://noc.${LAB_DOMAIN}/ · https://webmail.${LAB_DOMAIN}/ — README 참고"
+}
+
+# 나중에 Windows만 추가 설치한다. 기존 코어 서비스와 데이터 볼륨은 재생성하지 않는다.
+cmd_windows() {
+    [ -c /dev/kvm ] || { echo '[kt66] Windows 설치에는 /dev/kvm이 필요합니다.' >&2; return 1; }
+    for service in kt66-fw kt66-ips; do
+        [ "$(docker inspect -f '{{.State.Running}}' "$service" 2>/dev/null)" = true ] || {
+            echo '[kt66] 먼저 ./kt66.sh up 으로 기본 실습 환경을 시작하세요.' >&2; return 1;
+        }
+    done
+    ensure_env
+    resolve_web_host_ip
+    resolve_int_host_ip
+    resolve_lab_domain
+    python3 endpoints/windows/download.py
+    python3 endpoints/windows/setup.py
 }
 
 cmd_down() { docker compose $OVERLAY $ENVF down "${1:-}" 2>/dev/null || docker compose down "${1:-}"; }
 
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
+
 case "${1:-}" in
     install) cmd_install ;;
     up)      cmd_up ;;
+    windows) cmd_windows ;;
     down)    shift; cmd_down "${1:-}" ;;
     net)     cmd_net ;;
     certs)   ensure_certs ;;
     env)     ensure_env ;;
+    domain)  ensure_env; resolve_web_host_ip; resolve_int_host_ip; LAB_DOMAIN_FORCE=1 resolve_lab_domain; echo "[kt66] 설정 저장 완료. ./kt66.sh up 으로 전체 서비스에 적용하세요." ;;
     sigma)   cmd_sigma ;;
-    *) echo "usage: $0 {install|up|down [-v]|net|certs|env|sigma}"; exit 1 ;;
+    *) echo "usage: $0 {install|up|down [-v]|net|certs|env|domain|windows|sigma}"; exit 1 ;;
 esac

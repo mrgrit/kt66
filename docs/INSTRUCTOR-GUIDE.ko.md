@@ -81,6 +81,8 @@ docker compose -f docker-compose.yaml ps -a
 sudo ./kt66-net.sh --check
 ```
 
+설치 시 내부 도메인과 Windows 포함 여부도 지정합니다. Windows는 **기본 No**이며 `.env`에 선택을 저장합니다. 나중에는 `./kt66.sh windows`로 추가합니다. [내부 메일 계정 배부·DNS 설정·관제 안내](MAIL-DOMAIN.ko.md)를 참고하세요.
+
 `install`은 Docker가 없으면 설치하고, Docker 데몬의 `userland-proxy=false`와 DNS 설정을 적용한 뒤 재시작합니다. 실제 IP를 고정하는 netplan 단계는 별도 확인을 받습니다. Docker 그룹이 새로 추가되었거나 일반 사용자로 `docker ps`가 거절되면 계정의 그룹 설정을 확인하고 재로그인합니다. **근무자 러너도 같은 일반 계정으로 Docker를 사용할 수 있어야 합니다.**
 
 `up`은 다음을 준비합니다.
@@ -198,7 +200,7 @@ journalctl --user -u kt66-runner.service -n 80 --no-pager
 
 학생은 `http://<INT_HOST_IP>:8020/`에서 시작합니다. 업무 요청은 `:8050/requests`, Wazuh는 **HTTPS** `:5601`입니다. 전체 주소는 [README 접속 표](../README.md#접속과-기본-사용법)를 봅니다.
 
-이름으로 접속하려면 학생 PC의 hosts 파일에 다음 한 줄을 넣습니다. `<서버 실제 IP>`를 `WEB_HOST_IP`로 바꿉니다.
+설정한 내부 도메인은 학생 PC의 DNS를 KT66 서버 IP로 지정하면 사용할 수 있습니다. DNS를 바꾸기 어려울 때는 `deployment/runtime/hosts.txt`를 배부합니다. 기본 도메인 예시로 직접 설정하려면 학생 PC의 hosts 파일에 다음 한 줄을 넣습니다. `<서버 실제 IP>`를 `WEB_HOST_IP`로 바꿉니다.
 
 ```text
 <서버 실제 IP> noc.kt66.lab injector.kt66.lab envsim.kt66.lab agentops.kt66.lab modelops.kt66.lab infraops.kt66.lab

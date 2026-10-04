@@ -27,6 +27,10 @@ table inet kt66user {
     ip saddr 10.20.70.0/24 ct state established,related counter accept
     ip daddr 10.20.70.0/24 ct state established,related counter accept
     ip saddr 10.20.70.0/24 ip daddr 10.20.32.100 tcp dport {1514,1515} counter accept
+    ip saddr 10.20.70.0/24 ip daddr 10.20.32.53 udp dport 53 counter accept
+    ip saddr 10.20.70.0/24 ip daddr 10.20.32.53 tcp dport 53 counter accept
+    ip saddr 10.20.70.0/24 ip daddr 10.20.32.25 tcp dport {25,587,993} counter accept
+    ip saddr 10.20.70.0/24 ip daddr 10.20.32.80 tcp dport {80,443,8091} counter accept
     ip saddr 10.20.30.202 ip daddr 10.20.70.10 tcp dport {3389,8080} counter accept
     ip saddr 10.20.30.202 ip daddr 10.20.70.10 ip protocol icmp counter accept
     ip daddr 10.20.70.0/24 counter drop

@@ -221,12 +221,28 @@ Host kt66-fw kt66-ips kt66-web kt66-siem kt66-portal
 </table>
 <p class="muted">호스트 포트 중 80·443·8001-8007·9100 은 <code>WEB_HOST_IP</code> 에, 나머지 관리/운영 포트는 <code>INT_HOST_IP</code> 에 publish 된다(<code>.env</code>). 두 값을 같게 두면 강의실에서 전부 열리고, 다르게 두면 운영 콘솔은 VM 호스트 브라우저에서만 열린다 — <strong>노출 범위를 고르는 스위치</strong>다.</p>
 
+<h2>내부 메일 · 도메인</h2>
+<p id="lab-domain">배포 설정을 불러오는 중입니다.</p>
+<p>학생 PC의 DNS를 KT66 서버 IP로 지정하면 내부 서비스 이름과 메일 주소를 사용할 수 있습니다. Windows 실습 VM에는 내부 DNS가 적용됩니다.</p>
+<div class="grid"><a class="card" href="https://webmail.kt66.lab/">KT66 Mail<span class="meta">웹메일 · student / instructor / soc</span></a>
+<a class="card" data-port="8091" href="http://kt66.lab:8091/">IP로 웹메일 열기<span class="meta">DNS 설정 전 접속 · 비밀번호는 강사가 배부</span></a></div>
+<p class="muted">SMTP 587 STARTTLS · IMAPS 993 · 실습 도메인 내 송수신. 계정 확인: <code>python3 mail/manage.py show</code></p>
 <p class="muted" style="margin-top:3em;border-top:1px solid var(--border);padding-top:1em">
 kt66 — CCC 단일 VM Docker 버전 · <a href="https://github.com/mrgrit/kt66">github.com/mrgrit/kt66</a>
 </p>
 
 </div>
 
+<script>
+fetch('/ui/deployment.json').then(r=>r.json()).then(config=>{
+  const domain=config.domain;
+  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+  const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+  for(const node of nodes)if(!['SCRIPT','STYLE'].includes(node.parentElement?.tagName))node.textContent=node.textContent.replaceAll('kt66.lab',domain).replaceAll('<VM_IP>',config.web_host);
+  for(const a of document.querySelectorAll('a[href]'))a.setAttribute('href',a.getAttribute('href').replaceAll('kt66.lab',domain));
+  const info=document.querySelector('#lab-domain');if(info)info.textContent=domain+' · DNS '+config.dns;
+}).catch(()=>{});
+</script>
 <script>
 /* 운영 콘솔(관제·주입기·envsim·agentops·modelops·infraops)은 vhost 뒤가 아니라 호스트
  * 포트에 직접 publish 된다. 그래서 링크에 주소를 하나로 박아 둘 수 없다 — 지금 이

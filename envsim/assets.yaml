@@ -170,7 +170,7 @@ floors:
     curriculum: [W3, W7, W12]
   - id: "4F"
     name: 운영 사무실
-    zone: [mgmt, dmz, ext, ot]
+    zone: [mgmt, dmz, ext, ot, user]
     grid: [12, 8]
     role: 운영 리드 독립실·서비스데스크·개발·컴플라이언스
     curriculum: [W4, W6, W8, W14, W15]
@@ -576,9 +576,9 @@ facility:
 # ${WEB_HOST}(강의실 NIC)는 배포 시 실제 IP 로 치환된다 — 하드코딩하지 않는다.
 it_assets:
   - id: windows-user
-    name: Windows 11 평가판
-    floor: "2F"
-    rack: R-2F-02
+    name: Windows
+    floor: "4F"
+    rack: R-4F-01
     zone: user
     ip: 10.20.70.10
     container: kt66-windows-user
@@ -910,6 +910,42 @@ it_assets:
         - 리랭커 8015 컨테이너 실행 확인
       docker_inventory: 조회 완료
       note: 등록 시점의 관측값. GPU 전력은 장비 전체 소비전력이 아니며 현재 값으로 사용하지 않는다.
+
+  # 메일은 사용자 PC(4F)와 분리한 DMZ 서버(2F)에 배치한다.
+  - id: mail
+    name: 메일 서버
+    floor: "2F"
+    rack: R-2F-01
+    zone: dmz
+    ip: 10.20.32.25
+    container: kt66-mail
+    shed_group: business
+    idle_kw: 0.1
+    rated_kw: 0.5
+    u: 1
+    web: "http://${WEB_HOST}:8091/"
+    endpoint_details:
+      runtime: Postfix SMTP + Dovecot IMAPS · 영속 사서함
+      network: 외부 실습 단말→FW→IPS→메일. Windows→IPS→메일
+      address: "mail.${LAB_DOMAIN} · SMTP 587 STARTTLS / IMAPS 993"
+      account: "student@${LAB_DOMAIN}, instructor@${LAB_DOMAIN}, soc@${LAB_DOMAIN} · 강사 배부 비밀번호"
+      status_note: SMTP 25는 내부 수신자만 수신, SMTP 587은 인증 필수. 외부 수신자 릴레이 거부
+  - { id: webmail, name: 웹메일, floor: "2F", rack: R-2F-01, zone: dmz, ip: 10.20.32.26, container: kt66-webmail, shed_group: business, idle_kw: 0.1, rated_kw: 0.4, u: 1, web: "http://${WEB_HOST}:8091/" }
+  - id: lab-dns
+    name: 내부 DNS
+    floor: "2F"
+    rack: R-2F-01
+    zone: dmz
+    ip: 10.20.32.53
+    container: kt66-dns
+    shed_group: infra
+    idle_kw: 0.05
+    rated_kw: 0.2
+    u: 1
+    endpoint_details:
+      runtime: dnsmasq · 내부망과 강의실용 응답 분리
+      address: "실습 도메인 ${LAB_DOMAIN} · 강의실 DNS ${WEB_HOST}"
+      network: Windows·컨테이너에는 실제 DMZ 주소, 강의실 PC에는 호스트 게시 주소로 응답
 
   # 2F — 코어 인프라. 존 체인(ext→pipe→dmz→int)이 전부 이 층에 있다.
   - { id: fw,        name: 방화벽,        floor: "2F", rack: R-2F-01, zone: ext,  ip: 10.20.30.1,  container: kt66-fw,             shed_group: infra,         idle_kw: 0.3, rated_kw: 1.0, u: 1, web: "http://${INT_HOST}:8081/" }

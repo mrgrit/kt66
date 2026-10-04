@@ -10,3 +10,11 @@ injector/state/
 agents/evidence/
 agents/runtimes/
 agents/tickets/
+
+# 배포 도메인 설정과 메일 자격증명 (환경별 생성)
+deployment/runtime/
+ui/deployment.json
+mail/accounts.json
+mail/credentials.local.json
+mail/roundcube-key
+endpoints/windows/media/

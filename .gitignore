@@ -88,3 +88,10 @@ agents/tickets/tool-permissions.lock
 agents/native/.edit.lock
 web/landing/projects/
 web/request-rules/*.conf
+
+# 배포 도메인 설정과 메일 자격증명 (환경별 생성)
+deployment/runtime/
+ui/deployment.json
+mail/accounts.json
+mail/credentials.local.json
+mail/roundcube-key
